@@ -3,7 +3,7 @@ import {
   Bell, BookOpen, CalendarCheck, Check, ChevronRight, IndianRupee,
   GraduationCap, LayoutDashboard, LogOut, Menu, MessageSquareText,
   MoreHorizontal, Plus, Search, Settings, ShieldCheck, Sparkles, Users, X,
-  Eye, Receipt, Save
+  Eye, Receipt, Save, ClipboardList, Download, Upload, Link2
 } from 'lucide-react'
 import './app.css'
 import AuthScreen from './AuthScreen'
@@ -93,6 +93,7 @@ const timeAgo = timestamp => {
 
 const nav = [
   { id: 'dashboard', label: 'Command Center', icon: LayoutDashboard },
+  { id: 'admissions', label: 'Admissions', icon: ClipboardList },
   { id: 'students', label: 'Students', icon: Users },
   { id: 'attendance', label: 'Attendance', icon: CalendarCheck },
   { id: 'fees', label: 'Fee Management', icon: IndianRupee },
@@ -311,6 +312,160 @@ function Students({ students, onAddStudent }) {
   </>
 }
 
+const admissionClasses = ['Nursery-A','LKG-A','UKG-A','1-A','2-A','3-A','4-B','5-A','6-A','7-B','8-B','9-C','10-A','11-A','12-A']
+
+function AdmissionForm({ students, onAddStudent, onOpenRegister }) {
+  const [expanded, setExpanded] = useState(true)
+  const [saving, setSaving] = useState(false)
+  const [permanentAddress, setPermanentAddress] = useState(false)
+  const [form, setForm] = useState({
+    className: 'Nursery-A', admissionScheme: 'General', roll: `2026-${String(students.length + 1).padStart(4, '0')}`,
+    admissionDate: today(), newAdmission: true, name: '', fatherName: '', motherName: '', guardian: '',
+    gender: '', dob: '', phone: '', email: '', state: '', city: '', address: '', pincode: '',
+    aadhaar: '', penId: '', apaarId: '', feeGroup: 'Standard', smsEnabled: true,
+  })
+  const update = (key, value) => setForm(current => ({ ...current, [key]: value }))
+  const submit = async event => {
+    event.preventDefault()
+    setSaving(true)
+    try {
+      await onAddStudent(form)
+      setForm(current => ({ ...current, roll: `2026-${String(students.length + 2).padStart(4, '0')}`, name: '', fatherName: '', motherName: '', guardian: '', phone: '', email: '', address: '', aadhaar: '', penId: '', apaarId: '' }))
+    } finally { setSaving(false) }
+  }
+  return <form className="admission-form" onSubmit={submit}>
+    <div className="admission-toolbar">
+      <button type="button" className="secondary-button" onClick={() => {
+        const content = `NXT OpenERP School\nADMISSION FORM\n\nAdmission No: __________  Date: __________\nStudent Name: ______________________________\nClass/Section: __________  Gender: __________\nFather: __________________  Mother: __________________\nMobile: __________________  DOB: __________________\nAddress: ____________________________________________`
+        const link = document.createElement('a')
+        link.href = URL.createObjectURL(new Blob([content], { type: 'text/plain' }))
+        link.download = 'admission-form.txt'
+        link.click()
+        URL.revokeObjectURL(link.href)
+      }}><Download size={16} /> Download Admission Form</button>
+      <label className="secondary-button file-button"><Upload size={16} /> Import Excel<input type="file" accept=".csv,text/csv" onChange={async event => {
+        const file = event.target.files?.[0]
+        if (!file) return
+        const rows = (await file.text()).split(/\r?\n/).slice(1).filter(Boolean)
+        for (const row of rows) {
+          const [name, className, guardian, phone] = row.split(',').map(value => value?.trim())
+          if (name && className) await onAddStudent({ name, className, guardian: guardian || '', phone: phone || '', roll: `2026-${Date.now().toString().slice(-6)}`, admissionDate: today(), admissionScheme: 'General', newAdmission: true })
+        }
+        event.target.value = ''
+      }} /></label>
+      <button type="button" className="secondary-button" onClick={onOpenRegister}><Search size={16} /> Search Student</button>
+    </div>
+    <section className="panel admission-card">
+      <div className="admission-grid five">
+        <label>Class*<select required value={form.className} onChange={e => update('className', e.target.value)}>{admissionClasses.map(item => <option key={item}>{item}</option>)}</select></label>
+        <label>Section*<input required value={form.className.split('-')[1] || 'A'} onChange={e => update('className', `${form.className.split('-')[0]}-${e.target.value}`)} /></label>
+        <label>Admission Scheme*<select required value={form.admissionScheme} onChange={e => update('admissionScheme', e.target.value)}><option>General</option><option>RTE</option><option>Scholarship</option><option>Staff Ward</option></select></label>
+        <label>Admission Number*<input required value={form.roll} onChange={e => update('roll', e.target.value)} /></label>
+        <label>Date of Admission*<input required type="date" value={form.admissionDate} onChange={e => update('admissionDate', e.target.value)} /></label>
+      </div>
+      <label className="check-line"><input type="checkbox" checked={form.newAdmission} onChange={e => update('newAdmission', e.target.checked)} /> New Admission</label>
+    </section>
+    <section className="panel admission-card">
+      <button type="button" className="collapse-title" onClick={() => setExpanded(!expanded)}><span>Student Information</span><ChevronRight className={expanded ? 'rotated' : ''} size={18} /></button>
+      {expanded && <div className="admission-fields">
+        <div className="admission-grid four">
+          <label>Student Name*<input required value={form.name} onChange={e => update('name', e.target.value)} /></label>
+          <label>Father&apos;s Name*<input required value={form.fatherName} onChange={e => update('fatherName', e.target.value)} /></label>
+          <label>Mother&apos;s Name*<input required value={form.motherName} onChange={e => update('motherName', e.target.value)} /></label>
+          <label>Guardian&apos;s Name<input value={form.guardian} onChange={e => update('guardian', e.target.value)} /></label>
+          <label>Gender*<select required value={form.gender} onChange={e => update('gender', e.target.value)}><option value="">Select gender</option><option>Male</option><option>Female</option><option>Other</option></select></label>
+          <label>Date of Birth*<input required type="date" value={form.dob} onChange={e => update('dob', e.target.value)} /></label>
+          <label>Phone Number*<input required value={form.phone} onChange={e => update('phone', e.target.value)} /></label>
+          <label>Email Id<input type="email" value={form.email} onChange={e => update('email', e.target.value)} /></label>
+          <label>State<input value={form.state} onChange={e => update('state', e.target.value)} /></label>
+          <label>City<input value={form.city} onChange={e => update('city', e.target.value)} /></label>
+          <label>Residence Address*<input required value={form.address} onChange={e => update('address', e.target.value)} /></label>
+          <label>Pincode<input value={form.pincode} onChange={e => update('pincode', e.target.value)} /></label>
+          <label>Aadhaar Card<input value={form.aadhaar} onChange={e => update('aadhaar', e.target.value)} /></label>
+          <label>PEN Id<input value={form.penId} onChange={e => update('penId', e.target.value)} /></label>
+          <label>APAAR Id<input value={form.apaarId} onChange={e => update('apaarId', e.target.value)} /></label>
+          <label>Fee Group*<select required value={form.feeGroup} onChange={e => update('feeGroup', e.target.value)}><option>Standard</option><option>Transport</option><option>Hostel</option><option>RTE</option></select></label>
+        </div>
+        <div className="admission-options">
+          <label className="check-line"><input type="checkbox" checked={permanentAddress} onChange={e => setPermanentAddress(e.target.checked)} /> Add Permanent Address</label>
+          <div className="sms-toggle"><button type="button" className={!form.smsEnabled ? 'active' : ''} onClick={() => update('smsEnabled', false)}>Don&apos;t Send SMS</button><button type="button" className={form.smsEnabled ? 'active' : ''} onClick={() => update('smsEnabled', true)}>Send SMS</button></div>
+        </div>
+        {permanentAddress && <label className="permanent-field">Permanent Address<input value={form.permanentAddress || ''} onChange={e => update('permanentAddress', e.target.value)} /></label>}
+      </div>}
+    </section>
+    <button className="primary-button admission-submit" disabled={saving}><Save size={16} /> {saving ? 'Submitting...' : 'Submit'}</button>
+  </form>
+}
+
+function StudentRegisterTable({ students }) {
+  return <div className="panel table-panel"><div className="table-scroll"><table><thead><tr><th>Student</th><th>Admission No.</th><th>Class</th><th>Father</th><th>Mobile</th><th>Admission</th><th>Status</th></tr></thead><tbody>
+    {students.map(student => <tr key={student.id}><td><div className="student-cell"><span className={`avatar tone-${student.tone}`}>{student.initials}</span><strong>{student.name}</strong></div></td><td>{student.roll}</td><td>{student.className}</td><td>{student.fatherName || student.guardian}</td><td>{student.phone}</td><td>{student.admissionType}</td><td><span className={`status ${student.active ? 'paid' : 'overdue'}`}>{student.active ? 'Active' : 'Inactive'}</span></td></tr>)}
+    {!students.length && <tr><td colSpan="7"><div className="empty-state">No students found.</div></td></tr>}
+  </tbody></table></div></div>
+}
+
+function AdmissionRegister({ students, compact = false }) {
+  const [query, setQuery] = useState('')
+  const [type, setType] = useState(compact ? 'All Students' : 'Active Students')
+  const [admissionType, setAdmissionType] = useState('All')
+  const [category, setCategory] = useState('All categories')
+  const filtered = students.filter(student =>
+    `${student.name} ${student.roll} ${student.phone}`.toLowerCase().includes(query.toLowerCase()) &&
+    (type !== 'Active Students' || student.active) &&
+    (admissionType === 'All' || (admissionType === 'New' ? student.admissionType === 'New' : student.admissionType !== 'New')) &&
+    (category === 'All categories' || student.feeGroup === category)
+  )
+  return <>
+    <div className="register-filters panel">
+      <label>Search By<select value={type} onChange={e => setType(e.target.value)}><option>Active Students</option><option>All Students</option></select></label>
+      {!compact && <label>Admission Type<select value={admissionType} onChange={e => setAdmissionType(e.target.value)}><option>All</option><option>New</option><option>Except New</option></select></label>}
+      {!compact && <label>Select Category<select value={category} onChange={e => setCategory(e.target.value)}><option>All categories</option><option>Standard</option><option>Transport</option><option>Hostel</option><option>RTE</option></select></label>}
+      <label className="filter-search">Student Search<input value={query} onChange={e => setQuery(e.target.value)} placeholder="Name, admission no. or mobile" /></label>
+      <button className="primary-button"><Search size={16} /> Search</button>
+    </div>
+    <StudentRegisterTable students={filtered} />
+  </>
+}
+
+function EnquiryModule({ enquiries, onSaveEnquiry }) {
+  const [tab, setTab] = useState('Enquiry')
+  const [status, setStatus] = useState('Pending')
+  const [from, setFrom] = useState('')
+  const [to, setTo] = useState('')
+  const [form, setForm] = useState({ name: '', className: 'Nursery-A', fatherName: '', motherName: '', dob: '', mobile: '', aadhaar: '', status: 'Pending' })
+  const filtered = enquiries.filter(item => (!status || item.status === status) && (!from || item.createdDate >= from) && (!to || item.createdDate <= to))
+  const submit = async event => {
+    event.preventDefault()
+    await onSaveEnquiry(form)
+    setForm(current => ({ ...current, name: '', fatherName: '', motherName: '', mobile: '', aadhaar: '' }))
+  }
+  return <>
+    <div className="sub-tabs"><button className={tab === 'Enquiry' ? 'active' : ''} onClick={() => setTab('Enquiry')}>Enquiry</button><button className={tab === 'Facility' ? 'active' : ''} onClick={() => setTab('Facility')}>Facility</button></div>
+    {tab === 'Enquiry' ? <>
+      <form className="panel enquiry-entry" onSubmit={submit}>
+        <div className="admission-grid four"><label>Name*<input required value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} /></label><label>Class<select value={form.className} onChange={e => setForm({ ...form, className: e.target.value })}>{admissionClasses.map(item => <option key={item}>{item}</option>)}</select></label><label>Father Name<input value={form.fatherName} onChange={e => setForm({ ...form, fatherName: e.target.value })} /></label><label>Mother Name<input value={form.motherName} onChange={e => setForm({ ...form, motherName: e.target.value })} /></label><label>DOB<input type="date" value={form.dob} onChange={e => setForm({ ...form, dob: e.target.value })} /></label><label>Mobile No.*<input required value={form.mobile} onChange={e => setForm({ ...form, mobile: e.target.value })} /></label><label>Aadhaar Card<input value={form.aadhaar} onChange={e => setForm({ ...form, aadhaar: e.target.value })} /></label><label>Status<select value={form.status} onChange={e => setForm({ ...form, status: e.target.value })}><option>Pending</option><option>Confirmed</option><option>Rejected</option></select></label></div>
+        <button className="primary-button"><Plus size={16} /> Add enquiry</button>
+      </form>
+      <div className="register-filters panel"><label>Select Status<select value={status} onChange={e => setStatus(e.target.value)}><option>Pending</option><option>Confirmed</option><option>Rejected</option><option value="">All Status</option></select></label><label>From Date<input type="date" value={from} onChange={e => setFrom(e.target.value)} /></label><label>To Date<input type="date" value={to} onChange={e => setTo(e.target.value)} /></label><button className="primary-button"><Search size={16} /> Search</button><button className="secondary-button" onClick={() => { setStatus(''); setFrom(''); setTo('') }}>Clear</button></div>
+      <div className="share-link"><Link2 size={15} /><span>{`${location.origin}/?admission=enquiry`}</span><button className="text-button" onClick={() => navigator.clipboard?.writeText(`${location.origin}/?admission=enquiry`)}>Copy link</button></div>
+      <div className="panel table-panel"><div className="table-scroll"><table><thead><tr><th>Name</th><th>Class</th><th>Father Name</th><th>Mother Name</th><th>DOB</th><th>Mobile No</th><th>Aadhaar Card</th><th>Status</th></tr></thead><tbody>{filtered.map(item => <tr key={item.id}><td>{item.name}</td><td>{item.className}</td><td>{item.fatherName}</td><td>{item.motherName}</td><td>{item.dob}</td><td>{item.mobile}</td><td>{item.aadhaar}</td><td><span className={`status ${item.status === 'Confirmed' ? 'paid' : item.status === 'Rejected' ? 'overdue' : 'pending'}`}>{item.status}</span></td></tr>)}{!filtered.length && <tr><td colSpan="8"><div className="empty-state">No enquiries found.</div></td></tr>}</tbody></table></div></div>
+    </> : <div className="panel facility-panel"><h3>Admission facilities</h3><p>Transport, hostel, day-care and scholarship requirements can be captured during counselling.</p><div className="facility-grid">{['School Transport','Hostel','Day Care','Scholarship'].map(item => <label key={item}><input type="checkbox" /> {item}</label>)}</div></div>}
+  </>
+}
+
+function Admissions({ students, enquiries, onAddStudent, onSaveEnquiry }) {
+  const [page, setPage] = useState('add')
+  const tabs = [['add','Add Student'],['master','Master Register'],['enquiry','Enquiry Form'],['register','Student Register']]
+  return <>
+    <div className="section-actions"><div><h2>Admission management</h2><p>Applications, enquiries and student registers in one workspace.</p></div></div>
+    <div className="admission-tabs">{tabs.map(([id,label]) => <button key={id} className={page === id ? 'active' : ''} onClick={() => setPage(id)}>{label}</button>)}</div>
+    {page === 'add' && <AdmissionForm students={students} onAddStudent={onAddStudent} onOpenRegister={() => setPage('master')} />}
+    {page === 'master' && <AdmissionRegister students={students} />}
+    {page === 'enquiry' && <EnquiryModule enquiries={enquiries} onSaveEnquiry={onSaveEnquiry} />}
+    {page === 'register' && <AdmissionRegister students={students} compact />}
+  </>
+}
+
 function Attendance({ students, attendance, onSaveAttendance }) {
   const [date, setDate] = useState(today())
   const [marks, setMarks] = useState({})
@@ -446,6 +601,24 @@ function studentFromRow(row, index) {
     attendance: row.attendance_rate ?? 100,
     fee: row.fee_status || 'Pending',
     createdAt: row.createdAt || 0,
+    admissionScheme: row.admission_scheme || 'General',
+    admissionDate: row.admission_date || '',
+    admissionType: row.admission_type || 'New',
+    fatherName: row.father_name || row.guardian_name || '',
+    motherName: row.mother_name || '',
+    gender: row.gender || '',
+    dob: row.date_of_birth || '',
+    email: row.email || '',
+    state: row.state || '',
+    city: row.city || '',
+    address: row.address || '',
+    pincode: row.pincode || '',
+    aadhaar: row.aadhaar || '',
+    penId: row.pen_id || '',
+    apaarId: row.apaar_id || '',
+    feeGroup: row.fee_group || 'Standard',
+    smsEnabled: row.sms_enabled !== false,
+    active: row.active !== false,
     initials,
     tone: tones[index % tones.length],
   }
@@ -472,6 +645,7 @@ function useSchoolWorkspace(session) {
   const [fees, setFees] = useStoredState('northstar-fees', {})
   const [attendance, setAttendance] = useStoredState('northstar-attendance-records', {})
   const [timetableData, setTimetableData] = useStoredState('northstar-timetable', defaultTimetable)
+  const [enquiries, setEnquiries] = useStoredState('northstar-enquiries', [])
   const [activities, setActivities] = useState([])
   const [workspace, setWorkspace] = useState({
     loading: Boolean(session && isFirebaseConfigured),
@@ -554,6 +728,7 @@ function useSchoolWorkspace(session) {
         setFees(nextFees)
         setAttendance(attendanceByDate)
         setTimetableData(school?.timetable || defaultTimetable)
+        setEnquiries(Object.entries(school?.enquiries || {}).map(([id, item]) => ({ id, ...item })).sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0)))
         setActivities(nextActivities)
         setWorkspace({
           loading: false,
@@ -570,7 +745,7 @@ function useSchoolWorkspace(session) {
 
     load()
     return () => { active = false }
-  }, [session, setAttendance, setFees, setNotices, setStudents, setTimetableData])
+  }, [session, setAttendance, setEnquiries, setFees, setNotices, setStudents, setTimetableData])
 
   const addStudent = async student => {
     if (developmentDemo) {
@@ -588,6 +763,24 @@ function useSchoolWorkspace(session) {
       section,
       guardian_name: student.guardian,
       guardian_phone: student.phone,
+      admission_scheme: student.admissionScheme || 'General',
+      admission_date: student.admissionDate || today(),
+      admission_type: student.newAdmission === false ? 'Existing' : 'New',
+      father_name: student.fatherName || student.guardian,
+      mother_name: student.motherName || '',
+      gender: student.gender || '',
+      date_of_birth: student.dob || '',
+      email: student.email || '',
+      state: student.state || '',
+      city: student.city || '',
+      address: student.address || '',
+      pincode: student.pincode || '',
+      aadhaar: student.aadhaar || '',
+      pen_id: student.penId || '',
+      apaar_id: student.apaarId || '',
+      fee_group: student.feeGroup || 'Standard',
+      sms_enabled: student.smsEnabled !== false,
+      active: true,
       attendance_rate: 100,
       fee_status: 'Pending',
       createdAt: Date.now(),
@@ -673,7 +866,18 @@ function useSchoolWorkspace(session) {
     setActivities(current => [{ id: `period-${id}-${Date.now()}`, title: 'Timetable updated', detail: `${period.subject} added to ${className}`, at: Date.now(), icon: 'T' }, ...current])
   }
 
-  return { students, notices, fees, attendance, timetableData, activities, workspace, addStudent, recordPayment, addNotice, saveAttendance, savePeriod, developmentDemo }
+  const saveEnquiry = async enquiry => {
+    const id = `enquiry_${Date.now()}`
+    const row = { ...enquiry, createdAt: Date.now(), createdDate: today() }
+    if (!developmentDemo) {
+      const token = await session.getIdToken()
+      await databaseRequest(`schools/${workspace.schoolId}/enquiries/${id}`, token, { method: 'PUT', body: row })
+    }
+    setEnquiries(current => [{ id, ...row }, ...current])
+    setActivities(current => [{ id, title: 'Admission enquiry added', detail: `${enquiry.name} enquired for ${enquiry.className}`, at: row.createdAt, icon: 'E' }, ...current])
+  }
+
+  return { students, notices, fees, attendance, timetableData, enquiries, activities, workspace, addStudent, recordPayment, addNotice, saveAttendance, savePeriod, saveEnquiry, developmentDemo }
 }
 
 export default function App() {
@@ -710,6 +914,7 @@ export default function App() {
   const current = nav.find(item => item.id === page) || nav[0]
   const screens = {
     dashboard: <Dashboard students={data.students} notices={data.notices} fees={data.fees} attendance={data.attendance} activities={data.activities} staffCount={data.workspace.staffCount} setPage={setPage} />,
+    admissions: <Admissions students={data.students} enquiries={data.enquiries} onAddStudent={data.addStudent} onSaveEnquiry={data.saveEnquiry} />,
     students: <Students students={data.students} onAddStudent={data.addStudent} />,
     attendance: <Attendance students={data.students} attendance={data.attendance} onSaveAttendance={data.saveAttendance} />,
     fees: <Fees students={data.students} fees={data.fees} onRecordPayment={data.recordPayment} />,
