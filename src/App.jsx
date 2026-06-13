@@ -7,10 +7,32 @@ import {
 import './app.css'
 import AuthScreen from './AuthScreen'
 import { onAuthStateChanged, signOut } from 'firebase/auth'
-import {
-  get, push, ref, set, update
-} from 'firebase/database'
-import { auth, db, isFirebaseConfigured } from './lib/firebase'
+import { auth, isFirebaseConfigured } from './lib/firebase'
+
+const databaseUrl = import.meta.env.VITE_FIREBASE_DATABASE_URL?.replace(/\/$/, '')
+
+async function databaseRequest(path, token, options = {}) {
+  const controller = new AbortController()
+  const timeout = setTimeout(() => controller.abort(), 12000)
+  const url = `${databaseUrl}/${path ? `${path}.json` : '.json'}?auth=${encodeURIComponent(token)}`
+
+  try {
+    const response = await fetch(url, {
+      method: options.method || 'GET',
+      headers: options.body ? { 'Content-Type': 'application/json' } : undefined,
+      body: options.body ? JSON.stringify(options.body) : undefined,
+      signal: controller.signal,
+    })
+    const payload = await response.json().catch(() => null)
+    if (!response.ok) throw new Error(payload?.error || `Database request failed (${response.status})`)
+    return payload
+  } catch (error) {
+    if (error.name === 'AbortError') throw new Error('Database connection timed out. Please retry.')
+    throw error
+  } finally {
+    clearTimeout(timeout)
+  }
+}
 
 const seedStudents = [
   { id: 1, name: 'Aarav Sharma', roll: '2026-041', className: '10-A', guardian: 'Ramesh Sharma', phone: '98765 43210', attendance: 94, fee: 'Paid', initials: 'AS', tone: 'blue' },
@@ -315,20 +337,19 @@ function useSchoolWorkspace(session) {
     async function load() {
       setWorkspace(current => ({ ...current, loading: true, error: '' }))
       try {
-        const userRef = ref(db, `users/${session.uid}`)
-        let userSnapshot = await get(userRef)
+        const token = await session.getIdToken()
+        let userData = await databaseRequest(`users/${session.uid}`, token)
 
-        if (!userSnapshot.exists()) {
-          const schoolRef = push(ref(db, 'schools'))
-          const schoolId = schoolRef.key
+        if (!userData) {
+          const schoolId = `school_${session.uid}_${Date.now()}`
           const createdAt = Date.now()
-          await set(schoolRef, {
+          await databaseRequest(`schools/${schoolId}`, token, { method: 'PUT', body: {
             name: 'NXT OpenERP School',
             academicYear: '2026-27',
             createdBy: session.uid,
             createdAt,
-          })
-          await update(ref(db), {
+          } })
+          await databaseRequest('', token, { method: 'PATCH', body: {
             [`schoolMembers/${schoolId}/${session.uid}`]: {
               userId: session.uid,
               role: 'owner',
@@ -341,26 +362,25 @@ function useSchoolWorkspace(session) {
               role: 'owner',
               createdAt,
             },
-          })
-          userSnapshot = { val: () => ({
+          } })
+          userData = {
             schoolId,
             fullName: session.displayName || session.email.split('@')[0],
             role: 'owner',
-          }) }
+          }
         }
 
-        const userData = userSnapshot.val()
         const schoolId = userData.schoolId
-        const [schoolSnapshot, studentsSnapshot, noticesSnapshot] = await Promise.all([
-          get(ref(db, `schools/${schoolId}`)),
-          get(ref(db, `students/${schoolId}`)),
-          get(ref(db, `notices/${schoolId}`)),
+        const [school, studentData, noticeData] = await Promise.all([
+          databaseRequest(`schools/${schoolId}`, token),
+          databaseRequest(`students/${schoolId}`, token),
+          databaseRequest(`notices/${schoolId}`, token),
         ])
         if (!active) return
-        const studentRows = Object.entries(studentsSnapshot.val() || {})
+        const studentRows = Object.entries(studentData || {})
           .map(([id, row]) => ({ id, ...row }))
           .sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0))
-        const noticeRows = Object.entries(noticesSnapshot.val() || {})
+        const noticeRows = Object.entries(noticeData || {})
           .map(([id, row]) => ({ id, ...row }))
           .sort((a, b) => (b.publishAt || 0) - (a.publishAt || 0))
         setStudents(studentRows.map(studentFromRow))
@@ -368,7 +388,7 @@ function useSchoolWorkspace(session) {
         setWorkspace({
           loading: false,
           schoolId,
-          schoolName: schoolSnapshot.val()?.name || 'NXT OpenERP School',
+          schoolName: school?.name || 'NXT OpenERP School',
           role: userData.role === 'owner' ? 'Owner' : userData.role === 'admin' ? 'Administrator' : 'Staff',
           error: '',
         })
@@ -387,7 +407,7 @@ function useSchoolWorkspace(session) {
       return
     }
     const [className, section = 'A'] = student.className.split('-')
-    const studentRef = push(ref(db, `students/${workspace.schoolId}`))
+    const studentId = `student_${Date.now()}`
     const row = {
       full_name: student.name,
       admission_number: student.roll,
@@ -400,13 +420,15 @@ function useSchoolWorkspace(session) {
       createdAt: Date.now(),
       updatedAt: Date.now(),
     }
-    await set(studentRef, row)
-    setStudents(current => [studentFromRow({ id: studentRef.key, ...row }, current.length), ...current])
+    const token = await session.getIdToken()
+    await databaseRequest(`students/${workspace.schoolId}/${studentId}`, token, { method: 'PUT', body: row })
+    setStudents(current => [studentFromRow({ id: studentId, ...row }, current.length), ...current])
   }
 
   const markPaid = async studentId => {
     if (!developmentDemo) {
-      await update(ref(db), {
+      const token = await session.getIdToken()
+      await databaseRequest('', token, { method: 'PATCH', body: {
         [`fees/${workspace.schoolId}/${studentId}_2026-06`]: {
         studentId,
         billingMonth: '2026-06',
@@ -417,7 +439,7 @@ function useSchoolWorkspace(session) {
         },
         [`students/${workspace.schoolId}/${studentId}/fee_status`]: 'Paid',
         [`students/${workspace.schoolId}/${studentId}/updatedAt`]: Date.now(),
-      })
+      } })
     }
     setStudents(current => current.map(student => student.id === studentId ? { ...student, fee: 'Paid' } : student))
   }
@@ -427,7 +449,7 @@ function useSchoolWorkspace(session) {
       setNotices(current => [{ ...notice, id: Date.now() }, ...current])
       return
     }
-    const noticeRef = push(ref(db, `notices/${workspace.schoolId}`))
+    const noticeId = `notice_${Date.now()}`
     const row = {
       title: notice.title,
       body: notice.detail,
@@ -437,8 +459,9 @@ function useSchoolWorkspace(session) {
       publishAt: Date.now(),
       createdBy: session.uid,
     }
-    await set(noticeRef, row)
-    setNotices(current => [{ ...notice, id: noticeRef.key }, ...current])
+    const token = await session.getIdToken()
+    await databaseRequest(`notices/${workspace.schoolId}/${noticeId}`, token, { method: 'PUT', body: row })
+    setNotices(current => [{ ...notice, id: noticeId }, ...current])
   }
 
   const saveAttendance = async marks => {
@@ -454,7 +477,8 @@ function useSchoolWorkspace(session) {
         updatedAt: Date.now(),
       }
     })
-    await update(ref(db), changes)
+    const token = await session.getIdToken()
+    await databaseRequest('', token, { method: 'PATCH', body: changes })
   }
 
   return { students, notices, workspace, addStudent, markPaid, addNotice, saveAttendance, developmentDemo }
