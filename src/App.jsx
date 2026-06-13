@@ -3,7 +3,8 @@ import {
   Bell, BookOpen, CalendarCheck, Check, ChevronRight, IndianRupee,
   GraduationCap, LayoutDashboard, LogOut, Menu, MessageSquareText,
   MoreHorizontal, Plus, Search, Settings, ShieldCheck, Sparkles, Users, X,
-  Eye, Receipt, Save, ClipboardList, Download, Upload, Link2
+  Eye, Receipt, Save, ClipboardList, Download, Upload, Link2, Cake,
+  UserCheck, Clock3, TrendingUp, WalletCards
 } from 'lucide-react'
 import './app.css'
 import AuthScreen from './AuthScreen'
@@ -178,7 +179,15 @@ const Stat = ({ label, value, note, icon: Icon, color, trend }) => (
   </div>
 )
 
-function Dashboard({ students, notices, fees, attendance, activities, staffCount, setPage }) {
+function SummaryPanel({ title, subtitle, items }) {
+  return <section className="panel summary-panel">
+    <div className="panel-header"><div><h3>{title}</h3><p>{subtitle}</p></div></div>
+    <div className="summary-grid">{items.map(item => <div key={item.label}><span>{item.label}</span><strong>{item.value}</strong></div>)}</div>
+  </section>
+}
+
+function Dashboard({ students, notices, fees, attendance, activities, staff, staffAttendance, approvals, expenses, setPage }) {
+  const [financeRange, setFinanceRange] = useState('This Month')
   const todayMarks = attendance[today()] || {}
   const marked = Object.values(todayMarks)
   const present = marked.filter(mark => mark === 'P').length
@@ -188,6 +197,39 @@ function Dashboard({ students, notices, fees, attendance, activities, staffCount
   const collected = Object.values(fees).filter(fee => fee.status === 'paid').reduce((sum, fee) => sum + Number(fee.amount || 0), 0)
   const billed = students.length * 18500
   const feeRate = billed ? Math.min(100, Math.round(collected / billed * 100)) : 0
+  const newAdmissions = students.filter(student => student.admissionType === 'New').length
+  const dropouts = students.filter(student => !student.active).length
+  const rteStudents = students.filter(student => student.admissionScheme === 'RTE').length
+  const ewsStudents = students.filter(student => student.admissionScheme === 'EWS').length
+  const staffRows = Object.values(staff || {})
+  const staffMarks = staffAttendance[today()] || {}
+  const staffPresent = Object.values(staffMarks).filter(mark => mark === 'P').length
+  const staffAbsent = Object.values(staffMarks).filter(mark => mark === 'A').length
+  const staffLeave = Object.values(staffMarks).filter(mark => mark === 'L').length
+  const birthdayDistance = dob => {
+    if (!dob) return 999
+    const birth = new Date(`${dob}T00:00:00`)
+    const current = new Date()
+    const next = new Date(current.getFullYear(), birth.getMonth(), birth.getDate())
+    next.setHours(0, 0, 0, 0)
+    const start = new Date(current.getFullYear(), current.getMonth(), current.getDate())
+    if (next < start) next.setFullYear(next.getFullYear() + 1)
+    return Math.round((next - start) / 86400000)
+  }
+  const birthdaysToday = students.filter(student => birthdayDistance(student.dob) === 0)
+  const upcomingBirthdays = students.filter(student => birthdayDistance(student.dob) > 0 && birthdayDistance(student.dob) <= 7).sort((a, b) => birthdayDistance(a.dob) - birthdayDistance(b.dob))
+  const pendingFeeApprovals = Object.values(approvals.fees || {}).filter(item => item.status === 'pending').length
+  const pendingLeaveApprovals = Object.values(approvals.leaves || {}).filter(item => item.status === 'pending').length
+  const boys = students.filter(student => student.gender === 'Male').length
+  const girls = students.filter(student => student.gender === 'Female').length
+  const knownGender = boys + girls
+  const boysRate = knownGender ? Math.round(boys / knownGender * 100) : 0
+  const overdueStudents = students.filter(student => student.fee !== 'Paid').slice(0, 5)
+  const rangeDays = financeRange === 'This Week' ? 7 : financeRange === 'This Month' ? 30 : 365
+  const cutoff = Date.now() - rangeDays * 86400000
+  const income = Object.values(fees).filter(item => (item.paidAt || 0) >= cutoff && item.status === 'paid').reduce((sum, item) => sum + Number(item.amount || 0), 0)
+  const expense = Object.values(expenses || {}).filter(item => (item.paidAt || item.createdAt || 0) >= cutoff).reduce((sum, item) => sum + Number(item.amount || 0), 0)
+  const financeMax = Math.max(income, expense, 1)
   const attendanceBars = Array.from({ length: 6 }, (_, offset) => {
     const date = new Date()
     date.setDate(date.getDate() - (5 - offset))
@@ -205,7 +247,22 @@ function Dashboard({ students, notices, fees, attendance, activities, staffCount
         <Stat label="Total students" value={students.length} note={`${students.filter(s => s.createdAt && Date.now() - s.createdAt < 30 * 86400000).length} added this month`} icon={Users} color="blue" trend />
         <Stat label="Present today" value={`${attendanceRate}%`} note={`${present} of ${marked.length || students.length} marked present`} icon={CalendarCheck} color="green" trend />
         <Stat label="Fee collected" value={money(collected)} note={`${feeRate}% of monthly billing`} icon={IndianRupee} color="orange" />
-        <Stat label="Active staff" value={staffCount} note="School workspace members" icon={GraduationCap} color="violet" />
+        <Stat label="Active staff" value={staffRows.length} note="Firebase employee records" icon={GraduationCap} color="violet" />
+      </section>
+      <section className="command-summary-grid">
+        <SummaryPanel title="Student Summary" subtitle="Current admission strength" items={[
+          { label: 'Total Students', value: students.length },
+          { label: 'New Admissions', value: newAdmissions },
+          { label: 'Dropouts', value: dropouts },
+          { label: 'RTE Students', value: rteStudents },
+          { label: 'EWS Students', value: ewsStudents },
+        ]} />
+        <SummaryPanel title="Employee Summary" subtitle="Staff attendance today" items={[
+          { label: 'Total Staff', value: staffRows.length },
+          { label: 'Present Today', value: staffPresent },
+          { label: 'Absent Today', value: staffAbsent },
+          { label: 'On Leave', value: staffLeave },
+        ]} />
       </section>
       <section className="dashboard-grid">
         <div className="panel attendance-panel">
@@ -241,6 +298,30 @@ function Dashboard({ students, notices, fees, attendance, activities, staffCount
           <div className="notice-list">
             {notices.slice(0, 3).map(n => <div className="notice-item" key={n.id}><div className="date-box"><strong>{n.date.split(' ')[0]}</strong><span>{n.date.split(' ')[1]}</span></div><div><strong>{n.title}</strong><p>{n.detail}</p></div>{n.priority === 'High' && <span className="priority">Important</span>}</div>)}
           </div>
+        </div>
+      </section>
+      <section className="dashboard-insights">
+        <div className="panel birthday-panel">
+          <div className="panel-header"><div><h3>Birthdays</h3><p>Today and the next 7 days</p></div><Cake size={18} /></div>
+          <div className="birthday-block"><span>Birthdays Today</span>{birthdaysToday.map(student => <div className="birthday-person" key={student.id}><span className={`avatar tone-${student.tone}`}>{student.initials}</span><div><strong>{student.name}</strong><small>{student.className}</small></div></div>)}{!birthdaysToday.length && <p>No birthdays today.</p>}</div>
+          <div className="birthday-block"><span>Upcoming</span>{upcomingBirthdays.map(student => <div className="birthday-person" key={student.id}><span className={`avatar tone-${student.tone}`}>{student.initials}</span><div><strong>{student.name}</strong><small>In {birthdayDistance(student.dob)} day{birthdayDistance(student.dob) === 1 ? '' : 's'} · {student.className}</small></div></div>)}{!upcomingBirthdays.length && <p>No birthdays in the next 7 days.</p>}</div>
+        </div>
+        <div className="panel approval-panel">
+          <div className="panel-header"><div><h3>Pending Approvals</h3><p>Items waiting for review</p></div><Clock3 size={18} /></div>
+          <div className="approval-list"><div><span className="approval-icon fee"><WalletCards size={18} /></span><div><strong>Fee approvals</strong><small>Payment adjustments and waivers</small></div><b>{pendingFeeApprovals}</b></div><div><span className="approval-icon leave"><UserCheck size={18} /></span><div><strong>Leave approvals</strong><small>Employee leave requests</small></div><b>{pendingLeaveApprovals}</b></div></div>
+        </div>
+        <div className="panel gender-panel">
+          <div className="panel-header"><div><h3>Boys / Girls Count</h3><p>Gender distribution from student profiles</p></div></div>
+          <div className="gender-content"><div className="gender-donut" style={{ '--boys-rate': `${boysRate}%` }}><div><strong>{knownGender}</strong><span>Profiles</span></div></div><div className="gender-legend"><span><i className="dot blue" />Boys <strong>{boys}</strong></span><span><i className="dot pink-dot" />Girls <strong>{girls}</strong></span><span><i className="dot gray" />Not specified <strong>{students.length - knownGender}</strong></span></div></div>
+        </div>
+        <div className="panel reminder-panel">
+          <div className="panel-header"><div><h3>Payment Reminder</h3><p>Top overdue student accounts</p></div><button className="text-button" onClick={() => setPage('fees')}>Open ledger</button></div>
+          <div className="reminder-list">{overdueStudents.map(student => <div key={student.id}><span className={`avatar tone-${student.tone}`}>{student.initials}</span><div><strong>{student.name}</strong><small>{student.roll} · {student.className}</small></div><b>{money(18500)}</b></div>)}{!overdueStudents.length && <div className="empty-state">No overdue fee accounts.</div>}</div>
+        </div>
+        <div className="panel finance-report">
+          <div className="panel-header"><div><h3>Earning / Expense Report</h3><p>Firebase financial transactions</p></div><select value={financeRange} onChange={event => setFinanceRange(event.target.value)}><option>This Week</option><option>This Month</option><option>This Year</option></select></div>
+          <div className="finance-bars"><div><span>Income</span><div><i className="income" style={{ width: `${income / financeMax * 100}%` }} /></div><strong>{money(income)}</strong></div><div><span>Expense</span><div><i className="expense" style={{ width: `${expense / financeMax * 100}%` }} /></div><strong>{money(expense)}</strong></div></div>
+          <div className="finance-balance"><TrendingUp size={17} /><span>Net balance</span><strong>{money(income - expense)}</strong></div>
         </div>
       </section>
     </>
@@ -359,7 +440,7 @@ function AdmissionForm({ students, onAddStudent, onOpenRegister }) {
       <div className="admission-grid five">
         <label>Class*<select required value={form.className} onChange={e => update('className', e.target.value)}>{admissionClasses.map(item => <option key={item}>{item}</option>)}</select></label>
         <label>Section*<input required value={form.className.split('-')[1] || 'A'} onChange={e => update('className', `${form.className.split('-')[0]}-${e.target.value}`)} /></label>
-        <label>Admission Scheme*<select required value={form.admissionScheme} onChange={e => update('admissionScheme', e.target.value)}><option>General</option><option>RTE</option><option>Scholarship</option><option>Staff Ward</option></select></label>
+        <label>Admission Scheme*<select required value={form.admissionScheme} onChange={e => update('admissionScheme', e.target.value)}><option>General</option><option>RTE</option><option>EWS</option><option>Scholarship</option><option>Staff Ward</option></select></label>
         <label>Admission Number*<input required value={form.roll} onChange={e => update('roll', e.target.value)} /></label>
         <label>Date of Admission*<input required type="date" value={form.admissionDate} onChange={e => update('admissionDate', e.target.value)} /></label>
       </div>
@@ -646,6 +727,10 @@ function useSchoolWorkspace(session) {
   const [attendance, setAttendance] = useStoredState('northstar-attendance-records', {})
   const [timetableData, setTimetableData] = useStoredState('northstar-timetable', defaultTimetable)
   const [enquiries, setEnquiries] = useStoredState('northstar-enquiries', [])
+  const [staff, setStaff] = useState({})
+  const [staffAttendance, setStaffAttendance] = useState({})
+  const [approvals, setApprovals] = useState({ fees: {}, leaves: {} })
+  const [expenses, setExpenses] = useState({})
   const [activities, setActivities] = useState([])
   const [workspace, setWorkspace] = useState({
     loading: Boolean(session && isFirebaseConfigured),
@@ -729,6 +814,10 @@ function useSchoolWorkspace(session) {
         setAttendance(attendanceByDate)
         setTimetableData(school?.timetable || defaultTimetable)
         setEnquiries(Object.entries(school?.enquiries || {}).map(([id, item]) => ({ id, ...item })).sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0)))
+        setStaff(school?.staff || {})
+        setStaffAttendance(school?.staffAttendance || {})
+        setApprovals({ fees: school?.approvals?.fees || {}, leaves: school?.approvals?.leaves || {} })
+        setExpenses(school?.expenses || {})
         setActivities(nextActivities)
         setWorkspace({
           loading: false,
@@ -877,7 +966,7 @@ function useSchoolWorkspace(session) {
     setActivities(current => [{ id, title: 'Admission enquiry added', detail: `${enquiry.name} enquired for ${enquiry.className}`, at: row.createdAt, icon: 'E' }, ...current])
   }
 
-  return { students, notices, fees, attendance, timetableData, enquiries, activities, workspace, addStudent, recordPayment, addNotice, saveAttendance, savePeriod, saveEnquiry, developmentDemo }
+  return { students, notices, fees, attendance, timetableData, enquiries, staff, staffAttendance, approvals, expenses, activities, workspace, addStudent, recordPayment, addNotice, saveAttendance, savePeriod, saveEnquiry, developmentDemo }
 }
 
 export default function App() {
@@ -913,7 +1002,7 @@ export default function App() {
   }
   const current = nav.find(item => item.id === page) || nav[0]
   const screens = {
-    dashboard: <Dashboard students={data.students} notices={data.notices} fees={data.fees} attendance={data.attendance} activities={data.activities} staffCount={data.workspace.staffCount} setPage={setPage} />,
+    dashboard: <Dashboard students={data.students} notices={data.notices} fees={data.fees} attendance={data.attendance} activities={data.activities} staff={data.staff} staffAttendance={data.staffAttendance} approvals={data.approvals} expenses={data.expenses} setPage={setPage} />,
     admissions: <Admissions students={data.students} enquiries={data.enquiries} onAddStudent={data.addStudent} onSaveEnquiry={data.saveEnquiry} />,
     students: <Students students={data.students} onAddStudent={data.addStudent} />,
     attendance: <Attendance students={data.students} attendance={data.attendance} onSaveAttendance={data.saveAttendance} />,
