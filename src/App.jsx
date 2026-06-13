@@ -4,7 +4,7 @@ import {
   GraduationCap, LayoutDashboard, LogOut, Menu, MessageSquareText,
   MoreHorizontal, Plus, Search, Settings, ShieldCheck, Sparkles, Users, X,
   Eye, Receipt, Save, ClipboardList, Download, Upload, Link2, Cake,
-  UserCheck, Clock3, TrendingUp, WalletCards
+  UserCheck, Clock3, TrendingUp, WalletCards, Printer, FileText
 } from 'lucide-react'
 import './app.css'
 import AuthScreen from './AuthScreen'
@@ -34,6 +34,30 @@ async function databaseRequest(path, token, options = {}) {
   } finally {
     clearTimeout(timeout)
   }
+}
+
+async function reserveAdmissionNumber(schoolId, token) {
+  for (let attempt = 0; attempt < 6; attempt += 1) {
+    const counterUrl = `${databaseUrl}/schools/${schoolId}/admissionCounter.json?auth=${encodeURIComponent(token)}`
+    const counterResponse = await fetch(counterUrl, { headers: { 'X-Firebase-ETag': 'true' } })
+    if (!counterResponse.ok) throw new Error('Could not generate admission number.')
+    const etag = counterResponse.headers.get('ETag')
+    const counter = await counterResponse.json()
+    let highest = Number(counter?.lastIssued || 0)
+    if (!highest) {
+      const existing = await databaseRequest(`students/${schoolId}`, token)
+      highest = Math.max(0, ...Object.values(existing || {}).map(row => admissionValue(row.admission_number)))
+    }
+    const next = highest + 1
+    const update = await fetch(counterUrl, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json', 'If-Match': etag },
+      body: JSON.stringify({ lastIssued: next, updatedAt: Date.now() }),
+    })
+    if (update.ok) return next
+    if (update.status !== 412) throw new Error('Could not reserve admission number.')
+  }
+  throw new Error('Admission number is busy. Please retry.')
 }
 
 const seedStudents = [
@@ -91,6 +115,7 @@ const timeAgo = timestamp => {
   if (minutes < 1440) return `${Math.round(minutes / 60)} hr`
   return `${Math.round(minutes / 1440)} d`
 }
+const admissionValue = value => Number(String(value || '').match(/(\d+)$/)?.[1] || 0)
 
 const nav = [
   { id: 'dashboard', label: 'Command Center', icon: LayoutDashboard },
@@ -115,7 +140,17 @@ function useStoredState(key, initialValue) {
   return [value, setValue]
 }
 
-function Header({ title, subtitle, onMenu, profile, onSignOut }) {
+function StudentSearch({ students, onSelect, prominent = false }) {
+  const [query, setQuery] = useState('')
+  const results = query.trim() ? students.filter(student => `${student.roll} ${student.name} ${student.phone}`.toLowerCase().includes(query.trim().toLowerCase())).slice(0, 6) : []
+  return <div className={`student-quick-search ${prominent ? 'prominent' : ''}`}>
+    <Search size={prominent ? 18 : 16} /><input value={query} onChange={event => setQuery(event.target.value)} placeholder="Search admission no., student name or phone" />
+    {results.length > 0 && <div className="search-results">{results.map(student => <button key={student.id} onClick={() => { onSelect(student); setQuery('') }}><span className={`avatar tone-${student.tone}`}>{student.initials}</span><div><strong>{student.name}</strong><small>Admission #{student.roll} · {student.className} · {student.phone}</small></div></button>)}</div>}
+    {query.trim() && !results.length && <div className="search-results empty-search">No matching student found.</div>}
+  </div>
+}
+
+function Header({ title, subtitle, onMenu, profile, onSignOut, students, onSelectStudent }) {
   return (
     <header className="topbar">
       <button className="icon-button mobile-menu" onClick={onMenu} aria-label="Open menu"><Menu size={20} /></button>
@@ -124,7 +159,7 @@ function Header({ title, subtitle, onMenu, profile, onSignOut }) {
         <p>{subtitle}</p>
       </div>
       <div className="topbar-actions">
-        <div className="global-search"><Search size={16} /><input placeholder="Search anything" /></div>
+        <StudentSearch students={students} onSelect={onSelectStudent} />
         <button className="icon-button notification" aria-label="Notifications"><Bell size={19} /><i /></button>
         <div className="profile">
           <span className="avatar tone-blue">{profile.initials}</span>
@@ -186,7 +221,7 @@ function SummaryPanel({ title, subtitle, items }) {
   </section>
 }
 
-function Dashboard({ students, notices, fees, attendance, activities, staff, staffAttendance, approvals, expenses, setPage }) {
+function Dashboard({ students, notices, fees, attendance, activities, staff, staffAttendance, approvals, expenses, setPage, onSelectStudent }) {
   const [financeRange, setFinanceRange] = useState('This Month')
   const todayMarks = attendance[today()] || {}
   const marked = Object.values(todayMarks)
@@ -243,6 +278,7 @@ function Dashboard({ students, notices, fees, attendance, activities, staff, sta
         <div><span className="eyebrow">{new Date().toLocaleDateString('en-IN', { weekday: 'long', day: 'numeric', month: 'long' })}</span><h2>School command center</h2><p>Live operational data from your Firebase workspace.</p></div>
         <button className="primary-button" onClick={() => setPage('students')}><Plus size={17} /> Add student</button>
       </div>
+      <StudentSearch students={students} onSelect={onSelectStudent} prominent />
       <section className="stat-grid">
         <Stat label="Total students" value={students.length} note={`${students.filter(s => s.createdAt && Date.now() - s.createdAt < 30 * 86400000).length} added this month`} icon={Users} color="blue" trend />
         <Stat label="Present today" value={`${attendanceRate}%`} note={`${present} of ${marked.length || students.length} marked present`} icon={CalendarCheck} color="green" trend />
@@ -354,64 +390,103 @@ function StudentModal({ close, addStudent }) {
   </form></div>
 }
 
-function StudentProfile({ student, close }) {
+function StudentProfile({ student, close, attendance, fees, academics, documents, onRecordPayment, onUploadDocument }) {
+  const [tab, setTab] = useState('personal')
+  const [uploading, setUploading] = useState('')
   if (!student) return null
-  return <div className="modal-backdrop"><section className="modal profile-modal">
-    <div className="modal-header"><div><h3>{student.name}</h3><p>{student.roll} · Class {student.className}</p></div><button className="icon-button" onClick={close}><X size={19} /></button></div>
-    <div className="profile-hero"><span className={`avatar tone-${student.tone}`}>{student.initials}</span><div><strong>{student.name}</strong><span className={`status ${student.fee.toLowerCase()}`}>{student.fee}</span></div></div>
-    <dl className="profile-details">
-      <div><dt>Admission number</dt><dd>{student.roll}</dd></div>
-      <div><dt>Class & section</dt><dd>{student.className}</dd></div>
-      <div><dt>Guardian</dt><dd>{student.guardian}</dd></div>
-      <div><dt>Phone</dt><dd>{student.phone}</dd></div>
-      <div><dt>Attendance</dt><dd>{student.attendance}%</dd></div>
-      <div><dt>Joined</dt><dd>{student.createdAt ? new Date(student.createdAt).toLocaleDateString('en-IN') : 'Not available'}</dd></div>
-    </dl>
-  </section></div>
+  const records = Object.entries(attendance).reduce((all, [date, marks]) => marks[student.id] ? { ...all, [date]: marks[student.id] } : all, {})
+  const now = new Date()
+  const monthKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`
+  const monthDays = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate()
+  const currentMarks = Object.entries(records).filter(([date]) => date.startsWith(monthKey))
+  const monthSummary = Object.entries(records).reduce((all, [date, mark]) => {
+    const month = date.slice(0, 7)
+    all[month] ||= { P: 0, A: 0, L: 0 }
+    all[month][mark] += 1
+    return all
+  }, {})
+  const feeMonths = ['April','May','June','July','August','September','October','November','December','January','February','March']
+  const studentFees = Object.values(fees).filter(fee => fee.studentId === student.id)
+  const totalPaid = studentFees.filter(fee => fee.status === 'paid').reduce((sum, fee) => sum + Number(fee.amount || 0), 0)
+  const pending = Math.max(0, feeMonths.length * 18500 - totalPaid)
+  const results = academics?.[student.id] || {}
+  const docs = documents?.[student.id] || {}
+  const upload = async (type, file) => {
+    if (!file) return
+    if (file.size > 750000) return alert('Please upload a file smaller than 750 KB.')
+    setUploading(type)
+    const data = await new Promise((resolve, reject) => {
+      const reader = new FileReader()
+      reader.onload = () => resolve(reader.result)
+      reader.onerror = reject
+      reader.readAsDataURL(file)
+    })
+    try { await onUploadDocument(student.id, type, { name: file.name, mime: file.type, data, uploadedAt: Date.now() }) } finally { setUploading('') }
+  }
+  return <div className="profile-page">
+    <div className="profile-page-header"><button className="secondary-button" onClick={close}>Back</button><div><span>Student Profile</span><h2>{student.name}</h2></div><button className="icon-button" onClick={close}><X size={20} /></button></div>
+    <section className="profile-cover"><div className="profile-photo">{docs.photo?.data ? <img src={docs.photo.data} alt={student.name} /> : student.initials}</div><div><span className="admission-badge">Admission Number</span><strong className="admission-number">{student.roll}</strong><h3>{student.name}</h3><p>Class {student.className} · {student.feeGroup}</p></div><span className={`status ${student.fee.toLowerCase()}`}>{student.fee}</span></section>
+    <div className="profile-tabs">{[['personal','Personal Info'],['attendance','Attendance'],['fees','Fees'],['academics','Academics'],['documents','Documents']].map(([id,label]) => <button key={id} className={tab === id ? 'active' : ''} onClick={() => setTab(id)}>{label}</button>)}</div>
+    <section className="profile-tab-content" key={tab}>
+      {tab === 'personal' && <dl className="profile-details full-profile-details">{[['Admission Number',student.roll],['Full Name',student.name],['Father Name',student.fatherName],['Mother Name',student.motherName],['Date of Birth',student.dob],['Gender',student.gender],['Phone',student.phone],['Email',student.email],['Address',[student.address,student.city,student.state,student.pincode].filter(Boolean).join(', ')],['Class',student.className.split('-')[0]],['Section',student.className.split('-')[1]],['Fee Group',student.feeGroup],['Admission Date',student.admissionDate],['Aadhaar',student.aadhaar],['PEN ID',student.penId],['APAAR ID',student.apaarId]].map(([label,value]) => <div key={label}><dt>{label}</dt><dd>{value || 'Not provided'}</dd></div>)}</dl>}
+      {tab === 'attendance' && <><div className="profile-metrics"><div><span>Present this month</span><strong>{currentMarks.filter(([,mark])=>mark==='P').length}</strong></div><div><span>Absent this month</span><strong>{currentMarks.filter(([,mark])=>mark==='A').length}</strong></div><div><span>Overall attendance</span><strong>{Object.keys(records).length ? Math.round(Object.values(records).filter(mark=>mark==='P').length/Object.keys(records).length*100) : 0}%</strong></div></div><div className="attendance-calendar"><div className="calendar-title">{now.toLocaleDateString('en-IN',{month:'long',year:'numeric'})}</div><div className="calendar-week">{['Sun','Mon','Tue','Wed','Thu','Fri','Sat'].map(day=><span key={day}>{day}</span>)}</div><div className="calendar-grid">{Array.from({length:new Date(now.getFullYear(),now.getMonth(),1).getDay()}).map((_,i)=><i key={i}/>)}{Array.from({length:monthDays},(_,i)=>{const day=i+1;const mark=records[`${monthKey}-${String(day).padStart(2,'0')}`];return <div key={day} className={mark?`marked ${mark}`:''}><span>{day}</span><b>{mark||'—'}</b></div>})}</div></div><div className="panel table-panel profile-table"><table><thead><tr><th>Month</th><th>Present</th><th>Absent</th><th>Leave</th><th>Percentage</th></tr></thead><tbody>{Object.entries(monthSummary).map(([month,marks])=><tr key={month}><td>{new Date(`${month}-01`).toLocaleDateString('en-IN',{month:'long',year:'numeric'})}</td><td>{marks.P}</td><td>{marks.A}</td><td>{marks.L}</td><td>{Math.round(marks.P/(marks.P+marks.A+marks.L)*100)}%</td></tr>)}{!Object.keys(monthSummary).length&&<tr><td colSpan="5"><div className="empty-state">No attendance records yet.</div></td></tr>}</tbody></table></div></>}
+      {tab === 'fees' && <><div className="profile-metrics"><div><span>Total paid</span><strong>{money(totalPaid)}</strong></div><div><span>Total pending</span><strong>{money(pending)}</strong></div><div className="due-metric"><span>Due amount</span><strong>{money(pending)}</strong></div></div><div className="fee-month-grid">{feeMonths.map((month,index)=>{const monthNo=((index+3)%12)+1;const year=monthNo<4?2027:2026;const billingMonth=`${year}-${String(monthNo).padStart(2,'0')}`;const fee=studentFees.find(item=>item.billingMonth===billingMonth);const overdue=!fee&&new Date(year,monthNo-1,10)<new Date();return <div key={month} className={fee?.status==='paid'?'paid':overdue?'overdue':'pending'}><span>{month}</span><strong>{money(fee?.amount||18500)}</strong><small>{fee?.status==='paid'?'Paid':overdue?'Overdue':'Pending'}</small>{!fee&&<button className="text-button" onClick={()=>onRecordPayment(student.id,18500,'UPI',billingMonth)}>Record payment</button>}</div>})}</div></>}
+      {tab === 'academics' && <div className="academics-profile"><div className="profile-actions"><button className="secondary-button" onClick={()=>window.print()}><Printer size={16}/> Print report card</button></div>{Object.entries(results).map(([exam,record])=><div className="exam-block" key={exam}><div><h3>{exam}</h3><strong>{record.percentage||0}% · Grade {record.grade||'—'}</strong></div><table><thead><tr><th>Subject</th><th>Marks</th><th>Maximum</th></tr></thead><tbody>{Object.entries(record.subjects||{}).map(([subject,marks])=><tr key={subject}><td>{subject}</td><td>{marks.obtained}</td><td>{marks.maximum}</td></tr>)}</tbody></table></div>)}{!Object.keys(results).length&&<div className="empty-state large"><FileText size={28}/><strong>No academic results yet</strong><p>Exam-wise marks will appear here after publishing.</p></div>}</div>}
+      {tab === 'documents' && <div className="documents-grid">{[['aadhaar','Aadhaar Card'],['birthCertificate','Birth Certificate'],['previousTc','Previous TC'],['photo','Student Photo']].map(([type,label])=><div key={type}><FileText size={24}/><strong>{label}</strong><small>{docs[type]?.name||'No file uploaded'}</small><label className="secondary-button">{uploading===type?'Uploading...':'Upload'}<input type="file" accept={type==='photo'?'image/*':'image/*,.pdf'} onChange={event=>upload(type,event.target.files?.[0])}/></label>{docs[type]?.data&&<a className="text-button" href={docs[type].data} download={docs[type].name}>Download</a>}</div>)}<button className="primary-button download-all" onClick={()=>Object.values(docs).forEach((doc,index)=>setTimeout(()=>{const link=document.createElement('a');link.href=doc.data;link.download=doc.name;link.click()},index*200))}><Download size={16}/> Download all documents</button></div>}
+    </section>
+  </div>
 }
 
-function Students({ students, onAddStudent }) {
+function Students({ students, onAddStudent, onSelectStudent }) {
   const [search, setSearch] = useState('')
   const [filter, setFilter] = useState('All classes')
   const [modal, setModal] = useState(false)
-  const [selected, setSelected] = useState(null)
   const classes = [...new Set(students.map(student => student.className))].sort()
   const filtered = students.filter(s => (filter === 'All classes' || s.className === filter) && `${s.name} ${s.roll} ${s.phone}`.toLowerCase().includes(search.trim().toLowerCase()))
-  const addStudent = student => onAddStudent({ ...student, roll: `2026-${String(students.length + 1).padStart(4, '0')}` })
+  const addStudent = student => onAddStudent(student)
   return <>
     <div className="section-actions"><div><h2>Student directory</h2><p>Manage profiles, guardians, attendance and fee status.</p></div><button className="primary-button" onClick={() => setModal(true)}><Plus size={17} /> Add student</button></div>
     <div className="mini-stats"><div><span>All students</span><strong>{students.length}</strong></div><div><span>New admissions</span><strong>{students.filter(s => s.createdAt && Date.now() - s.createdAt < 30 * 86400000).length}</strong></div><div><span>Avg. attendance</span><strong>{students.length ? Math.round(students.reduce((sum, s) => sum + s.attendance, 0) / students.length) : 0}%</strong></div><div><span>Fee defaulters</span><strong>{students.filter(s => s.fee !== 'Paid').length}</strong></div></div>
     <div className="panel table-panel">
       <div className="table-toolbar"><div className="table-search"><Search size={16} /><input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search student, roll no. or phone" /></div><select value={filter} onChange={e => setFilter(e.target.value)}><option>All classes</option>{classes.map(c => <option key={c}>{c}</option>)}</select></div>
       <div className="table-scroll"><table><thead><tr><th>Student</th><th>Class</th><th>Guardian</th><th>Attendance</th><th>Fee status</th><th /></tr></thead><tbody>
-        {filtered.map(s => <tr key={s.id} onClick={() => setSelected(s)} className="clickable-row"><td><div className="student-cell"><span className={`avatar tone-${s.tone}`}>{s.initials}</span><div><strong>{s.name}</strong><small>{s.roll}</small></div></div></td><td><span className="class-pill">{s.className}</span></td><td><strong className="regular">{s.guardian}</strong><small className="cell-sub">{s.phone}</small></td><td><div className="attendance-cell"><span>{s.attendance}%</span><div><i style={{width: `${s.attendance}%`}} /></div></div></td><td><span className={`status ${s.fee.toLowerCase()}`}>{s.fee}</span></td><td><button className="icon-button" aria-label={`View ${s.name}`}><Eye size={17} /></button></td></tr>)}
+        {filtered.map(s => <tr key={s.id} onClick={() => onSelectStudent(s)} className="clickable-row"><td><div className="student-cell"><span className={`avatar tone-${s.tone}`}>{s.initials}</span><div><strong>{s.name}</strong><small>{s.roll}</small></div></div></td><td><span className="class-pill">{s.className}</span></td><td><strong className="regular">{s.guardian}</strong><small className="cell-sub">{s.phone}</small></td><td><div className="attendance-cell"><span>{s.attendance}%</span><div><i style={{width: `${s.attendance}%`}} /></div></div></td><td><span className={`status ${s.fee.toLowerCase()}`}>{s.fee}</span></td><td><button className="icon-button" aria-label={`View ${s.name}`}><Eye size={17} /></button></td></tr>)}
         {!filtered.length && <tr><td colSpan="6"><div className="empty-state">No students match this search.</div></td></tr>}
       </tbody></table></div>
     </div>
     {modal && <StudentModal close={() => setModal(false)} addStudent={addStudent} />}
-    {selected && <StudentProfile student={selected} close={() => setSelected(null)} />}
   </>
 }
 
 const admissionClasses = ['Nursery-A','LKG-A','UKG-A','1-A','2-A','3-A','4-B','5-A','6-A','7-B','8-B','9-C','10-A','11-A','12-A']
 
-function AdmissionForm({ students, onAddStudent, onOpenRegister }) {
+function AdmissionForm({ students, onAddStudent, onOpenRegister, getNextAdmissionNumber }) {
   const [expanded, setExpanded] = useState(true)
   const [saving, setSaving] = useState(false)
   const [permanentAddress, setPermanentAddress] = useState(false)
   const [form, setForm] = useState({
-    className: 'Nursery-A', admissionScheme: 'General', roll: `2026-${String(students.length + 1).padStart(4, '0')}`,
+    className: 'Nursery-A', admissionScheme: 'General', roll: '',
     admissionDate: today(), newAdmission: true, name: '', fatherName: '', motherName: '', guardian: '',
     gender: '', dob: '', phone: '', email: '', state: '', city: '', address: '', pincode: '',
     aadhaar: '', penId: '', apaarId: '', feeGroup: 'Standard', smsEnabled: true,
   })
+  const [numberLoading, setNumberLoading] = useState(true)
+  const refreshNumber = async () => {
+    setNumberLoading(true)
+    try {
+      const next = await getNextAdmissionNumber()
+      setForm(current => ({ ...current, roll: String(next) }))
+    } finally { setNumberLoading(false) }
+  }
+  useEffect(() => { refreshNumber() }, [])
   const update = (key, value) => setForm(current => ({ ...current, [key]: value }))
   const submit = async event => {
     event.preventDefault()
     setSaving(true)
     try {
       await onAddStudent(form)
-      setForm(current => ({ ...current, roll: `2026-${String(students.length + 2).padStart(4, '0')}`, name: '', fatherName: '', motherName: '', guardian: '', phone: '', email: '', address: '', aadhaar: '', penId: '', apaarId: '' }))
+      setForm(current => ({ ...current, roll: '', name: '', fatherName: '', motherName: '', guardian: '', phone: '', email: '', address: '', aadhaar: '', penId: '', apaarId: '' }))
+      await refreshNumber()
     } finally { setSaving(false) }
   }
   return <form className="admission-form" onSubmit={submit}>
@@ -430,7 +505,7 @@ function AdmissionForm({ students, onAddStudent, onOpenRegister }) {
         const rows = (await file.text()).split(/\r?\n/).slice(1).filter(Boolean)
         for (const row of rows) {
           const [name, className, guardian, phone] = row.split(',').map(value => value?.trim())
-          if (name && className) await onAddStudent({ name, className, guardian: guardian || '', phone: phone || '', roll: `2026-${Date.now().toString().slice(-6)}`, admissionDate: today(), admissionScheme: 'General', newAdmission: true })
+          if (name && className) await onAddStudent({ name, className, guardian: guardian || '', phone: phone || '', admissionDate: today(), admissionScheme: 'General', newAdmission: true })
         }
         event.target.value = ''
       }} /></label>
@@ -441,7 +516,7 @@ function AdmissionForm({ students, onAddStudent, onOpenRegister }) {
         <label>Class*<select required value={form.className} onChange={e => update('className', e.target.value)}>{admissionClasses.map(item => <option key={item}>{item}</option>)}</select></label>
         <label>Section*<input required value={form.className.split('-')[1] || 'A'} onChange={e => update('className', `${form.className.split('-')[0]}-${e.target.value}`)} /></label>
         <label>Admission Scheme*<select required value={form.admissionScheme} onChange={e => update('admissionScheme', e.target.value)}><option>General</option><option>RTE</option><option>EWS</option><option>Scholarship</option><option>Staff Ward</option></select></label>
-        <label>Admission Number*<input required value={form.roll} onChange={e => update('roll', e.target.value)} /></label>
+        <label>Admission Number*<input required readOnly value={numberLoading ? 'Auto generating...' : form.roll} className="readonly-input" /></label>
         <label>Date of Admission*<input required type="date" value={form.admissionDate} onChange={e => update('admissionDate', e.target.value)} /></label>
       </div>
       <label className="check-line"><input type="checkbox" checked={form.newAdmission} onChange={e => update('newAdmission', e.target.checked)} /> New Admission</label>
@@ -474,7 +549,7 @@ function AdmissionForm({ students, onAddStudent, onOpenRegister }) {
         {permanentAddress && <label className="permanent-field">Permanent Address<input value={form.permanentAddress || ''} onChange={e => update('permanentAddress', e.target.value)} /></label>}
       </div>}
     </section>
-    <button className="primary-button admission-submit" disabled={saving}><Save size={16} /> {saving ? 'Submitting...' : 'Submit'}</button>
+    <button className="primary-button admission-submit" disabled={saving || numberLoading}><Save size={16} /> {saving ? 'Submitting...' : 'Submit'}</button>
   </form>
 }
 
@@ -534,13 +609,13 @@ function EnquiryModule({ enquiries, onSaveEnquiry }) {
   </>
 }
 
-function Admissions({ students, enquiries, onAddStudent, onSaveEnquiry }) {
+function Admissions({ students, enquiries, onAddStudent, onSaveEnquiry, getNextAdmissionNumber }) {
   const [page, setPage] = useState('add')
   const tabs = [['add','Add Student'],['master','Master Register'],['enquiry','Enquiry Form'],['register','Student Register']]
   return <>
     <div className="section-actions"><div><h2>Admission management</h2><p>Applications, enquiries and student registers in one workspace.</p></div></div>
     <div className="admission-tabs">{tabs.map(([id,label]) => <button key={id} className={page === id ? 'active' : ''} onClick={() => setPage(id)}>{label}</button>)}</div>
-    {page === 'add' && <AdmissionForm students={students} onAddStudent={onAddStudent} onOpenRegister={() => setPage('master')} />}
+    {page === 'add' && <AdmissionForm students={students} onAddStudent={onAddStudent} onOpenRegister={() => setPage('master')} getNextAdmissionNumber={getNextAdmissionNumber} />}
     {page === 'master' && <AdmissionRegister students={students} />}
     {page === 'enquiry' && <EnquiryModule enquiries={enquiries} onSaveEnquiry={onSaveEnquiry} />}
     {page === 'register' && <AdmissionRegister students={students} compact />}
@@ -731,6 +806,8 @@ function useSchoolWorkspace(session) {
   const [staffAttendance, setStaffAttendance] = useState({})
   const [approvals, setApprovals] = useState({ fees: {}, leaves: {} })
   const [expenses, setExpenses] = useState({})
+  const [academics, setAcademics] = useState({})
+  const [documents, setDocuments] = useState({})
   const [activities, setActivities] = useState([])
   const [workspace, setWorkspace] = useState({
     loading: Boolean(session && isFirebaseConfigured),
@@ -818,6 +895,8 @@ function useSchoolWorkspace(session) {
         setStaffAttendance(school?.staffAttendance || {})
         setApprovals({ fees: school?.approvals?.fees || {}, leaves: school?.approvals?.leaves || {} })
         setExpenses(school?.expenses || {})
+        setAcademics(school?.studentAcademics || {})
+        setDocuments(school?.studentDocuments || {})
         setActivities(nextActivities)
         setWorkspace({
           loading: false,
@@ -837,17 +916,19 @@ function useSchoolWorkspace(session) {
   }, [session, setAttendance, setEnquiries, setFees, setNotices, setStudents, setTimetableData])
 
   const addStudent = async student => {
+    const token = developmentDemo ? null : await session.getIdToken()
+    const assignedNumber = developmentDemo ? await getNextAdmissionNumber() : await reserveAdmissionNumber(workspace.schoolId, token)
     if (developmentDemo) {
       const createdAt = Date.now()
-      setStudents(current => [{ ...student, id: createdAt, createdAt, attendance: 100, fee: 'Pending', initials: student.name.split(/\s+/).map(p => p[0]).slice(0, 2).join('').toUpperCase(), tone: tones[current.length % tones.length] }, ...current])
+      setStudents(current => [{ ...student, roll: String(assignedNumber), id: createdAt, createdAt, attendance: 100, fee: 'Pending', initials: student.name.split(/\s+/).map(p => p[0]).slice(0, 2).join('').toUpperCase(), tone: tones[current.length % tones.length] }, ...current])
       setActivities(current => [{ id: `student-${createdAt}`, title: 'Student admitted', detail: `${student.name} joined Class ${student.className}`, at: createdAt, icon: '+' }, ...current])
-      return
+      return assignedNumber
     }
     const [className, section = 'A'] = student.className.split('-')
     const studentId = `student_${Date.now()}`
     const row = {
       full_name: student.name,
-      admission_number: student.roll,
+      admission_number: String(assignedNumber),
       class_name: className,
       section,
       guardian_name: student.guardian,
@@ -875,17 +956,27 @@ function useSchoolWorkspace(session) {
       createdAt: Date.now(),
       updatedAt: Date.now(),
     }
-    const token = await session.getIdToken()
     await databaseRequest(`students/${workspace.schoolId}/${studentId}`, token, { method: 'PUT', body: row })
     setStudents(current => [studentFromRow({ id: studentId, ...row }, current.length), ...current])
     setActivities(current => [{ id: `student-${studentId}`, title: 'Student admitted', detail: `${student.name} joined Class ${student.className}`, at: row.createdAt, icon: '+' }, ...current])
+    return assignedNumber
   }
 
-  const recordPayment = async (studentId, amount = 18500, method = 'UPI') => {
+  async function getNextAdmissionNumber() {
+    if (developmentDemo) return Math.max(0, ...students.map(student => admissionValue(student.roll))) + 1
+    const token = await session.getIdToken()
+    const [fresh, counter] = await Promise.all([
+      databaseRequest(`students/${workspace.schoolId}`, token),
+      databaseRequest(`schools/${workspace.schoolId}/admissionCounter`, token),
+    ])
+    return Math.max(Number(counter?.lastIssued || 0), ...Object.values(fresh || {}).map(row => admissionValue(row.admission_number))) + 1
+  }
+
+  const recordPayment = async (studentId, amount = 18500, method = 'UPI', billingMonth = '2026-06') => {
     const paidAt = Date.now()
-    const invoiceId = `${studentId}_2026-06`
+    const invoiceId = `${studentId}_${billingMonth}`
     const invoiceNumber = `INV-202606-${String(paidAt).slice(-6)}`
-    const row = { studentId, billingMonth: '2026-06', invoiceNumber, amount, method, status: 'paid', paidAt, updatedAt: paidAt }
+    const row = { studentId, billingMonth, invoiceNumber, amount, method, status: 'paid', paidAt, updatedAt: paidAt }
     if (!developmentDemo) {
       const token = await session.getIdToken()
       await databaseRequest('', token, { method: 'PATCH', body: {
@@ -966,7 +1057,15 @@ function useSchoolWorkspace(session) {
     setActivities(current => [{ id, title: 'Admission enquiry added', detail: `${enquiry.name} enquired for ${enquiry.className}`, at: row.createdAt, icon: 'E' }, ...current])
   }
 
-  return { students, notices, fees, attendance, timetableData, enquiries, staff, staffAttendance, approvals, expenses, activities, workspace, addStudent, recordPayment, addNotice, saveAttendance, savePeriod, saveEnquiry, developmentDemo }
+  const uploadStudentDocument = async (studentId, type, document) => {
+    if (!developmentDemo) {
+      const token = await session.getIdToken()
+      await databaseRequest(`schools/${workspace.schoolId}/studentDocuments/${studentId}/${type}`, token, { method: 'PUT', body: document })
+    }
+    setDocuments(current => ({ ...current, [studentId]: { ...(current[studentId] || {}), [type]: document } }))
+  }
+
+  return { students, notices, fees, attendance, timetableData, enquiries, staff, staffAttendance, approvals, expenses, academics, documents, activities, workspace, getNextAdmissionNumber, addStudent, recordPayment, addNotice, saveAttendance, savePeriod, saveEnquiry, uploadStudentDocument, developmentDemo }
 }
 
 export default function App() {
@@ -974,6 +1073,7 @@ export default function App() {
   const [menuOpen, setMenuOpen] = useState(false)
   const [session, setSession] = useState(null)
   const [authLoading, setAuthLoading] = useState(isFirebaseConfigured)
+  const [selectedStudent, setSelectedStudent] = useState(null)
 
   useEffect(() => {
     if (!isFirebaseConfigured) return
@@ -1002,13 +1102,13 @@ export default function App() {
   }
   const current = nav.find(item => item.id === page) || nav[0]
   const screens = {
-    dashboard: <Dashboard students={data.students} notices={data.notices} fees={data.fees} attendance={data.attendance} activities={data.activities} staff={data.staff} staffAttendance={data.staffAttendance} approvals={data.approvals} expenses={data.expenses} setPage={setPage} />,
-    admissions: <Admissions students={data.students} enquiries={data.enquiries} onAddStudent={data.addStudent} onSaveEnquiry={data.saveEnquiry} />,
-    students: <Students students={data.students} onAddStudent={data.addStudent} />,
+    dashboard: <Dashboard students={data.students} notices={data.notices} fees={data.fees} attendance={data.attendance} activities={data.activities} staff={data.staff} staffAttendance={data.staffAttendance} approvals={data.approvals} expenses={data.expenses} setPage={setPage} onSelectStudent={setSelectedStudent} />,
+    admissions: <Admissions students={data.students} enquiries={data.enquiries} onAddStudent={data.addStudent} onSaveEnquiry={data.saveEnquiry} getNextAdmissionNumber={data.getNextAdmissionNumber} />,
+    students: <Students students={data.students} onAddStudent={data.addStudent} onSelectStudent={setSelectedStudent} />,
     attendance: <Attendance students={data.students} attendance={data.attendance} onSaveAttendance={data.saveAttendance} />,
     fees: <Fees students={data.students} fees={data.fees} onRecordPayment={data.recordPayment} />,
     academics: <Academics timetableData={data.timetableData} onSavePeriod={data.savePeriod} />,
     notices: <Notices notices={data.notices} onAddNotice={data.addNotice} />,
   }
-  return <div className="app-shell"><Sidebar page={page} setPage={setPage} open={menuOpen} close={() => setMenuOpen(false)} schoolName={data.workspace.schoolName} cloudMode={!data.developmentDemo} /><main className="main-area"><Header title={current.label} subtitle={`${data.workspace.schoolName} · 2026-27`} onMenu={() => setMenuOpen(true)} profile={profile} onSignOut={() => isFirebaseConfigured && signOut(auth)} /><div className="page-content page-enter" key={page}>{screens[page]}</div></main></div>
+  return <div className="app-shell"><Sidebar page={page} setPage={setPage} open={menuOpen} close={() => setMenuOpen(false)} schoolName={data.workspace.schoolName} cloudMode={!data.developmentDemo} /><main className="main-area"><Header title={current.label} subtitle={`${data.workspace.schoolName} · 2026-27`} onMenu={() => setMenuOpen(true)} profile={profile} onSignOut={() => isFirebaseConfigured && signOut(auth)} students={data.students} onSelectStudent={setSelectedStudent} /><div className="page-content page-enter" key={page}>{screens[page]}</div></main>{selectedStudent && <StudentProfile student={data.students.find(student => student.id === selectedStudent.id) || selectedStudent} close={() => setSelectedStudent(null)} attendance={data.attendance} fees={data.fees} academics={data.academics} documents={data.documents} onRecordPayment={data.recordPayment} onUploadDocument={data.uploadStudentDocument} />}</div>
 }
