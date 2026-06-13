@@ -1,0 +1,64 @@
+{
+  "rules": {
+    ".read": false,
+    ".write": false,
+    "users": {
+      "$uid": {
+        ".read": "auth != null && auth.uid === $uid",
+        ".write": "auth != null && auth.uid === $uid",
+        ".validate": "newData.hasChildren(['schoolId', 'fullName', 'role'])"
+      }
+    },
+    "schools": {
+      "$schoolId": {
+        ".read": "auth != null && root.child('schoolMembers').child($schoolId).child(auth.uid).child('status').val() === 'active'",
+        ".write": "auth != null && ((!data.exists() && newData.child('createdBy').val() === auth.uid) || root.child('schoolMembers').child($schoolId).child(auth.uid).child('role').val() === 'owner' || root.child('schoolMembers').child($schoolId).child(auth.uid).child('role').val() === 'admin')",
+        ".validate": "newData.hasChildren(['name', 'academicYear', 'createdBy'])"
+      }
+    },
+    "schoolMembers": {
+      "$schoolId": {
+        "$uid": {
+          ".read": "auth != null && root.child('schoolMembers').child($schoolId).child(auth.uid).child('status').val() === 'active'",
+          ".write": "auth != null && ((auth.uid === $uid && !data.exists() && newData.child('role').val() === 'owner' && root.child('schools').child($schoolId).child('createdBy').val() === auth.uid) || root.child('schoolMembers').child($schoolId).child(auth.uid).child('role').val() === 'owner' || root.child('schoolMembers').child($schoolId).child(auth.uid).child('role').val() === 'admin')",
+          ".validate": "newData.hasChildren(['userId', 'role', 'status']) && newData.child('userId').val() === $uid && newData.child('role').val().matches(/^(owner|admin|staff|viewer)$/) && newData.child('status').val().matches(/^(active|suspended)$/)"
+        }
+      }
+    },
+    "students": {
+      "$schoolId": {
+        ".read": "auth != null && root.child('schoolMembers').child($schoolId).child(auth.uid).child('status').val() === 'active'",
+        "$studentId": {
+          ".write": "auth != null && root.child('schoolMembers').child($schoolId).child(auth.uid).child('status').val() === 'active' && root.child('schoolMembers').child($schoolId).child(auth.uid).child('role').val().matches(/^(owner|admin|staff)$/)",
+          ".validate": "!newData.exists() || newData.hasChildren(['full_name', 'admission_number', 'class_name', 'section'])"
+        }
+      }
+    },
+    "attendance": {
+      "$schoolId": {
+        ".read": "auth != null && root.child('schoolMembers').child($schoolId).child(auth.uid).child('status').val() === 'active'",
+        "$recordId": {
+          ".write": "auth != null && root.child('schoolMembers').child($schoolId).child(auth.uid).child('status').val() === 'active' && root.child('schoolMembers').child($schoolId).child(auth.uid).child('role').val().matches(/^(owner|admin|staff)$/)",
+          ".validate": "newData.hasChildren(['studentId', 'date', 'status', 'markedBy']) && newData.child('status').val().matches(/^(P|A|L)$/) && newData.child('markedBy').val() === auth.uid"
+        }
+      }
+    },
+    "fees": {
+      "$schoolId": {
+        ".read": "auth != null && root.child('schoolMembers').child($schoolId).child(auth.uid).child('status').val() === 'active'",
+        "$invoiceId": {
+          ".write": "auth != null && root.child('schoolMembers').child($schoolId).child(auth.uid).child('status').val() === 'active' && root.child('schoolMembers').child($schoolId).child(auth.uid).child('role').val().matches(/^(owner|admin)$/)"
+        }
+      }
+    },
+    "notices": {
+      "$schoolId": {
+        ".read": "auth != null && root.child('schoolMembers').child($schoolId).child(auth.uid).child('status').val() === 'active'",
+        "$noticeId": {
+          ".write": "auth != null && root.child('schoolMembers').child($schoolId).child(auth.uid).child('status').val() === 'active' && root.child('schoolMembers').child($schoolId).child(auth.uid).child('role').val().matches(/^(owner|admin|staff)$/)",
+          ".validate": "!newData.exists() || newData.hasChildren(['title', 'body', 'category', 'priority', 'audience'])"
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,13 @@
+node_modules
+dist
+.env
+.env.local
+.env.*.local
+.vercel
+*.xml
+server-task.log
+vite.stderr.log
+vite.stdout.log
+*.log
+
+.vercel
