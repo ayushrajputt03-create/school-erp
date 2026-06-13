@@ -4,10 +4,11 @@ import {
   GraduationCap, LayoutDashboard, LogOut, Menu, MessageSquareText,
   MoreHorizontal, Plus, Search, Settings, ShieldCheck, Sparkles, Users, X,
   Eye, Receipt, Save, ClipboardList, Download, Upload, Link2, Cake,
-  UserCheck, Clock3, TrendingUp, WalletCards, Printer, FileText
+  UserCheck, Clock3, TrendingUp, WalletCards, Printer, FileText, Pencil, Trash2
 } from 'lucide-react'
 import './app.css'
 import AuthScreen from './AuthScreen'
+import FeeManager from './FeeManager'
 import { onAuthStateChanged, signOut } from 'firebase/auth'
 import { auth, isFirebaseConfigured } from './lib/firebase'
 
@@ -667,7 +668,7 @@ function PaymentModal({ students, close, onRecordPayment }) {
   </form></div>
 }
 
-function Fees({ students, fees, onRecordPayment }) {
+function LegacyFees({ students, fees, onRecordPayment }) {
   const [search, setSearch] = useState('')
   const [modal, setModal] = useState(false)
   const total = students.length * 18500
@@ -808,6 +809,7 @@ function useSchoolWorkspace(session) {
   const [expenses, setExpenses] = useState({})
   const [academics, setAcademics] = useState({})
   const [documents, setDocuments] = useState({})
+  const [feeManager, setFeeManager] = useState({ groups: {}, structures: {}, fines: {}, settings: {}, deleted: {} })
   const [activities, setActivities] = useState([])
   const [workspace, setWorkspace] = useState({
     loading: Boolean(session && isFirebaseConfigured),
@@ -897,6 +899,13 @@ function useSchoolWorkspace(session) {
         setExpenses(school?.expenses || {})
         setAcademics(school?.studentAcademics || {})
         setDocuments(school?.studentDocuments || {})
+        setFeeManager({
+          groups: school?.feeManager?.groups || {},
+          structures: school?.feeManager?.structures || {},
+          fines: school?.feeManager?.fines || {},
+          settings: school?.feeManager?.settings || {},
+          deleted: school?.feeManager?.deleted || {},
+        })
         setActivities(nextActivities)
         setWorkspace({
           loading: false,
@@ -990,6 +999,76 @@ function useSchoolWorkspace(session) {
     setActivities(current => [{ id: `fee-${invoiceId}`, title: 'Fee payment received', detail: `${money(amount)} via ${method}`, at: paidAt, icon: '₹' }, ...current])
   }
 
+  const submitFeeReceipt = async receipt => {
+    const paidAt = Date.now()
+    const receiptId = `receipt_${paidAt}`
+    const receiptNumber = `REC-${new Date().getFullYear()}-${String(paidAt).slice(-7)}`
+    const row = {
+      ...receipt,
+      receiptNumber,
+      invoiceNumber: receiptNumber,
+      amount: Number(receipt.paidAmount || receipt.amount || 0),
+      method: (receipt.payments || []).map(item => item.type).join(' + ') || 'CASH',
+      status: Number(receipt.balance || 0) > 0 ? 'partial' : 'paid',
+      paidAt,
+      updatedAt: paidAt,
+    }
+    if (!developmentDemo) {
+      const token = await session.getIdToken()
+      await databaseRequest('', token, { method: 'PATCH', body: {
+        [`fees/${workspace.schoolId}/${receiptId}`]: row,
+        [`students/${workspace.schoolId}/${receipt.studentId}/fee_status`]: row.status === 'paid' ? 'Paid' : 'Pending',
+        [`students/${workspace.schoolId}/${receipt.studentId}/fee_group`]: receipt.feeGroup,
+        [`students/${workspace.schoolId}/${receipt.studentId}/updatedAt`]: paidAt,
+      } })
+    }
+    setFees(current => ({ ...current, [receiptId]: row }))
+    setStudents(current => current.map(student => student.id === receipt.studentId ? { ...student, fee: row.status === 'paid' ? 'Paid' : 'Pending', feeGroup: receipt.feeGroup } : student))
+    setActivities(current => [{ id: `fee-${receiptId}`, title: 'Fee receipt submitted', detail: `${receiptNumber} · ${money(row.amount)}`, at: paidAt, icon: '₹' }, ...current])
+    return receiptNumber
+  }
+
+  const saveFeeGroup = async group => {
+    const id = group.id || `group_${Date.now()}`
+    const row = { ...group, id, updatedAt: Date.now(), createdAt: group.createdAt || Date.now(), createdBy: group.createdBy || workspace.role }
+    if (!developmentDemo) {
+      const token = await session.getIdToken()
+      await databaseRequest(`schools/${workspace.schoolId}/feeManager/groups/${id}`, token, { method: 'PUT', body: row })
+    }
+    setFeeManager(current => ({ ...current, groups: { ...current.groups, [id]: row } }))
+  }
+
+  const deleteFeeGroup = async id => {
+    if (!developmentDemo) {
+      const token = await session.getIdToken()
+      await databaseRequest(`schools/${workspace.schoolId}/feeManager/groups/${id}`, token, { method: 'DELETE' })
+    }
+    setFeeManager(current => {
+      const groups = { ...current.groups }
+      delete groups[id]
+      return { ...current, groups }
+    })
+  }
+
+  const saveFeeStructure = async structure => {
+    const id = structure.id || `structure_${Date.now()}`
+    const row = { ...structure, id, updatedAt: Date.now() }
+    if (!developmentDemo) {
+      const token = await session.getIdToken()
+      await databaseRequest(`schools/${workspace.schoolId}/feeManager/structures/${id}`, token, { method: 'PUT', body: row })
+    }
+    setFeeManager(current => ({ ...current, structures: { ...current.structures, [id]: row } }))
+  }
+
+  const saveFeeManagerConfig = async (section, value, id = 'config') => {
+    const row = { ...value, id, updatedAt: Date.now() }
+    if (!developmentDemo) {
+      const token = await session.getIdToken()
+      await databaseRequest(`schools/${workspace.schoolId}/feeManager/${section}/${id}`, token, { method: 'PUT', body: row })
+    }
+    setFeeManager(current => ({ ...current, [section]: { ...(current[section] || {}), [id]: row } }))
+  }
+
   const addNotice = async notice => {
     if (developmentDemo) {
       const publishAt = Date.now()
@@ -1065,7 +1144,7 @@ function useSchoolWorkspace(session) {
     setDocuments(current => ({ ...current, [studentId]: { ...(current[studentId] || {}), [type]: document } }))
   }
 
-  return { students, notices, fees, attendance, timetableData, enquiries, staff, staffAttendance, approvals, expenses, academics, documents, activities, workspace, getNextAdmissionNumber, addStudent, recordPayment, addNotice, saveAttendance, savePeriod, saveEnquiry, uploadStudentDocument, developmentDemo }
+  return { students, notices, fees, feeManager, attendance, timetableData, enquiries, staff, staffAttendance, approvals, expenses, academics, documents, activities, workspace, getNextAdmissionNumber, addStudent, recordPayment, submitFeeReceipt, saveFeeGroup, deleteFeeGroup, saveFeeStructure, saveFeeManagerConfig, addNotice, saveAttendance, savePeriod, saveEnquiry, uploadStudentDocument, developmentDemo }
 }
 
 export default function App() {
@@ -1106,7 +1185,7 @@ export default function App() {
     admissions: <Admissions students={data.students} enquiries={data.enquiries} onAddStudent={data.addStudent} onSaveEnquiry={data.saveEnquiry} getNextAdmissionNumber={data.getNextAdmissionNumber} />,
     students: <Students students={data.students} onAddStudent={data.addStudent} onSelectStudent={setSelectedStudent} />,
     attendance: <Attendance students={data.students} attendance={data.attendance} onSaveAttendance={data.saveAttendance} />,
-    fees: <Fees students={data.students} fees={data.fees} onRecordPayment={data.recordPayment} />,
+    fees: <FeeManager students={data.students} fees={data.fees} feeManager={data.feeManager} onSubmitFee={data.submitFeeReceipt} onSaveGroup={data.saveFeeGroup} onDeleteGroup={data.deleteFeeGroup} onSaveStructure={data.saveFeeStructure} onSaveConfig={data.saveFeeManagerConfig} onOpenProfile={setSelectedStudent} />,
     academics: <Academics timetableData={data.timetableData} onSavePeriod={data.savePeriod} />,
     notices: <Notices notices={data.notices} onAddNotice={data.addNotice} />,
   }
