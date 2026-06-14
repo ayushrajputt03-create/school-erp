@@ -11,8 +11,10 @@ import './app.css'
 import AuthScreen from './AuthScreen'
 import FeeManager from './FeeManager'
 import BackupCenter from './BackupCenter'
+import TimetableManager from './TimetableManager'
 import { onAuthStateChanged, signOut } from 'firebase/auth'
-import { auth, isFirebaseConfigured } from './lib/firebase'
+import { deleteObject, getDownloadURL, ref as storageRef, uploadBytes } from 'firebase/storage'
+import { auth, isFirebaseConfigured, storage } from './lib/firebase'
 
 const databaseUrl = import.meta.env.VITE_FIREBASE_DATABASE_URL?.replace(/\/$/, '')
 
@@ -126,7 +128,7 @@ const nav = [
   { id: 'students', label: 'Students', icon: Users },
   { id: 'attendance', label: 'Attendance', icon: CalendarCheck },
   { id: 'fees', label: 'Fee Management', icon: IndianRupee },
-  { id: 'academics', label: 'Academics', icon: BookOpen },
+  { id: 'academics', label: 'Timetable', icon: BookOpen },
   { id: 'notices', label: 'Notices', icon: MessageSquareText },
   { id: 'backup', label: 'Data Backup', icon: DatabaseBackup },
 ]
@@ -709,7 +711,7 @@ function PeriodModal({ initial, className, close, onSave }) {
   </form></div>
 }
 
-function Academics({ timetableData, onSavePeriod }) {
+function WeeklyPlanner({ timetableData, onSavePeriod }) {
   const classes = Object.keys(timetableData).length ? Object.keys(timetableData) : ['10-A']
   const [className, setClassName] = useState(classes[0])
   const [editing, setEditing] = useState(null)
@@ -721,6 +723,17 @@ function Academics({ timetableData, onSavePeriod }) {
     <div className="academic-banner"><div><span className="eyebrow">Current term</span><h3>Term I · 2026-27</h3><p>72 instructional days · 4 assessments planned</p></div><div className="term-progress"><span>Term progress <strong>38%</strong></span><div className="progress"><i style={{width:'38%'}} /></div></div></div>
     <div className="panel timetable-panel"><div className="panel-header"><div><h3>Weekly timetable</h3><p>Class {className} · Click any period to edit</p></div><select value={className} onChange={e => setClassName(e.target.value)}>{classes.map(item => <option key={item}>{item}</option>)}</select></div><div className="table-scroll"><table className="timetable"><thead><tr><th>Time</th>{days.map(d => <th key={d}>{d}</th>)}</tr></thead><tbody>{times.map(time => <tr key={time}><td><strong>{time}</strong></td>{days.map((day, i) => { const period = periods.find(item => item.time === time && item.day === day); return <td key={day}>{period ? <button className="period-button" onClick={() => setEditing(period)}><span className={`subject s${i}`}>{period.subject}</span><small>{period.teacher} · {period.room}</small></button> : <button className="empty-period" onClick={() => setEditing({ day, time })}>+ Add</button>}</td> })}</tr>)}</tbody></table>{!times.length && <div className="empty-state">No periods yet. Add the first period for {className}.</div>}</div></div>
     {editing && <PeriodModal initial={editing.subject ? editing : { day: editing.day || 'Monday', time: editing.time || '08:00', subject: '', teacher: '', room: '' }} className={className} close={() => setEditing(null)} onSave={onSavePeriod} />}
+  </>
+}
+
+function Academics({ timetableData, timetableRecords, students, onSavePeriod, onSaveTimetable, onDeleteTimetable }) {
+  const [view, setView] = useState('records')
+  return <>
+    <div className="section-actions"><div><h2>Timetable</h2><p>Upload published schedules and manage the weekly teaching plan.</p></div></div>
+    <div className="sub-tabs timetable-subtabs"><button className={view === 'records' ? 'active' : ''} onClick={() => setView('records')}>Add Timetable</button><button className={view === 'weekly' ? 'active' : ''} onClick={() => setView('weekly')}>Weekly Planner</button></div>
+    {view === 'records'
+      ? <TimetableManager records={timetableRecords} students={students} saveRecord={onSaveTimetable} deleteRecord={onDeleteTimetable} />
+      : <WeeklyPlanner timetableData={timetableData} onSavePeriod={onSavePeriod} />}
   </>
 }
 
@@ -839,6 +852,7 @@ function useSchoolWorkspace(session) {
   const [fees, setFees] = useStoredState('northstar-fees', {})
   const [attendance, setAttendance] = useStoredState('northstar-attendance-records', {})
   const [timetableData, setTimetableData] = useStoredState('northstar-timetable', defaultTimetable)
+  const [timetableRecords, setTimetableRecords] = useState({})
   const [enquiries, setEnquiries] = useStoredState('northstar-enquiries', [])
   const [staff, setStaff] = useState({})
   const [staffAttendance, setStaffAttendance] = useState({})
@@ -930,6 +944,7 @@ function useSchoolWorkspace(session) {
         setFees(nextFees)
         setAttendance(attendanceByDate)
         setTimetableData(school?.timetable || defaultTimetable)
+        setTimetableRecords(school?.timetableRecords || {})
         setEnquiries(Object.entries(school?.enquiries || {}).map(([id, item]) => ({ id, ...item })).sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0)))
         setStaff(school?.staff || {})
         setStaffAttendance(school?.staffAttendance || {})
@@ -1195,6 +1210,7 @@ function useSchoolWorkspace(session) {
           audience: notice.audience, publishAt: notice.publishAt || Date.now(),
         }])),
         timetable: timetableData,
+        timetableRecords,
         enquiries: Object.fromEntries(enquiries.map(item => [item.id, { ...item, id: undefined }])),
         feeManager,
         studentAcademics: academics,
@@ -1222,6 +1238,7 @@ function useSchoolWorkspace(session) {
         databaseRequest(`attendance/${workspace.schoolId}`, token, { method: 'PUT', body: attendanceUpload }),
         databaseRequest(`notices/${workspace.schoolId}`, token, { method: 'PUT', body: payload.data.notices || {} }),
         databaseRequest(`schools/${workspace.schoolId}/timetable`, token, { method: 'PUT', body: payload.data.timetable || {} }),
+        databaseRequest(`schools/${workspace.schoolId}/timetableRecords`, token, { method: 'PUT', body: payload.data.timetableRecords || {} }),
         databaseRequest(`schools/${workspace.schoolId}/enquiries`, token, { method: 'PUT', body: payload.data.enquiries || {} }),
         databaseRequest(`schools/${workspace.schoolId}/feeManager`, token, { method: 'PUT', body: payload.data.feeManager || {} }),
         databaseRequest(`schools/${workspace.schoolId}/studentAcademics`, token, { method: 'PUT', body: payload.data.studentAcademics || {} }),
@@ -1233,6 +1250,7 @@ function useSchoolWorkspace(session) {
     setAttendance(restoredAttendance)
     setNotices(restoredNotices)
     setTimetableData(payload.data.timetable || {})
+    setTimetableRecords(payload.data.timetableRecords || {})
     setEnquiries(restoredEnquiries)
     setFeeManager(payload.data.feeManager || { groups: {}, structures: {}, fines: {}, settings: {}, deleted: {} })
     setAcademics(payload.data.studentAcademics || {})
@@ -1305,6 +1323,66 @@ function useSchoolWorkspace(session) {
     setActivities(current => [{ id: `period-${id}-${Date.now()}`, title: 'Timetable updated', detail: `${period.subject} added to ${className}`, at: Date.now(), icon: 'T' }, ...current])
   }
 
+  const saveTimetableRecord = async form => {
+    const id = form.id || `timetable_${Date.now()}`
+    let fileUrl = form.fileUrl || ''
+    let filePath = form.filePath || ''
+    let fileName = form.fileName || ''
+    let fileType = form.fileType || ''
+    if (form.file) {
+      fileName = form.file.name
+      fileType = form.file.type
+      if (developmentDemo) {
+        fileUrl = URL.createObjectURL(form.file)
+        filePath = `demo/${fileName}`
+      } else {
+        const safeName = form.file.name.replace(/[^a-zA-Z0-9._-]/g, '-')
+        filePath = `schools/${workspace.schoolId}/timetables/${session.uid}/${id}-${Date.now()}-${safeName}`
+        const uploaded = await uploadBytes(storageRef(storage, filePath), form.file, { contentType: form.file.type })
+        fileUrl = await getDownloadURL(uploaded.ref)
+        if (form.filePath && form.filePath !== filePath) {
+          await deleteObject(storageRef(storage, form.filePath)).catch(() => {})
+        }
+      }
+    }
+    const row = {
+      id,
+      title: form.title,
+      className: form.className,
+      section: form.section,
+      startDate: form.startDate,
+      endDate: form.endDate,
+      fileUrl,
+      filePath,
+      fileName,
+      fileType,
+      createdAt: form.createdAt || Date.now(),
+      updatedAt: Date.now(),
+      uploadedBy: session?.uid || 'demo',
+    }
+    if (!developmentDemo) {
+      const token = await session.getIdToken()
+      await databaseRequest(`schools/${workspace.schoolId}/timetableRecords/${id}`, token, { method: 'PUT', body: row })
+    }
+    setTimetableRecords(current => ({ ...current, [id]: row }))
+    setActivities(current => [{ id: `timetable-${id}-${Date.now()}`, title: form.id ? 'Timetable edited' : 'Timetable uploaded', detail: `${row.title} · Class ${row.className}-${row.section}`, at: Date.now(), icon: 'T' }, ...current])
+  }
+
+  const deleteTimetableRecord = async record => {
+    if (!developmentDemo) {
+      const token = await session.getIdToken()
+      await Promise.all([
+        databaseRequest(`schools/${workspace.schoolId}/timetableRecords/${record.id}`, token, { method: 'DELETE' }),
+        record.filePath ? deleteObject(storageRef(storage, record.filePath)).catch(() => {}) : Promise.resolve(),
+      ])
+    }
+    setTimetableRecords(current => {
+      const next = { ...current }
+      delete next[record.id]
+      return next
+    })
+  }
+
   const saveEnquiry = async enquiry => {
     const id = `enquiry_${Date.now()}`
     const row = { ...enquiry, createdAt: Date.now(), createdDate: today() }
@@ -1324,7 +1402,7 @@ function useSchoolWorkspace(session) {
     setDocuments(current => ({ ...current, [studentId]: { ...(current[studentId] || {}), [type]: document } }))
   }
 
-  return { students, notices, fees, feeManager, attendance, timetableData, enquiries, staff, staffAttendance, approvals, expenses, academics, documents, activities, backupSettings, workspace, getNextAdmissionNumber, addStudent, recordPayment, submitFeeReceipt, saveFeeGroup, deleteFeeGroup, saveFeeStructure, deleteFeeStructure, deleteFeeReceipt, restoreFeeReceipt, decideFeeApproval, saveFeeManagerConfig, createBackupPayload, restoreBackup, saveBackupSettings, addNotice, saveAttendance, savePeriod, saveEnquiry, uploadStudentDocument, developmentDemo }
+  return { students, notices, fees, feeManager, attendance, timetableData, timetableRecords, enquiries, staff, staffAttendance, approvals, expenses, academics, documents, activities, backupSettings, workspace, getNextAdmissionNumber, addStudent, recordPayment, submitFeeReceipt, saveFeeGroup, deleteFeeGroup, saveFeeStructure, deleteFeeStructure, deleteFeeReceipt, restoreFeeReceipt, decideFeeApproval, saveFeeManagerConfig, createBackupPayload, restoreBackup, saveBackupSettings, addNotice, saveAttendance, savePeriod, saveTimetableRecord, deleteTimetableRecord, saveEnquiry, uploadStudentDocument, developmentDemo }
 }
 
 export default function App() {
@@ -1366,7 +1444,7 @@ export default function App() {
     students: <Students students={data.students} onAddStudent={data.addStudent} onSelectStudent={setSelectedStudent} />,
     attendance: <Attendance students={data.students} attendance={data.attendance} onSaveAttendance={data.saveAttendance} />,
     fees: <FeeManager students={data.students} fees={data.fees} feeManager={data.feeManager} approvals={data.approvals.fees || {}} onSubmitFee={data.submitFeeReceipt} onSaveGroup={data.saveFeeGroup} onDeleteGroup={data.deleteFeeGroup} onSaveStructure={data.saveFeeStructure} onDeleteStructure={data.deleteFeeStructure} onDeleteReceipt={data.deleteFeeReceipt} onRestoreReceipt={data.restoreFeeReceipt} onDecideApproval={data.decideFeeApproval} onSaveConfig={data.saveFeeManagerConfig} onOpenProfile={setSelectedStudent} />,
-    academics: <Academics timetableData={data.timetableData} onSavePeriod={data.savePeriod} />,
+    academics: <Academics timetableData={data.timetableData} timetableRecords={data.timetableRecords} students={data.students} onSavePeriod={data.savePeriod} onSaveTimetable={data.saveTimetableRecord} onDeleteTimetable={data.deleteTimetableRecord} />,
     notices: <Notices notices={data.notices} onAddNotice={data.addNotice} />,
     backup: <BackupCenter students={data.students} fees={data.fees} attendance={data.attendance} settings={data.backupSettings} createBackup={data.createBackupPayload} restoreBackup={data.restoreBackup} saveSettings={data.saveBackupSettings} role={data.workspace.role} />,
   }
