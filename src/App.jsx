@@ -4,11 +4,13 @@ import {
   GraduationCap, LayoutDashboard, LogOut, Menu, MessageSquareText,
   MoreHorizontal, Plus, Search, Settings, ShieldCheck, Sparkles, Users, X,
   Eye, Receipt, Save, ClipboardList, Download, Upload, Link2, Cake,
-  UserCheck, Clock3, TrendingUp, WalletCards, Printer, FileText, Pencil, Trash2
+  UserCheck, Clock3, TrendingUp, WalletCards, Printer, FileText, Pencil, Trash2,
+  DatabaseBackup
 } from 'lucide-react'
 import './app.css'
 import AuthScreen from './AuthScreen'
 import FeeManager from './FeeManager'
+import BackupCenter from './BackupCenter'
 import { onAuthStateChanged, signOut } from 'firebase/auth'
 import { auth, isFirebaseConfigured } from './lib/firebase'
 
@@ -126,6 +128,7 @@ const nav = [
   { id: 'fees', label: 'Fee Management', icon: IndianRupee },
   { id: 'academics', label: 'Academics', icon: BookOpen },
   { id: 'notices', label: 'Notices', icon: MessageSquareText },
+  { id: 'backup', label: 'Data Backup', icon: DatabaseBackup },
 ]
 
 function useStoredState(key, initialValue) {
@@ -195,7 +198,7 @@ function Sidebar({ page, setPage, open, close, schoolName, cloudMode }) {
           ))}
         </nav>
         <div className="sidebar-bottom">
-          <button><Settings size={18} /><span>School Settings</span></button>
+          <button onClick={() => { setPage('backup'); close() }}><Settings size={18} /><span>Backup Settings</span></button>
           <div className="trial-card">
             <Sparkles size={18} />
             <strong>{cloudMode ? 'Cloud workspace' : 'Development demo'}</strong>
@@ -781,6 +784,40 @@ function studentFromRow(row, index) {
   }
 }
 
+function studentToRow(student) {
+  const [className, section = 'A'] = String(student.className || '').split('-')
+  return {
+    full_name: student.name,
+    admission_number: String(student.roll),
+    class_name: className,
+    section,
+    guardian_name: student.guardian || '',
+    guardian_phone: student.phone || '',
+    attendance_rate: Number(student.attendance || 0),
+    fee_status: student.fee || 'Pending',
+    admission_scheme: student.admissionScheme || 'General',
+    admission_date: student.admissionDate || '',
+    admission_type: student.admissionType || 'New',
+    father_name: student.fatherName || '',
+    mother_name: student.motherName || '',
+    gender: student.gender || '',
+    date_of_birth: student.dob || '',
+    email: student.email || '',
+    state: student.state || '',
+    city: student.city || '',
+    address: student.address || '',
+    pincode: student.pincode || '',
+    aadhaar: student.aadhaar || '',
+    pen_id: student.penId || '',
+    apaar_id: student.apaarId || '',
+    fee_group: student.feeGroup || 'Standard',
+    sms_enabled: student.smsEnabled !== false,
+    active: student.active !== false,
+    createdAt: student.createdAt || Date.now(),
+    updatedAt: Date.now(),
+  }
+}
+
 function noticeFromRow(row) {
   const published = row.publishAt || row.publish_at || Date.now()
   return {
@@ -810,6 +847,7 @@ function useSchoolWorkspace(session) {
   const [academics, setAcademics] = useState({})
   const [documents, setDocuments] = useState({})
   const [feeManager, setFeeManager] = useState({ groups: {}, structures: {}, fines: {}, settings: {}, deleted: {} })
+  const [backupSettings, setBackupSettings] = useState({ enabled: false, email: session?.email || '', lastSentAt: 0 })
   const [activities, setActivities] = useState([])
   const [workspace, setWorkspace] = useState({
     loading: Boolean(session && isFirebaseConfigured),
@@ -906,6 +944,7 @@ function useSchoolWorkspace(session) {
           settings: school?.feeManager?.settings || {},
           deleted: school?.feeManager?.deleted || {},
         })
+        setBackupSettings({ enabled: false, email: session.email || '', lastSentAt: 0, ...(school?.backupSettings || {}) })
         setActivities(nextActivities)
         setWorkspace({
           loading: false,
@@ -1136,6 +1175,80 @@ function useSchoolWorkspace(session) {
     setFeeManager(current => ({ ...current, [section]: { ...(current[section] || {}), [id]: row } }))
   }
 
+  const createBackupPayload = () => {
+    const studentRows = Object.fromEntries(students.map(student => [student.id, studentToRow(student)]))
+    const attendanceRows = {}
+    Object.entries(attendance).forEach(([date, marks]) => Object.entries(marks).forEach(([studentId, status]) => {
+      attendanceRows[`${date}_${studentId}`] = { studentId, date, status, markedBy: session?.uid || 'backup', updatedAt: Date.now() }
+    }))
+    return {
+      format: 'northstar-school-backup',
+      version: 1,
+      school: { id: workspace.schoolId, name: workspace.schoolName, academicYear: '2026-27' },
+      exportedAt: new Date().toISOString(),
+      data: {
+        students: studentRows,
+        fees,
+        attendance: attendanceRows,
+        notices: Object.fromEntries(notices.map(notice => [notice.id, {
+          title: notice.title, body: notice.detail, category: notice.type, priority: notice.priority,
+          audience: notice.audience, publishAt: notice.publishAt || Date.now(),
+        }])),
+        timetable: timetableData,
+        enquiries: Object.fromEntries(enquiries.map(item => [item.id, { ...item, id: undefined }])),
+        feeManager,
+        studentAcademics: academics,
+        studentDocuments: documents,
+      },
+    }
+  }
+
+  const restoreBackup = async payload => {
+    if (payload?.format !== 'northstar-school-backup' || payload?.version !== 1 || !payload?.data) throw new Error('This is not a valid Northstar backup file.')
+    const restoredStudents = Object.entries(payload.data.students || {}).map(([id, row], index) => studentFromRow({ id, ...row }, index))
+    const attendanceUpload = Object.fromEntries(Object.entries(payload.data.attendance || {}).map(([id, record]) => [id, { ...record, markedBy: session?.uid || 'backup', updatedAt: Date.now() }]))
+    const restoredAttendance = Object.values(attendanceUpload).reduce((dates, record) => {
+      dates[record.date] ||= {}
+      dates[record.date][record.studentId] = record.status
+      return dates
+    }, {})
+    const restoredNotices = Object.entries(payload.data.notices || {}).map(([id, row]) => noticeFromRow({ id, ...row }))
+    const restoredEnquiries = Object.entries(payload.data.enquiries || {}).map(([id, row]) => ({ id, ...row }))
+    if (!developmentDemo) {
+      const token = await session.getIdToken()
+      await Promise.all([
+        databaseRequest(`students/${workspace.schoolId}`, token, { method: 'PUT', body: payload.data.students || {} }),
+        databaseRequest(`fees/${workspace.schoolId}`, token, { method: 'PUT', body: payload.data.fees || {} }),
+        databaseRequest(`attendance/${workspace.schoolId}`, token, { method: 'PUT', body: attendanceUpload }),
+        databaseRequest(`notices/${workspace.schoolId}`, token, { method: 'PUT', body: payload.data.notices || {} }),
+        databaseRequest(`schools/${workspace.schoolId}/timetable`, token, { method: 'PUT', body: payload.data.timetable || {} }),
+        databaseRequest(`schools/${workspace.schoolId}/enquiries`, token, { method: 'PUT', body: payload.data.enquiries || {} }),
+        databaseRequest(`schools/${workspace.schoolId}/feeManager`, token, { method: 'PUT', body: payload.data.feeManager || {} }),
+        databaseRequest(`schools/${workspace.schoolId}/studentAcademics`, token, { method: 'PUT', body: payload.data.studentAcademics || {} }),
+        databaseRequest(`schools/${workspace.schoolId}/studentDocuments`, token, { method: 'PUT', body: payload.data.studentDocuments || {} }),
+      ])
+    }
+    setStudents(restoredStudents)
+    setFees(payload.data.fees || {})
+    setAttendance(restoredAttendance)
+    setNotices(restoredNotices)
+    setTimetableData(payload.data.timetable || {})
+    setEnquiries(restoredEnquiries)
+    setFeeManager(payload.data.feeManager || { groups: {}, structures: {}, fines: {}, settings: {}, deleted: {} })
+    setAcademics(payload.data.studentAcademics || {})
+    setDocuments(payload.data.studentDocuments || {})
+    setActivities(current => [{ id: `restore-${Date.now()}`, title: 'School backup restored', detail: `${restoredStudents.length} students restored`, at: Date.now(), icon: 'R' }, ...current])
+  }
+
+  const saveBackupSettings = async settings => {
+    const row = { ...settings, updatedAt: Date.now() }
+    if (!developmentDemo) {
+      const token = await session.getIdToken()
+      await databaseRequest(`schools/${workspace.schoolId}/backupSettings`, token, { method: 'PUT', body: row })
+    }
+    setBackupSettings(row)
+  }
+
   const addNotice = async notice => {
     if (developmentDemo) {
       const publishAt = Date.now()
@@ -1211,7 +1324,7 @@ function useSchoolWorkspace(session) {
     setDocuments(current => ({ ...current, [studentId]: { ...(current[studentId] || {}), [type]: document } }))
   }
 
-  return { students, notices, fees, feeManager, attendance, timetableData, enquiries, staff, staffAttendance, approvals, expenses, academics, documents, activities, workspace, getNextAdmissionNumber, addStudent, recordPayment, submitFeeReceipt, saveFeeGroup, deleteFeeGroup, saveFeeStructure, deleteFeeStructure, deleteFeeReceipt, restoreFeeReceipt, decideFeeApproval, saveFeeManagerConfig, addNotice, saveAttendance, savePeriod, saveEnquiry, uploadStudentDocument, developmentDemo }
+  return { students, notices, fees, feeManager, attendance, timetableData, enquiries, staff, staffAttendance, approvals, expenses, academics, documents, activities, backupSettings, workspace, getNextAdmissionNumber, addStudent, recordPayment, submitFeeReceipt, saveFeeGroup, deleteFeeGroup, saveFeeStructure, deleteFeeStructure, deleteFeeReceipt, restoreFeeReceipt, decideFeeApproval, saveFeeManagerConfig, createBackupPayload, restoreBackup, saveBackupSettings, addNotice, saveAttendance, savePeriod, saveEnquiry, uploadStudentDocument, developmentDemo }
 }
 
 export default function App() {
@@ -1255,6 +1368,7 @@ export default function App() {
     fees: <FeeManager students={data.students} fees={data.fees} feeManager={data.feeManager} approvals={data.approvals.fees || {}} onSubmitFee={data.submitFeeReceipt} onSaveGroup={data.saveFeeGroup} onDeleteGroup={data.deleteFeeGroup} onSaveStructure={data.saveFeeStructure} onDeleteStructure={data.deleteFeeStructure} onDeleteReceipt={data.deleteFeeReceipt} onRestoreReceipt={data.restoreFeeReceipt} onDecideApproval={data.decideFeeApproval} onSaveConfig={data.saveFeeManagerConfig} onOpenProfile={setSelectedStudent} />,
     academics: <Academics timetableData={data.timetableData} onSavePeriod={data.savePeriod} />,
     notices: <Notices notices={data.notices} onAddNotice={data.addNotice} />,
+    backup: <BackupCenter students={data.students} fees={data.fees} attendance={data.attendance} settings={data.backupSettings} createBackup={data.createBackupPayload} restoreBackup={data.restoreBackup} saveSettings={data.saveBackupSettings} role={data.workspace.role} />,
   }
   return <div className="app-shell"><Sidebar page={page} setPage={setPage} open={menuOpen} close={() => setMenuOpen(false)} schoolName={data.workspace.schoolName} cloudMode={!data.developmentDemo} /><main className="main-area"><Header title={current.label} subtitle={`${data.workspace.schoolName} · 2026-27`} onMenu={() => setMenuOpen(true)} profile={profile} onSignOut={() => isFirebaseConfigured && signOut(auth)} students={data.students} onSelectStudent={setSelectedStudent} /><div className="page-content page-enter" key={page}>{screens[page]}</div></main>{selectedStudent && <StudentProfile student={data.students.find(student => student.id === selectedStudent.id) || selectedStudent} close={() => setSelectedStudent(null)} attendance={data.attendance} fees={data.fees} academics={data.academics} documents={data.documents} onRecordPayment={data.recordPayment} onUploadDocument={data.uploadStudentDocument} />}</div>
 }

@@ -3,6 +3,12 @@
   "buildCommand": "npm run build",
   "outputDirectory": "dist",
   "cleanUrls": true,
+  "crons": [
+    {
+      "path": "/api/monthly-backup",
+      "schedule": "0 3 1 * *"
+    }
+  ],
   "headers": [
     {
       "source": "/(.*)",
