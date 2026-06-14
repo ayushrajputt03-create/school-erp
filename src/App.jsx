@@ -1002,14 +1002,18 @@ function useSchoolWorkspace(session) {
   const submitFeeReceipt = async receipt => {
     const paidAt = Date.now()
     const receiptId = `receipt_${paidAt}`
-    const receiptNumber = `REC-${new Date().getFullYear()}-${String(paidAt).slice(-7)}`
+    const settings = feeManager.settings?.config || {}
+    const prefix = settings.prefix || `REC-${new Date().getFullYear()}`
+    const existingNumbers = Object.values(fees).map(item => Number(String(item.receiptNumber || '').match(/(\d+)$/)?.[1] || 0))
+    const sequence = Math.max(Number(settings.start || 1) - 1, ...existingNumbers) + 1
+    const receiptNumber = `${prefix}-${String(sequence).padStart(5, '0')}`
     const row = {
       ...receipt,
       receiptNumber,
       invoiceNumber: receiptNumber,
       amount: Number(receipt.paidAmount || receipt.amount || 0),
       method: (receipt.payments || []).map(item => item.type).join(' + ') || 'CASH',
-      status: Number(receipt.balance || 0) > 0 ? 'partial' : 'paid',
+      status: Number(receipt.balance || 0) > 0 || Number(receipt.discount || 0) > 0 ? 'pending_approval' : 'paid',
       paidAt,
       updatedAt: paidAt,
     }
@@ -1020,11 +1024,13 @@ function useSchoolWorkspace(session) {
         [`students/${workspace.schoolId}/${receipt.studentId}/fee_status`]: row.status === 'paid' ? 'Paid' : 'Pending',
         [`students/${workspace.schoolId}/${receipt.studentId}/fee_group`]: receipt.feeGroup,
         [`students/${workspace.schoolId}/${receipt.studentId}/updatedAt`]: paidAt,
+        ...(row.status === 'pending_approval' ? { [`schools/${workspace.schoolId}/approvals/fees/${receiptId}`]: { receiptId, studentId: receipt.studentId, studentName: receipt.studentName, receiptNumber, amount: row.amount, balance: receipt.balance, discount: receipt.discount || 0, status: 'pending', createdAt: paidAt } } : {}),
       } })
     }
     setFees(current => ({ ...current, [receiptId]: row }))
     setStudents(current => current.map(student => student.id === receipt.studentId ? { ...student, fee: row.status === 'paid' ? 'Paid' : 'Pending', feeGroup: receipt.feeGroup } : student))
     setActivities(current => [{ id: `fee-${receiptId}`, title: 'Fee receipt submitted', detail: `${receiptNumber} · ${money(row.amount)}`, at: paidAt, icon: '₹' }, ...current])
+    if (row.status === 'pending_approval') setApprovals(current => ({ ...current, fees: { ...(current.fees || {}), [receiptId]: { receiptId, studentId: receipt.studentId, studentName: receipt.studentName, receiptNumber, amount: row.amount, balance: receipt.balance, discount: receipt.discount || 0, status: 'pending', createdAt: paidAt } } }))
     return receiptNumber
   }
 
@@ -1058,6 +1064,67 @@ function useSchoolWorkspace(session) {
       await databaseRequest(`schools/${workspace.schoolId}/feeManager/structures/${id}`, token, { method: 'PUT', body: row })
     }
     setFeeManager(current => ({ ...current, structures: { ...current.structures, [id]: row } }))
+  }
+
+  const deleteFeeStructure = async id => {
+    if (!developmentDemo) {
+      const token = await session.getIdToken()
+      await databaseRequest(`schools/${workspace.schoolId}/feeManager/structures/${id}`, token, { method: 'DELETE' })
+    }
+    setFeeManager(current => {
+      const structures = { ...current.structures }
+      delete structures[id]
+      return { ...current, structures }
+    })
+  }
+
+  const deleteFeeReceipt = async receiptId => {
+    const row = fees[receiptId]
+    if (!row) return
+    const deletedRow = { ...row, originalId: receiptId, deletedAt: Date.now() }
+    if (!developmentDemo) {
+      const token = await session.getIdToken()
+      await databaseRequest('', token, { method: 'PATCH', body: {
+        [`fees/${workspace.schoolId}/${receiptId}`]: null,
+        [`schools/${workspace.schoolId}/feeManager/deleted/${receiptId}`]: deletedRow,
+      } })
+    }
+    setFees(current => { const next = { ...current }; delete next[receiptId]; return next })
+    setFeeManager(current => ({ ...current, deleted: { ...current.deleted, [receiptId]: deletedRow } }))
+  }
+
+  const restoreFeeReceipt = async receiptId => {
+    const row = feeManager.deleted[receiptId]
+    if (!row) return
+    const restored = { ...row }
+    delete restored.deletedAt
+    delete restored.originalId
+    if (!developmentDemo) {
+      const token = await session.getIdToken()
+      await databaseRequest('', token, { method: 'PATCH', body: {
+        [`fees/${workspace.schoolId}/${receiptId}`]: restored,
+        [`schools/${workspace.schoolId}/feeManager/deleted/${receiptId}`]: null,
+      } })
+    }
+    setFees(current => ({ ...current, [receiptId]: restored }))
+    setFeeManager(current => { const deleted = { ...current.deleted }; delete deleted[receiptId]; return { ...current, deleted } })
+  }
+
+  const decideFeeApproval = async (receiptId, decision) => {
+    const approval = approvals.fees?.[receiptId]
+    const nextStatus = decision === 'approved' ? 'paid' : 'rejected'
+    if (!developmentDemo) {
+      const token = await session.getIdToken()
+      await databaseRequest('', token, { method: 'PATCH', body: {
+        [`schools/${workspace.schoolId}/approvals/fees/${receiptId}/status`]: decision,
+        [`schools/${workspace.schoolId}/approvals/fees/${receiptId}/decidedAt`]: Date.now(),
+        [`fees/${workspace.schoolId}/${receiptId}/status`]: nextStatus,
+        ...(decision === 'approved' && approval?.studentId ? { [`students/${workspace.schoolId}/${approval.studentId}/fee_status`]: 'Paid' } : {}),
+      } })
+    }
+    setApprovals(current => ({ ...current, fees: { ...current.fees, [receiptId]: { ...current.fees[receiptId], status: decision, decidedAt: Date.now() } } }))
+    setFees(current => ({ ...current, [receiptId]: { ...current[receiptId], status: nextStatus } }))
+    if (decision === 'approved' && approval?.studentId) setStudents(current => current.map(student => student.id === approval.studentId ? { ...student, fee: 'Paid' } : student))
   }
 
   const saveFeeManagerConfig = async (section, value, id = 'config') => {
@@ -1144,7 +1211,7 @@ function useSchoolWorkspace(session) {
     setDocuments(current => ({ ...current, [studentId]: { ...(current[studentId] || {}), [type]: document } }))
   }
 
-  return { students, notices, fees, feeManager, attendance, timetableData, enquiries, staff, staffAttendance, approvals, expenses, academics, documents, activities, workspace, getNextAdmissionNumber, addStudent, recordPayment, submitFeeReceipt, saveFeeGroup, deleteFeeGroup, saveFeeStructure, saveFeeManagerConfig, addNotice, saveAttendance, savePeriod, saveEnquiry, uploadStudentDocument, developmentDemo }
+  return { students, notices, fees, feeManager, attendance, timetableData, enquiries, staff, staffAttendance, approvals, expenses, academics, documents, activities, workspace, getNextAdmissionNumber, addStudent, recordPayment, submitFeeReceipt, saveFeeGroup, deleteFeeGroup, saveFeeStructure, deleteFeeStructure, deleteFeeReceipt, restoreFeeReceipt, decideFeeApproval, saveFeeManagerConfig, addNotice, saveAttendance, savePeriod, saveEnquiry, uploadStudentDocument, developmentDemo }
 }
 
 export default function App() {
@@ -1185,7 +1252,7 @@ export default function App() {
     admissions: <Admissions students={data.students} enquiries={data.enquiries} onAddStudent={data.addStudent} onSaveEnquiry={data.saveEnquiry} getNextAdmissionNumber={data.getNextAdmissionNumber} />,
     students: <Students students={data.students} onAddStudent={data.addStudent} onSelectStudent={setSelectedStudent} />,
     attendance: <Attendance students={data.students} attendance={data.attendance} onSaveAttendance={data.saveAttendance} />,
-    fees: <FeeManager students={data.students} fees={data.fees} feeManager={data.feeManager} onSubmitFee={data.submitFeeReceipt} onSaveGroup={data.saveFeeGroup} onDeleteGroup={data.deleteFeeGroup} onSaveStructure={data.saveFeeStructure} onSaveConfig={data.saveFeeManagerConfig} onOpenProfile={setSelectedStudent} />,
+    fees: <FeeManager students={data.students} fees={data.fees} feeManager={data.feeManager} approvals={data.approvals.fees || {}} onSubmitFee={data.submitFeeReceipt} onSaveGroup={data.saveFeeGroup} onDeleteGroup={data.deleteFeeGroup} onSaveStructure={data.saveFeeStructure} onDeleteStructure={data.deleteFeeStructure} onDeleteReceipt={data.deleteFeeReceipt} onRestoreReceipt={data.restoreFeeReceipt} onDecideApproval={data.decideFeeApproval} onSaveConfig={data.saveFeeManagerConfig} onOpenProfile={setSelectedStudent} />,
     academics: <Academics timetableData={data.timetableData} onSavePeriod={data.savePeriod} />,
     notices: <Notices notices={data.notices} onAddNotice={data.addNotice} />,
   }

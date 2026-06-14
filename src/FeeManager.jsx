@@ -1,5 +1,5 @@
 import React, { useState } from 'react'
-import { Check, Plus, Printer, Receipt, Save, Search, X, Pencil, Trash2 } from 'lucide-react'
+import { Check, Plus, Printer, Receipt, Save, Search, X, Pencil, Trash2, Eye, RotateCcw } from 'lucide-react'
 
 const feeHeads = ['Tuition Fee', 'Exam Fee', 'IT Fee', 'Annual Charges', 'Absent Fine', 'Admission Fee', 'Fine', 'Other', 'Previous Due', 'Development Charge']
 const feeMonths = ['April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December', 'January', 'February', 'March']
@@ -64,6 +64,7 @@ function SubmitFee({ students, onSubmit, onOpenProfile }) {
         sendWhatsapp: form.whatsapp,
         feeItems: selectedRows.map(row => ({ ...row, total: Number(row.due || 0) + Number(row.previous || 0) - Number(row.discount || 0) })),
         totalDue: grandTotal,
+        discount,
         paidAmount,
         balance,
         payments,
@@ -155,7 +156,7 @@ function SubmitFee({ students, onSubmit, onOpenProfile }) {
 }
 
 function FeeGroupPage({ groups, onSave, onDelete }) {
-  const rows = Object.keys(groups).length ? Object.values(groups) : defaultGroups
+  const rows = [...defaultGroups, ...Object.values(groups).filter(group => !defaultGroups.some(item => item.id === group.id))]
   const [search, setSearch] = useState('')
   const [editing, setEditing] = useState(null)
   const visible = rows.filter(group => group.name.toLowerCase().includes(search.toLowerCase()))
@@ -173,7 +174,7 @@ function FeeGroupPage({ groups, onSave, onDelete }) {
   </>
 }
 
-function SetFeePage({ students, groups, structures, onSave }) {
+function SetFeePage({ students, groups, structures, onSave, onDelete }) {
   const classes = [...new Set(students.map(student => student.className.split('-')[0]))]
   const [mode, setMode] = useState('By Group Wise')
   const [className, setClassName] = useState('All Classes')
@@ -186,41 +187,65 @@ function SetFeePage({ students, groups, structures, onSave }) {
     await onSave({ ...form, mode })
     setEditing(false)
   }
-  const groupRows = Object.keys(groups).length ? Object.values(groups) : defaultGroups
+  const groupRows = [...defaultGroups, ...Object.values(groups).filter(group => !defaultGroups.some(item => item.id === group.id))]
   return <>
     <div className="fee-page-toolbar wrap"><label>Search Fee Structure<select value={mode} onChange={event => setMode(event.target.value)}><option>By Student Wise</option><option>By Group Wise</option></select></label><label>Class<select value={className} onChange={event => setClassName(event.target.value)}><option>All Classes</option>{classes.map(item => <option key={item}>{item}</option>)}</select></label><label>Section<select value={section} onChange={event => setSection(event.target.value)}><option>All Sections</option>{['A','B','C','D'].map(item => <option key={item}>{item}</option>)}</select></label><span /><button className="secondary-button" onClick={() => window.print()}><Printer size={15} /> Print</button><button className="primary-button" onClick={() => setEditing(true)}><Plus size={15} /> Add</button></div>
-    <div className="panel table-panel"><div className="table-scroll"><table><thead><tr><th>Set Type</th><th>Target</th><th>Class</th><th>Section</th><th>Fee Head</th><th>Amount</th><th>Frequency</th></tr></thead><tbody>
-      {rows.map(row => <tr key={row.id}><td>{row.mode}</td><td>{row.target}</td><td>{row.className}</td><td>{row.section}</td><td>{row.feeHead}</td><td><strong>{money(row.amount)}</strong></td><td>{row.frequency}</td></tr>)}
-      {!rows.length && <tr><td colSpan="7"><div className="empty-state">No fee structure for these filters. Use Add to create one.</div></td></tr>}
+    <div className="panel table-panel"><div className="table-scroll"><table><thead><tr><th>Set Type</th><th>Target</th><th>Class</th><th>Section</th><th>Fee Head</th><th>Amount</th><th>Frequency</th><th>Action</th></tr></thead><tbody>
+      {rows.map(row => <tr key={row.id}><td>{row.mode}</td><td>{row.target}</td><td>{row.className}</td><td>{row.section}</td><td>{row.feeHead}</td><td><strong>{money(row.amount)}</strong></td><td>{row.frequency}</td><td><button className="icon-button danger" title="Delete structure" onClick={() => onDelete(row.id)}><Trash2 size={14} /></button></td></tr>)}
+      {!rows.length && <tr><td colSpan="8"><div className="empty-state">No fee structure for these filters. Use Add to create one.</div></td></tr>}
     </tbody></table></div></div>
     {editing && <div className="modal-backdrop"><form className="modal" onSubmit={save}><div className="modal-header"><div><h3>Add fee structure</h3><p>{mode}</p></div><button type="button" className="icon-button" onClick={() => setEditing(false)}><X size={18} /></button></div><div className="form-grid"><label className="full">{mode === 'By Group Wise' ? 'Fee Group' : 'Student'}<select value={form.target} onChange={event => setForm({ ...form, target: event.target.value })}>{mode === 'By Group Wise' ? groupRows.map(group => <option key={group.id}>{group.name}</option>) : students.map(student => <option key={student.id} value={student.id}>{student.name} - {student.roll}</option>)}</select></label><label>Class<select value={form.className} onChange={event => setForm({ ...form, className: event.target.value })}>{classes.map(item => <option key={item}>{item}</option>)}</select></label><label>Section<select value={form.section} onChange={event => setForm({ ...form, section: event.target.value })}>{['A','B','C','D'].map(item => <option key={item}>{item}</option>)}</select></label><label>Fee Head<select value={form.feeHead} onChange={event => setForm({ ...form, feeHead: event.target.value })}>{feeHeads.map(item => <option key={item}>{item}</option>)}</select></label><label>Amount<input type="number" min="0" value={form.amount} onChange={event => setForm({ ...form, amount: Number(event.target.value) })} /></label><label>Frequency<select value={form.frequency} onChange={event => setForm({ ...form, frequency: event.target.value })}><option>Monthly</option><option>Quarterly</option><option>Yearly</option><option>One Time</option></select></label></div><div className="modal-actions"><button type="button" className="secondary-button" onClick={() => setEditing(false)}>Cancel</button><button className="primary-button"><Save size={15} /> Save structure</button></div></form></div>}
   </>
 }
 
-function FeeReportPage({ page, students, fees, feeManager, onSaveConfig }) {
-  const payments = Object.values(fees).sort((a, b) => (b.paidAt || 0) - (a.paidAt || 0))
+function ReceiptPreview({ receipt, settings, close }) {
+  return <div className="modal-backdrop"><div className="modal receipt-preview">
+    <div className="modal-header"><div><h3>Fee Receipt</h3><p>{receipt.receiptNumber || receipt.invoiceNumber}</p></div><button className="icon-button" onClick={close}><X size={18} /></button></div>
+    <div className="receipt-document">
+      <div className="receipt-brand"><div><strong>NXT OpenERP School</strong>{settings.showAddress !== false && <small>Delhi, India</small>}</div><span>PAID RECEIPT</span></div>
+      <dl><dt>Student</dt><dd>{receipt.studentName}</dd><dt>Admission No.</dt><dd>{receipt.admissionNumber}</dd><dt>Class</dt><dd>{receipt.className}</dd><dt>Fee Month</dt><dd>{receipt.billingMonth}</dd><dt>Receipt Date</dt><dd>{receipt.receiptDate || new Date(receipt.paidAt).toLocaleDateString('en-IN')}</dd>{settings.showMode !== false && <><dt>Payment Mode</dt><dd>{receipt.method}</dd></>}</dl>
+      <table><thead><tr><th>Fee Head</th><th>Total</th></tr></thead><tbody>{(receipt.feeItems || [{ head: 'Fee Payment', total: receipt.totalDue || receipt.amount }]).map((item, index) => <tr key={`${item.head}-${index}`}><td>{item.head}</td><td>{money(item.total)}</td></tr>)}</tbody></table>
+      <div className="receipt-totals"><span>Paid <strong>{money(receipt.amount)}</strong></span><span>Balance <strong>{money(receipt.balance)}</strong></span></div>
+      {receipt.remark && <p><strong>Remark:</strong> {receipt.remark}</p>}
+      <small>{settings.footer || 'Fee once paid is non-refundable.'}</small>
+    </div>
+    <div className="modal-actions"><button className="secondary-button" onClick={close}>Close</button><button className="primary-button" onClick={() => window.print()}><Printer size={15} /> Print receipt</button></div>
+  </div></div>
+}
+
+function FeeReportPage({ page, students, fees, feeManager, approvals, onSaveConfig, onDeleteReceipt, onRestoreReceipt, onDecideApproval }) {
+  const payments = Object.entries(fees).map(([id, row]) => ({ id, ...row })).sort((a, b) => (b.paidAt || 0) - (a.paidAt || 0))
   const titles = { defaulters: 'Fee Defaulters', register: 'Fee Register', report: 'Master Fee Report', fine: 'Manage Fine', approve: 'Fee Approvals', deleted: 'Deleted Fee Record', 'receipt-settings': 'Receipt Settings' }
   const savedSettings = feeManager.settings?.config || {}
   const [settings, setSettings] = useState({ prefix: savedSettings.prefix || 'REC-2026', start: savedSettings.start || 1, footer: savedSettings.footer || 'Fee once paid is non-refundable.', showAddress: savedSettings.showAddress !== false, showMode: savedSettings.showMode !== false })
   const [fineForm, setFineForm] = useState(null)
   const [saved, setSaved] = useState(false)
+  const [selectedReceipt, setSelectedReceipt] = useState(null)
   const saveSettings = async () => { await onSaveConfig('settings', settings); setSaved(true); setTimeout(() => setSaved(false), 1600) }
   const saveFine = async event => { event.preventDefault(); await onSaveConfig('fines', fineForm, fineForm.id || `fine_${Date.now()}`); setFineForm(null) }
   if (page === 'receipt-settings') return <div className="panel settings-form"><div className="panel-header"><div><h3>Receipt Settings</h3><p>Configure receipt identity and print defaults.</p></div></div><div className="form-grid"><label>Receipt Prefix<input value={settings.prefix} onChange={event => setSettings({ ...settings, prefix: event.target.value })} /></label><label>Starting Number<input type="number" value={settings.start} onChange={event => setSettings({ ...settings, start: Number(event.target.value) })} /></label><label className="full">Footer Note<input value={settings.footer} onChange={event => setSettings({ ...settings, footer: event.target.value })} /></label><label><input type="checkbox" checked={settings.showAddress} onChange={event => setSettings({ ...settings, showAddress: event.target.checked })} /> Show school address</label><label><input type="checkbox" checked={settings.showMode} onChange={event => setSettings({ ...settings, showMode: event.target.checked })} /> Show payment mode</label></div><div className="modal-actions"><button className="primary-button" onClick={saveSettings}>{saved ? <Check size={15} /> : <Save size={15} />} {saved ? 'Settings saved' : 'Save settings'}</button></div></div>
   if (page === 'fine') return <><div className="panel settings-form"><div className="panel-header"><div><h3>Manage Fine</h3><p>Create reusable late and absence fine rules.</p></div><button className="primary-button" onClick={() => setFineForm({ name: '', type: 'Late Fee', amount: 100, triggerAfter: 10 })}><Plus size={15} /> Add fine rule</button></div>{Object.values(feeManager.fines || {}).length ? <div className="table-scroll"><table><thead><tr><th>Rule</th><th>Type</th><th>Amount</th><th>Trigger after</th><th>Action</th></tr></thead><tbody>{Object.values(feeManager.fines).map(rule => <tr key={rule.id}><td><strong>{rule.name}</strong></td><td>{rule.type}</td><td>{money(rule.amount)}</td><td>{rule.triggerAfter} days</td><td><button className="icon-button" onClick={() => setFineForm(rule)}><Pencil size={14} /></button></td></tr>)}</tbody></table></div> : <div className="empty-state">No fine rules configured yet.</div>}</div>{fineForm && <div className="modal-backdrop"><form className="modal" onSubmit={saveFine}><div className="modal-header"><div><h3>Fine rule</h3><p>Automatically reusable during fee collection.</p></div><button type="button" className="icon-button" onClick={() => setFineForm(null)}><X size={18} /></button></div><div className="form-grid"><label className="full">Rule Name<input required value={fineForm.name} onChange={event => setFineForm({ ...fineForm, name: event.target.value })} /></label><label>Fine Type<select value={fineForm.type} onChange={event => setFineForm({ ...fineForm, type: event.target.value })}><option>Late Fee</option><option>Absent Fine</option><option>Other</option></select></label><label>Amount<input type="number" min="0" value={fineForm.amount} onChange={event => setFineForm({ ...fineForm, amount: Number(event.target.value) })} /></label><label>Trigger After (days)<input type="number" min="0" value={fineForm.triggerAfter} onChange={event => setFineForm({ ...fineForm, triggerAfter: Number(event.target.value) })} /></label></div><div className="modal-actions"><button type="button" className="secondary-button" onClick={() => setFineForm(null)}>Cancel</button><button className="primary-button"><Save size={15} /> Save rule</button></div></form></div>}</>
+  if (page === 'deleted') {
+    const deletedRows = Object.entries(feeManager.deleted || {}).map(([id, row]) => ({ id, ...row }))
+    return <div className="panel table-panel"><div className="panel-header"><div><h3>Deleted Fee Record</h3><p>Restore receipts removed by mistake</p></div></div><div className="table-scroll"><table><thead><tr><th>Receipt</th><th>Student</th><th>Amount</th><th>Deleted On</th><th>Action</th></tr></thead><tbody>{deletedRows.map(row => <tr key={row.id}><td>{row.receiptNumber}</td><td>{row.studentName}</td><td>{money(row.amount)}</td><td>{new Date(row.deletedAt).toLocaleString('en-IN')}</td><td><button className="secondary-button" onClick={() => onRestoreReceipt(row.id)}><RotateCcw size={14} /> Restore</button></td></tr>)}{!deletedRows.length && <tr><td colSpan="5"><div className="empty-state">No deleted fee records.</div></td></tr>}</tbody></table></div></div>
+  }
+  if (page === 'approve') {
+    const approvalRows = Object.entries(approvals || {}).map(([id, row]) => ({ id, ...row })).sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0))
+    return <div className="panel table-panel"><div className="panel-header"><div><h3>Fee Approvals</h3><p>Review partial payments and discounts</p></div></div><div className="table-scroll"><table><thead><tr><th>Receipt</th><th>Student</th><th>Paid</th><th>Discount</th><th>Balance</th><th>Status</th><th>Decision</th></tr></thead><tbody>{approvalRows.map(row => <tr key={row.id}><td>{row.receiptNumber}</td><td>{row.studentName}</td><td>{money(row.amount)}</td><td>{money(row.discount)}</td><td>{money(row.balance)}</td><td><span className={`status ${row.status === 'approved' ? 'paid' : 'pending'}`}>{row.status}</span></td><td>{row.status === 'pending' ? <div className="approval-actions"><button className="secondary-button approve" onClick={() => onDecideApproval(row.id, 'approved')}><Check size={14} /> Approve</button><button className="secondary-button reject" onClick={() => onDecideApproval(row.id, 'rejected')}><X size={14} /> Reject</button></div> : '-'}</td></tr>)}{!approvalRows.length && <tr><td colSpan="7"><div className="empty-state">No fee approvals waiting.</div></td></tr>}</tbody></table></div></div>
+  }
   const rows = page === 'defaulters'
     ? students.filter(student => student.fee !== 'Paid').map(student => ({ studentId: student.id, studentName: student.name, admissionNumber: student.roll, className: student.className, amount: 18500, status: student.fee }))
     : payments
-  return <><div className="section-actions compact"><div><h2>{titles[page]}</h2><p>Live records from Firebase</p></div><button className="secondary-button" onClick={() => window.print()}><Printer size={15} /> Print</button></div><div className="panel table-panel"><div className="table-scroll"><table><thead><tr><th>Student</th><th>Admission No.</th><th>Class</th><th>Receipt</th><th>Amount</th><th>Date</th><th>Status</th></tr></thead><tbody>
+  return <><div className="section-actions compact"><div><h2>{titles[page]}</h2><p>Live records from Firebase</p></div><button className="secondary-button" onClick={() => window.print()}><Printer size={15} /> Print</button></div><div className="panel table-panel"><div className="table-scroll"><table><thead><tr><th>Student</th><th>Admission No.</th><th>Class</th><th>Receipt</th><th>Amount</th><th>Date</th><th>Status</th><th>Action</th></tr></thead><tbody>
     {rows.map((row, index) => {
       const student = students.find(item => item.id === row.studentId)
-      return <tr key={row.receiptNumber || `${row.studentId}-${index}`}><td><strong>{row.studentName || student?.name || 'Student'}</strong></td><td>{row.admissionNumber || student?.roll || '-'}</td><td>{row.className || student?.className || '-'}</td><td>{row.receiptNumber || row.invoiceNumber || '-'}</td><td>{money(row.amount)}</td><td>{row.paidAt ? new Date(row.paidAt).toLocaleDateString('en-IN') : '-'}</td><td><span className={`status ${row.status === 'paid' ? 'paid' : 'pending'}`}>{row.status || 'Pending'}</span></td></tr>
+      return <tr key={row.receiptNumber || `${row.studentId}-${index}`}><td><strong>{row.studentName || student?.name || 'Student'}</strong></td><td>{row.admissionNumber || student?.roll || '-'}</td><td>{row.className || student?.className || '-'}</td><td>{row.receiptNumber || row.invoiceNumber || '-'}</td><td>{money(row.amount)}</td><td>{row.paidAt ? new Date(row.paidAt).toLocaleDateString('en-IN') : '-'}</td><td><span className={`status ${row.status === 'paid' ? 'paid' : 'pending'}`}>{row.status || 'Pending'}</span></td><td>{row.id ? <div className="action-cell"><button className="icon-button" title="View receipt" onClick={() => setSelectedReceipt(row)}><Eye size={14} /></button><button className="icon-button danger" title="Delete receipt" onClick={() => onDeleteReceipt(row.id)}><Trash2 size={14} /></button></div> : '-'}</td></tr>
     })}
-    {!rows.length && <tr><td colSpan="7"><div className="empty-state">No records available yet.</div></td></tr>}
-  </tbody></table></div></div></>
+    {!rows.length && <tr><td colSpan="8"><div className="empty-state">No records available yet.</div></td></tr>}
+  </tbody></table></div></div>{selectedReceipt && <ReceiptPreview receipt={selectedReceipt} settings={savedSettings} close={() => setSelectedReceipt(null)} />}</>
 }
 
-export default function FeeManager({ students, fees, feeManager, onSubmitFee, onSaveGroup, onDeleteGroup, onSaveStructure, onSaveConfig, onOpenProfile }) {
+export default function FeeManager({ students, fees, feeManager, approvals, onSubmitFee, onSaveGroup, onDeleteGroup, onSaveStructure, onDeleteStructure, onDeleteReceipt, onRestoreReceipt, onDecideApproval, onSaveConfig, onOpenProfile }) {
   const [page, setPage] = useState('submit')
   const menu = [['submit','Submit Fee'],['groups','Fee Group'],['set','Set Fee'],['fine','Manage Fine'],['defaulters','Defaulters'],['register','Fee Register'],['report','Master Fee Report'],['receipt-settings','Receipt Settings'],['deleted','Deleted Fee Record'],['approve','Fee Approve']]
   return <>
@@ -228,7 +253,7 @@ export default function FeeManager({ students, fees, feeManager, onSubmitFee, on
     <div className="fee-manager-tabs">{menu.map(([id, label]) => <button key={id} className={page === id ? 'active' : ''} onClick={() => setPage(id)}>{label}</button>)}</div>
     {page === 'submit' && <SubmitFee students={students} onSubmit={onSubmitFee} onOpenProfile={onOpenProfile} />}
     {page === 'groups' && <FeeGroupPage groups={feeManager.groups} onSave={onSaveGroup} onDelete={onDeleteGroup} />}
-    {page === 'set' && <SetFeePage students={students} groups={feeManager.groups} structures={feeManager.structures} onSave={onSaveStructure} />}
-    {!['submit','groups','set'].includes(page) && <FeeReportPage page={page} students={students} fees={fees} feeManager={feeManager} onSaveConfig={onSaveConfig} />}
+    {page === 'set' && <SetFeePage students={students} groups={feeManager.groups} structures={feeManager.structures} onSave={onSaveStructure} onDelete={onDeleteStructure} />}
+    {!['submit','groups','set'].includes(page) && <FeeReportPage page={page} students={students} fees={fees} feeManager={feeManager} approvals={approvals} onSaveConfig={onSaveConfig} onDeleteReceipt={onDeleteReceipt} onRestoreReceipt={onRestoreReceipt} onDecideApproval={onDecideApproval} />}
   </>
 }
