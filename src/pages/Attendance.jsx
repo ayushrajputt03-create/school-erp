@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import { supabase } from '../lib/supabase'
+import DatePicker from '../DatePicker'
 
 export default function Attendance() {
   const [students, setStudents] = useState([])
@@ -76,7 +77,7 @@ export default function Attendance() {
         <div style={{ display: 'flex', gap: 12, alignItems: 'center', marginBottom: '1rem', flexWrap: 'wrap' }}>
           <div>
             <label style={{ fontSize: 12, color: '#6b7280', display: 'block', marginBottom: 2 }}>Date</label>
-            <input type="date" value={date} onChange={e=>setDate(e.target.value)}
+      <DatePicker value={date} onChange={setDate}
               style={{ padding: '7px 10px', border: '1px solid #D1D5DB', borderRadius: 8, fontSize: 13 }} />
           </div>
           <div>

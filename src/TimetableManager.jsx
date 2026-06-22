@@ -1,5 +1,6 @@
 import React, { useMemo, useState } from 'react'
 import { Download, FileImage, FileText, Pencil, Plus, Search, Trash2, Upload, X } from 'lucide-react'
+import DatePicker from './DatePicker'
 
 const today = () => {
   const date = new Date()
@@ -39,8 +40,8 @@ function TimetableForm({ initial, classes, close, save }) {
       <label className="full">Title of timetable<input required value={form.title} onChange={event => setForm({ ...form, title: event.target.value })} placeholder="e.g. Term I Class Timetable" /></label>
       <label>Class<select value={form.className} onChange={event => setForm({ ...form, className: event.target.value })}>{classes.map(item => <option key={item}>{item}</option>)}</select></label>
       <label>Section<select value={form.section} onChange={event => setForm({ ...form, section: event.target.value })}>{['A','B','C','D'].map(item => <option key={item}>{item}</option>)}</select></label>
-      <label>Start Date<input required type="date" value={form.startDate} onChange={event => setForm({ ...form, startDate: event.target.value })} /></label>
-      <label>End Date<input required type="date" min={form.startDate} value={form.endDate} onChange={event => setForm({ ...form, endDate: event.target.value })} /></label>
+      <label>Start Date<DatePicker required value={form.startDate} onChange={value => setForm({ ...form, startDate: value })} /></label>
+      <label>End Date<DatePicker required min={form.startDate} value={form.endDate} onChange={value => setForm({ ...form, endDate: value })} /></label>
       <label className="full timetable-file-field">
         Upload Timetable file
         <input type="file" accept=".pdf,image/jpeg,image/png,image/webp" onChange={chooseFile} />
@@ -79,7 +80,7 @@ export default function TimetableManager({ records, students, saveRecord, delete
       <label>Filter By<select value={filterBy} onChange={event => setFilterBy(event.target.value)}><option>By Class</option><option>By Date</option></select></label>
       {filterBy === 'By Class'
         ? <label>Select Class<select value={className} onChange={event => setClassName(event.target.value)}><option>All Classes</option>{classes.map(item => <option key={item}>{item}</option>)}</select></label>
-        : <><label>From Date<input type="date" value={fromDate} onChange={event => setFromDate(event.target.value)} /></label><label>To Date<input type="date" min={fromDate} value={toDate} onChange={event => setToDate(event.target.value)} /></label></>}
+        : <><label>From Date<DatePicker value={fromDate} onChange={setFromDate} /></label><label>To Date<DatePicker min={fromDate} value={toDate} onChange={setToDate} /></label></>}
       <div className="table-search timetable-search"><Search size={15} /><input value={search} onChange={event => setSearch(event.target.value)} placeholder="Search timetable" /></div>
       <button className="primary-button timetable-add" onClick={() => setEditing({})} title="Add timetable"><Plus size={18} /></button>
     </div>

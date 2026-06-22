@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import { supabase } from '../lib/supabase'
+import DatePicker from '../DatePicker'
 
 const CLASSES = ['All','1','2','3','4','5','6','7','8','9','10']
 const SUBJECTS = ['Mathematics','Science','English','Hindi','Social Studies','Computer','General']
@@ -155,7 +156,7 @@ export default function NoticeBoard() {
                 </div>
                 <div>
                   <label style={labelStyle}>Due Date</label>
-                  <input type="date" style={inputStyle} value={form.due_date} onChange={e=>setForm({...form,due_date:e.target.value})} />
+          <DatePicker value={form.due_date} onChange={value=>setForm({...form,due_date:value})} />
                 </div>
                 <div>
                   <label style={labelStyle}>Priority</label>

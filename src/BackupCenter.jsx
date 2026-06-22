@@ -76,10 +76,14 @@ export default function BackupCenter({ students, fees, attendance, settings, cre
     const file = event.target.files?.[0]
     event.target.value = ''
     if (!file) return
+    if (file.size > 10 * 1024 * 1024) {
+      setMessage('Backup file is too large. Maximum supported size is 10 MB.')
+      return
+    }
     setBusy('restore')
     try {
       const payload = JSON.parse(await file.text())
-      if (payload?.format !== 'northstar-school-backup') throw new Error('Please select a Northstar JSON backup file.')
+      if (payload?.format !== 'northstar-school-backup' || payload?.version !== 1 || !payload?.data || typeof payload.data !== 'object') throw new Error('Please select a valid NXT School ERP JSON backup file.')
       const confirmed = window.confirm(`Restore backup from ${new Date(payload.exportedAt).toLocaleString('en-IN')}?\n\nCurrent Students, Fees and Attendance will be replaced.`)
       if (!confirmed) return
       exportJson()

@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import { supabase } from '../lib/supabase'
+import DatePicker from '../DatePicker'
 
 const MONTHS = ['April','May','June','July','August','September','October','November','December','January','February','March']
 
@@ -151,7 +152,7 @@ export default function Fees() {
                 </div>
                 <div>
                   <label style={labelStyle}>Payment Date</label>
-                  <input type="date" style={inputStyle} value={form.paid_on} onChange={e=>setForm({...form,paid_on:e.target.value})} />
+          <DatePicker value={form.paid_on} onChange={value=>setForm({...form,paid_on:value})} />
                 </div>
                 <div>
                   <label style={labelStyle}>Status</label>

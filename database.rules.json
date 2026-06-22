@@ -6,57 +6,111 @@
       "$uid": {
         ".read": "auth != null && auth.uid === $uid",
         ".write": "auth != null && auth.uid === $uid",
-        ".validate": "newData.hasChildren(['schoolId', 'fullName', 'role'])"
+        ".validate": "newData.hasChildren(['schoolId', 'fullName', 'role', 'uid']) && newData.child('uid').val() === $uid && newData.child('schoolId').val() === $uid"
+      }
+    },
+    "superAdmin": {
+      "$uid": {
+        ".read": "auth != null && auth.uid === $uid && auth.token.email === 'ayushrajputt03@gmail.com'",
+        ".write": "auth != null && auth.uid === $uid && auth.token.email === 'ayushrajputt03@gmail.com'",
+        ".validate": "newData.hasChildren(['uid', 'name', 'email', 'role', 'createdAt']) && newData.child('uid').val() === $uid && newData.child('email').val() === auth.token.email && newData.child('role').val() === 'super-admin'"
+      }
+    },
+    "schoolCodes": {
+      "$code": {
+        ".read": "auth != null",
+        ".write": "auth != null && (!data.exists() || data.child('schoolId').val() === auth.uid || root.child('superAdmin').child(auth.uid).child('role').val() === 'super-admin')",
+        ".validate": "newData.hasChildren(['schoolId', 'schoolName', 'createdAt'])"
       }
     },
     "schools": {
       "$schoolId": {
-        ".read": "auth != null && root.child('schoolMembers').child($schoolId).child(auth.uid).child('status').val() === 'active'",
-        ".write": "auth != null && ((!data.exists() && newData.child('createdBy').val() === auth.uid) || root.child('schoolMembers').child($schoolId).child(auth.uid).child('role').val() === 'owner' || root.child('schoolMembers').child($schoolId).child(auth.uid).child('role').val() === 'admin')",
-        ".validate": "newData.hasChildren(['name', 'academicYear', 'createdBy'])"
-      }
-    },
-    "schoolMembers": {
-      "$schoolId": {
-        "$uid": {
-          ".read": "auth != null && root.child('schoolMembers').child($schoolId).child(auth.uid).child('status').val() === 'active'",
-          ".write": "auth != null && ((auth.uid === $uid && !data.exists() && newData.child('role').val() === 'owner' && root.child('schools').child($schoolId).child('createdBy').val() === auth.uid) || root.child('schoolMembers').child($schoolId).child(auth.uid).child('role').val() === 'owner' || root.child('schoolMembers').child($schoolId).child(auth.uid).child('role').val() === 'admin')",
-          ".validate": "newData.hasChildren(['userId', 'role', 'status']) && newData.child('userId').val() === $uid && newData.child('role').val().matches(/^(owner|admin|staff|viewer)$/) && newData.child('status').val().matches(/^(active|suspended)$/)"
-        }
-      }
-    },
-    "students": {
-      "$schoolId": {
-        ".read": "auth != null && root.child('schoolMembers').child($schoolId).child(auth.uid).child('status').val() === 'active'",
-        "$studentId": {
-          ".write": "auth != null && root.child('schoolMembers').child($schoolId).child(auth.uid).child('status').val() === 'active' && root.child('schoolMembers').child($schoolId).child(auth.uid).child('role').val().matches(/^(owner|admin|staff)$/)",
-          ".validate": "!newData.exists() || newData.hasChildren(['full_name', 'admission_number', 'class_name', 'section'])"
-        }
-      }
-    },
-    "attendance": {
-      "$schoolId": {
-        ".read": "auth != null && root.child('schoolMembers').child($schoolId).child(auth.uid).child('status').val() === 'active'",
-        "$recordId": {
-          ".write": "auth != null && root.child('schoolMembers').child($schoolId).child(auth.uid).child('status').val() === 'active' && root.child('schoolMembers').child($schoolId).child(auth.uid).child('role').val().matches(/^(owner|admin|staff)$/)",
-          ".validate": "newData.hasChildren(['studentId', 'date', 'status', 'markedBy']) && newData.child('status').val().matches(/^(P|A|L)$/) && newData.child('markedBy').val() === auth.uid"
-        }
-      }
-    },
-    "fees": {
-      "$schoolId": {
-        ".read": "auth != null && root.child('schoolMembers').child($schoolId).child(auth.uid).child('status').val() === 'active'",
-        "$invoiceId": {
-          ".write": "auth != null && root.child('schoolMembers').child($schoolId).child(auth.uid).child('status').val() === 'active' && root.child('schoolMembers').child($schoolId).child(auth.uid).child('role').val().matches(/^(owner|admin)$/)"
-        }
-      }
-    },
-    "notices": {
-      "$schoolId": {
-        ".read": "auth != null && root.child('schoolMembers').child($schoolId).child(auth.uid).child('status').val() === 'active'",
-        "$noticeId": {
-          ".write": "auth != null && root.child('schoolMembers').child($schoolId).child(auth.uid).child('status').val() === 'active' && root.child('schoolMembers').child($schoolId).child(auth.uid).child('role').val().matches(/^(owner|admin|staff)$/)",
-          ".validate": "!newData.exists() || newData.hasChildren(['title', 'body', 'category', 'priority', 'audience'])"
+        ".read": "auth != null && (auth.uid === $schoolId || root.child('superAdmin').child(auth.uid).child('role').val() === 'super-admin')",
+        ".write": "auth != null && (auth.uid === $schoolId || root.child('superAdmin').child(auth.uid).child('role').val() === 'super-admin')",
+        "profile": {
+          ".validate": "newData.hasChildren(['schoolName', 'email', 'phone', 'address', 'academicYear', 'createdAt'])"
+        },
+        "students": {
+          "$studentId": {
+            ".validate": "!newData.exists() || newData.hasChildren(['full_name', 'admission_number', 'class_name', 'section'])"
+          }
+        },
+        "staff": {
+          "$employeeId": {
+            ".validate": "!newData.exists() || (newData.hasChildren(['id', 'employeeCode', 'firstName', 'lastName', 'phone', 'departmentId', 'designationId', 'joiningDate', 'createdAt', 'updatedAt']) && newData.child('id').val() === $employeeId)"
+          }
+        },
+        "employeeManager": {
+          "$section": {
+            "$recordId": {
+              ".validate": "!newData.exists() || newData.hasChildren(['id', 'createdAt', 'updatedAt'])"
+            }
+          }
+        },
+        "staffAttendance": {
+          "$date": {
+            ".validate": true
+          }
+        },
+        "homework": {
+          "$homeworkId": {
+            ".validate": "!newData.exists() || (newData.hasChildren(['id', 'className', 'section', 'subject', 'title', 'description', 'dueDate', 'priority', 'postedBy', 'createdAt', 'updatedAt']) && newData.child('id').val() === $homeworkId)"
+          }
+        },
+        "transport": {
+          "$section": {
+            "$recordId": {
+              ".validate": "!newData.exists() || newData.hasChildren(['id', 'createdAt', 'updatedAt'])"
+            }
+          }
+        },
+        "expenses": {
+          "$section": {
+            "$recordId": {
+              ".validate": true
+            }
+          }
+        },
+        "library": {
+          "$section": {
+            "$recordId": {
+              ".validate": true
+            }
+          }
+        },
+        "accounts": {
+          "$section": {
+            "$recordId": {
+              ".validate": true
+            }
+          }
+        },
+        "leave": {
+          "$section": {
+            "$recordId": {
+              ".validate": true
+            }
+          }
+        },
+        "attendance": {
+          "$recordId": {
+            ".validate": "!newData.exists() || (newData.hasChildren(['studentId', 'date', 'status', 'markedBy']) && newData.child('status').val().matches(/^(P|A|L)$/) && newData.child('markedBy').val() === auth.uid)"
+          }
+        },
+        "notices": {
+          "$noticeId": {
+            ".validate": "!newData.exists() || newData.hasChildren(['title', 'body', 'category', 'priority', 'audience'])"
+          }
+        },
+        "certificateCounters": {
+          "$type": {
+            ".validate": "newData.hasChildren(['lastIssued', 'updatedAt']) && newData.child('lastIssued').isNumber() && newData.child('lastIssued').val() >= 0"
+          }
+        },
+        "certificates": {
+          "$certificateId": {
+            ".validate": "!newData.exists() || (newData.hasChildren(['certificateType', 'studentId', 'schoolId', 'certificateNumber', 'issueDate', 'data', 'status', 'createdBy', 'createdAt']) && newData.child('schoolId').val() === $schoolId && newData.child('certificateNumber').val().matches(/^(TC|BON|CHR|STD|SPT|ADM|FEE|CERT)-[0-9]{4}-[0-9]{3,}$/))"
+          }
         }
       }
     }

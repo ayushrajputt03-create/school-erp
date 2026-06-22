@@ -27,9 +27,9 @@ function addSheet(workbook, name, rows) {
 
 async function createWorkbook(database, schoolId) {
   const [studentsSnap, feesSnap, attendanceSnap] = await Promise.all([
-    database.ref(`students/${schoolId}`).once('value'),
-    database.ref(`fees/${schoolId}`).once('value'),
-    database.ref(`attendance/${schoolId}`).once('value'),
+    database.ref(`schools/${schoolId}/students`).once('value'),
+    database.ref(`schools/${schoolId}/fees`).once('value'),
+    database.ref(`schools/${schoolId}/attendance`).once('value'),
   ])
   const students = studentsSnap.val() || {}
   const fees = feesSnap.val() || {}
@@ -67,8 +67,8 @@ module.exports = async function handler(request, response) {
       await resend.emails.send({
         from: process.env.BACKUP_FROM_EMAIL,
         to: settings.email,
-        subject: `${school.name || 'School'} monthly data backup`,
-        html: `<p>Your Northstar School OS monthly backup is attached.</p><p>School: <strong>${school.name || schoolId}</strong></p>`,
+        subject: `${school.profile?.schoolName || school.name || 'School'} monthly data backup`,
+        html: `<p>Your NXT School ERP monthly backup is attached.</p><p>School: <strong>${school.profile?.schoolName || school.name || schoolId}</strong></p>`,
         attachments: [{ filename: `northstar-backup-${new Date().toISOString().slice(0, 10)}.xlsx`, content: Buffer.from(workbook).toString('base64') }],
       })
       await database.ref(`schools/${schoolId}/backupSettings/lastSentAt`).set(Date.now())

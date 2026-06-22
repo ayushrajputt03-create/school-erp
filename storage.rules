@@ -2,12 +2,62 @@ rules_version = '2';
 service firebase.storage {
   match /b/{bucket}/o {
     match /schools/{schoolId}/timetables/{ownerId}/{fileName} {
-      allow read: if request.auth != null && request.auth.uid == ownerId;
-      allow delete: if request.auth != null && request.auth.uid == ownerId;
+      allow read, delete: if request.auth != null
+        && request.auth.uid == schoolId
+        && request.auth.uid == ownerId;
       allow create, update: if request.auth != null
+        && request.auth.uid == schoolId
         && request.auth.uid == ownerId
         && request.resource.size < 10 * 1024 * 1024
         && request.resource.contentType.matches('(application/pdf|image/.*)');
+    }
+    match /schools/{schoolId}/employees/{ownerId}/{fileName} {
+      allow read, delete: if request.auth != null
+        && request.auth.uid == schoolId
+        && request.auth.uid == ownerId;
+      allow create, update: if request.auth != null
+        && request.auth.uid == schoolId
+        && request.auth.uid == ownerId
+        && request.resource.size < 5 * 1024 * 1024
+        && request.resource.contentType.matches('image/.*');
+    }
+    match /schools/{schoolId}/homework/{ownerId}/{fileName} {
+      allow read, delete: if request.auth != null
+        && request.auth.uid == schoolId
+        && request.auth.uid == ownerId;
+      allow create, update: if request.auth != null
+        && request.auth.uid == schoolId
+        && request.auth.uid == ownerId
+        && request.resource.size < 5 * 1024 * 1024
+        && request.resource.contentType.matches('(application/pdf|image/.*)');
+    }
+    match /schools/{schoolId}/student-documents/{ownerId}/{studentId}/{fileName} {
+      allow read, delete: if request.auth != null
+        && request.auth.uid == schoolId
+        && request.auth.uid == ownerId;
+      allow create, update: if request.auth != null
+        && request.auth.uid == schoolId
+        && request.auth.uid == ownerId
+        && request.resource.size < 5 * 1024 * 1024
+        && request.resource.contentType.matches('(application/pdf|image/.*)');
+    }
+    match /schools/{schoolId}/students/{admissionNo}/photo.jpg {
+      allow read, delete: if request.auth != null
+        && request.auth.uid == schoolId;
+      allow create, update: if request.auth != null
+        && request.auth.uid == schoolId
+        && request.resource.size < 200 * 1024
+        && request.resource.contentType == 'image/jpeg';
+    }
+    match /schools/{schoolId}/branding/{ownerId}/{fileName} {
+      allow read, delete: if request.auth != null
+        && request.auth.uid == schoolId
+        && request.auth.uid == ownerId;
+      allow create, update: if request.auth != null
+        && request.auth.uid == schoolId
+        && request.auth.uid == ownerId
+        && request.resource.size < 2 * 1024 * 1024
+        && request.resource.contentType.matches('image/(png|jpeg|webp)');
     }
   }
 }

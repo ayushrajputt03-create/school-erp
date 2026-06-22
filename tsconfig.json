@@ -1,104 +1,10 @@
 {
   "compilerOptions": {
-<<<<<<< ours
-<<<<<<< ours
-<<<<<<< ours
-<<<<<<< ours
-<<<<<<< ours
-    "target": "ES2020",
-    "lib": [
-      "dom",
-      "dom.iterable",
-      "esnext"
-    ],
-=======
-    "target": "ES2022",
-    "lib": ["dom", "dom.iterable", "es2022"],
->>>>>>> theirs
-=======
-    "target": "ES2022",
-    "lib": ["dom", "dom.iterable", "es2022"],
->>>>>>> theirs
-=======
-    "target": "ES2022",
-    "lib": ["dom", "dom.iterable", "es2022"],
->>>>>>> theirs
-=======
-    "target": "ES2022",
-    "lib": ["dom", "dom.iterable", "es2022"],
->>>>>>> theirs
-=======
-    "target": "ES2022",
-    "lib": ["dom", "dom.iterable", "esnext"],
->>>>>>> theirs
-    "allowJs": false,
-    "skipLibCheck": true,
-    "strict": true,
-    "noEmit": true,
-    "esModuleInterop": true,
-    "module": "esnext",
-    "moduleResolution": "bundler",
-    "resolveJsonModule": true,
-    "isolatedModules": true,
-<<<<<<< ours
-<<<<<<< ours
-<<<<<<< ours
-<<<<<<< ours
-<<<<<<< ours
+    "allowJs": true,
     "jsx": "react-jsx",
-    "incremental": true,
-    "plugins": [
-      {
-        "name": "next"
-      }
-    ],
-    "baseUrl": ".",
-    "paths": {
-      "@/*": [
-        "./*"
-      ]
-    }
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "target": "ES2020"
   },
-  "include": [
-    "next-env.d.ts",
-    "**/*.ts",
-    "**/*.tsx",
-    ".next/types/**/*.ts",
-    ".next/dev/types/**/*.ts"
-  ],
-  "exclude": [
-    "node_modules"
-  ]
-=======
-=======
->>>>>>> theirs
-=======
->>>>>>> theirs
-=======
->>>>>>> theirs
-    "jsx": "preserve",
-    "incremental": true,
-    "plugins": [{ "name": "next" }],
-    "baseUrl": ".",
-=======
-    "jsx": "preserve",
-    "incremental": true,
->>>>>>> theirs
-    "paths": {"@/*": ["./*"]}
-  },
-  "include": ["next-env.d.ts", "**/*.ts", "**/*.tsx", ".next/types/**/*.ts"],
-  "exclude": ["node_modules"]
-<<<<<<< ours
-<<<<<<< ours
-<<<<<<< ours
-<<<<<<< ours
->>>>>>> theirs
-=======
->>>>>>> theirs
-=======
->>>>>>> theirs
-=======
->>>>>>> theirs
-=======
->>>>>>> theirs
+  "include": ["src"]
 }

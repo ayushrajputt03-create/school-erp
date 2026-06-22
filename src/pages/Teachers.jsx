@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import { supabase } from '../lib/supabase'
+import DatePicker from '../DatePicker'
 
 const SUBJECTS = ['Mathematics','Science','English','Hindi','Social Studies','Computer','Physical Education','Art']
 const CLASSES = ['1','2','3','4','5','6','7','8','9','10','11','12']
@@ -127,7 +128,7 @@ export default function Teachers() {
                 </div>
                 <div>
                   <label style={labelStyle}>Joining Date</label>
-                  <input type="date" style={inputStyle} value={form.joining_date} onChange={e=>setForm({...form,joining_date:e.target.value})} />
+          <DatePicker value={form.joining_date} onChange={value=>setForm({...form,joining_date:value})} />
                 </div>
                 <div>
                   <label style={labelStyle}>Monthly Salary (₹)</label>

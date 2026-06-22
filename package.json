@@ -1,145 +1,30 @@
 {
-<<<<<<< ours
-<<<<<<< ours
-<<<<<<< ours
-<<<<<<< ours
-<<<<<<< ours
-  "name": "billing-saas",
-  "version": "0.1.0",
-=======
-  "name": "school-erp-saas",
+  "name": "school-erp",
   "version": "1.0.0",
->>>>>>> theirs
-=======
-  "name": "school-erp-saas",
-  "version": "1.0.0",
->>>>>>> theirs
-=======
-  "name": "school-erp-saas",
-  "version": "1.0.0",
->>>>>>> theirs
-=======
-  "name": "school-erp-saas",
-  "version": "1.0.0",
->>>>>>> theirs
-=======
-  "name": "school-erp-saas",
-  "version": "1.0.0",
->>>>>>> theirs
   "private": true,
   "scripts": {
-    "dev": "next dev",
-    "build": "next build",
-    "start": "next start",
-<<<<<<< ours
-<<<<<<< ours
-<<<<<<< ours
-<<<<<<< ours
-<<<<<<< ours
-    "lint": "next lint"
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "check": "npm run build",
+    "firebase:deploy": "firebase deploy --only database,storage --project school-open-erp"
   },
   "dependencies": {
-    "@supabase/supabase-js": "^2.49.4",
-    "framer-motion": "^12.23.24",
-    "gsap": "^3.13.0",
-    "html2canvas": "^1.4.1",
+    "browser-image-compression": "^2.0.2",
+    "exceljs": "^4.4.0",
+    "firebase": "^12.0.0",
+    "firebase-admin": "^14.0.0",
     "jspdf": "^4.2.1",
     "lucide-react": "^0.468.0",
-    "next": "^16.2.5",
-    "react": "^19.2.6",
-    "react-dom": "^19.2.6",
-    "zod": "^3.24.2"
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0",
+    "react-router-dom": "^6.30.4",
+    "resend": "^6.12.4"
   },
   "devDependencies": {
-    "@types/node": "^22.10.5",
-=======
-=======
->>>>>>> theirs
-=======
->>>>>>> theirs
-=======
->>>>>>> theirs
-=======
->>>>>>> theirs
-    "lint": "next lint",
-    "typecheck": "tsc --noEmit"
-  },
-  "dependencies": {
-<<<<<<< ours
-    "@hookform/resolvers": "^3.10.0",
-    "@supabase/ssr": "^0.5.2",
-    "@supabase/supabase-js": "^2.49.1",
-    "clsx": "^2.1.1",
-    "lucide-react": "^0.469.0",
-    "next": "15.1.4",
-    "react": "19.0.0",
-    "react-dom": "19.0.0",
-    "react-hook-form": "^7.54.2",
-    "zod": "^3.24.1"
-  },
-  "devDependencies": {
-    "@types/node": "^22.10.2",
-<<<<<<< ours
-<<<<<<< ours
-<<<<<<< ours
->>>>>>> theirs
-=======
->>>>>>> theirs
-=======
->>>>>>> theirs
-=======
->>>>>>> theirs
-    "@types/react": "^19.0.2",
-    "@types/react-dom": "^19.0.2",
-    "autoprefixer": "^10.4.20",
-    "eslint": "^9.17.0",
-<<<<<<< ours
-<<<<<<< ours
-<<<<<<< ours
-<<<<<<< ours
-    "eslint-config-next": "^16.2.5",
-    "postcss": "^8.4.49",
-    "tailwindcss": "^3.4.17",
-=======
-    "eslint-config-next": "15.1.4",
-    "postcss": "^8.4.49",
-    "tailwindcss": "^3.4.16",
->>>>>>> theirs
-=======
-    "eslint-config-next": "15.1.4",
-    "postcss": "^8.4.49",
-    "tailwindcss": "^3.4.16",
->>>>>>> theirs
-=======
-    "eslint-config-next": "15.1.4",
-    "postcss": "^8.4.49",
-    "tailwindcss": "^3.4.16",
->>>>>>> theirs
-=======
-    "eslint-config-next": "15.1.4",
-    "postcss": "^8.4.49",
-    "tailwindcss": "^3.4.16",
->>>>>>> theirs
-    "typescript": "^5.7.2"
-=======
-    "@hookform/resolvers": "^3.9.0",
-    "@supabase/supabase-js": "^2.50.0",
-    "clsx": "^2.1.1",
-    "lucide-react": "^0.453.0",
-    "next": "14.2.15",
-    "react": "18.3.1",
-    "react-dom": "18.3.1",
-    "react-hook-form": "^7.53.0",
-    "zod": "^3.23.8"
-  },
-  "devDependencies": {
-    "@types/node": "^22.8.6",
-    "@types/react": "^18.3.12",
-    "@types/react-dom": "^18.3.1",
-    "autoprefixer": "^10.4.20",
-    "postcss": "^8.4.47",
-    "tailwindcss": "^3.4.14",
-    "typescript": "^5.6.3"
->>>>>>> theirs
+    "@vitejs/plugin-react": "^4.2.0",
+    "firebase-tools": "^15.20.0",
+    "playwright": "^1.61.0",
+    "vite": "^5.0.0"
   }
 }

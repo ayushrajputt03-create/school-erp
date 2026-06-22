@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import { supabase } from '../lib/supabase'
+import DatePicker from '../DatePicker'
 
 const CLASSES = ['1','2','3','4','5','6','7','8','9','10','11','12']
 const SECTIONS = ['A','B','C','D']
@@ -150,7 +151,7 @@ export default function Students() {
                 </div>
                 <div>
                   <label style={labelStyle}>Date of Birth</label>
-                  <input type="date" style={inputStyle} value={form.dob} onChange={e=>setForm({...form,dob:e.target.value})} />
+          <DatePicker value={form.dob} onChange={value=>setForm({...form,dob:value})} />
                 </div>
                 <div>
                   <label style={labelStyle}>Guardian Name</label>

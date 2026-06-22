@@ -1,0 +1,165 @@
+.nxt-splash{
+  position:fixed;
+  inset:0;
+  z-index:9999;
+  width:100vw;
+  height:100vh;
+  min-height:100svh;
+  overflow:hidden;
+  display:grid;
+  place-items:center;
+  isolation:isolate;
+  background:
+    radial-gradient(circle at 50% 45%,#154fb6 0,#0d43a7 42%,#07388f 100%);
+  opacity:1;
+  transition:opacity .5s ease;
+}
+.nxt-splash::before{
+  content:"";
+  position:absolute;
+  inset:0;
+  z-index:-2;
+  background:
+    radial-gradient(circle at 50% 50%,rgba(45,111,218,.24),transparent 43%),
+    linear-gradient(115deg,rgba(255,255,255,.025),transparent 30%,rgba(255,255,255,.02) 70%,transparent);
+}
+.nxt-splash::after{
+  content:"";
+  position:absolute;
+  inset:0;
+  z-index:-1;
+  opacity:.12;
+  background-image:url("data:image/svg+xml,%3Csvg viewBox='0 0 180 180' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.8' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='.18'/%3E%3C/svg%3E");
+}
+.nxt-splash-exit{opacity:0}
+.nxt-splash-mobile-artwork{
+  display:none;
+}
+.nxt-splash-wide-artwork{
+  position:relative;
+  z-index:1;
+  width:min(900px,90vw);
+  min-height:min(660px,88svh);
+  display:flex;
+  flex-direction:column;
+  align-items:center;
+  justify-content:center;
+  gap:clamp(46px,7vh,76px);
+  animation:nxt-artwork-enter .75s cubic-bezier(.2,.8,.2,1) both;
+}
+.nxt-splash-mark{
+  display:block;
+  width:clamp(250px,27vw,390px);
+  height:auto;
+  filter:drop-shadow(0 18px 34px rgba(0,24,91,.28));
+}
+.nxt-splash-brand{
+  display:flex;
+  flex-direction:column;
+  align-items:center;
+  color:#fff;
+  text-align:center;
+}
+.nxt-splash-brand span{
+  margin-bottom:14px;
+  font-size:clamp(14px,1.3vw,19px);
+  font-weight:300;
+  letter-spacing:.28em;
+  opacity:.76;
+}
+.nxt-splash-brand strong{
+  font-size:clamp(20px,2.25vw,34px);
+  font-weight:600;
+  letter-spacing:.27em;
+  line-height:1.2;
+}
+.nxt-splash-brand i{
+  position:relative;
+  width:min(340px,50vw);
+  height:1px;
+  margin-top:24px;
+  background:linear-gradient(90deg,transparent,#20a8ff 42%,#fff 50%,#20a8ff 58%,transparent);
+  box-shadow:0 0 14px #26a9ff;
+}
+.nxt-splash-brand i::after{
+  content:"";
+  position:absolute;
+  top:50%;
+  left:50%;
+  width:6px;
+  height:6px;
+  border-radius:50%;
+  background:#fff;
+  box-shadow:0 0 12px 4px #1ca8ff;
+  transform:translate(-50%,-50%);
+}
+.nxt-splash-progress{
+  position:absolute;
+  z-index:2;
+  left:50%;
+  bottom:max(14px,env(safe-area-inset-bottom));
+  width:min(180px,42vw);
+  height:2px;
+  overflow:hidden;
+  transform:translateX(-50%);
+  border-radius:4px;
+  background:#ffffff36;
+  box-shadow:0 0 12px #258bff45;
+}
+.nxt-splash-progress span{
+  display:block;
+  width:38%;
+  height:100%;
+  border-radius:inherit;
+  background:#fff;
+  box-shadow:0 0 12px #fff;
+  animation:nxt-progress 1.15s ease-in-out infinite;
+}
+@keyframes nxt-artwork-enter{
+  from{opacity:0;transform:scale(.97)}
+  to{opacity:1;transform:scale(1)}
+}
+@keyframes nxt-progress{
+  from{transform:translateX(-120%);opacity:.35}
+  50%{opacity:1}
+  to{transform:translateX(370%);opacity:.5}
+}
+@media(max-width:767px), (max-aspect-ratio:4/5){
+  .nxt-splash::before,
+  .nxt-splash::after{
+    display:none;
+  }
+  .nxt-splash{
+    background:#0d43a7;
+  }
+  .nxt-splash-wide-artwork{
+    display:none;
+  }
+  .nxt-splash-mobile-artwork{
+    position:relative;
+    z-index:1;
+    display:block;
+    width:100vw;
+    height:100svh;
+    object-fit:cover;
+    object-position:center;
+    box-shadow:none;
+    animation:nxt-artwork-enter .75s cubic-bezier(.2,.8,.2,1) both;
+  }
+  .nxt-splash-progress{
+    bottom:max(12px,env(safe-area-inset-bottom));
+  }
+}
+@media(max-width:380px){
+  .nxt-splash-mobile-artwork{
+    object-fit:contain;
+  }
+}
+@media(prefers-reduced-motion:reduce){
+  .nxt-splash-mobile-artwork,
+  .nxt-splash-wide-artwork,
+  .nxt-splash-progress span{
+    animation-duration:.01ms;
+    animation-iteration-count:1;
+  }
+}
