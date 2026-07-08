@@ -1,4 +1,4 @@
-﻿import React, { useEffect, useRef, useState } from 'react'
+import React, { useEffect, useRef, useState } from 'react'
 import imageCompression from 'browser-image-compression'
 import {
   Bell, BookOpen, BusFront, CalendarCheck, Check, ChevronRight, IndianRupee,
@@ -1115,15 +1115,130 @@ function AdmissionForm({ students, onAddStudent, onUpdateStudent, onOpenRegister
         link.click()
         URL.revokeObjectURL(link.href)
       }}><Download size={16} /> Download Admission Form</button>
-      <label className="secondary-button file-button"><Upload size={16} /> Import Excel<input type="file" accept=".csv,text/csv" onChange={async event => {
+      <label className="secondary-button file-button"><Upload size={16} /> Import Excel<input type="file" accept=".csv,text/csv,.xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" onChange={async event => {
         const file = event.target.files?.[0]
         if (!file) return
-        const rows = (await file.text()).split(/\r?\n/).slice(1).filter(Boolean)
-        for (const row of rows) {
-          const [name, className, guardian, phone] = row.split(',').map(value => value?.trim())
-          if (name && className) await onAddStudent({ name, className, guardian: guardian || '', phone: phone || '', admissionDate: today(), admissionScheme: 'General', newAdmission: true })
-        }
         event.target.value = ''
+
+        // Flexible header aliases → internal field keys
+        const HEADER_MAP = {
+          name: 'name', fullname: 'name', studentname: 'name', 'student name': 'name', 'full name': 'name', 'student full name': 'name',
+          class: 'className', classname: 'className', 'class name': 'className', grade: 'className', standard: 'className', 'class/section': 'className',
+          section: 'section',
+          guardian: 'guardian', guardianname: 'guardian', 'guardian name': 'guardian',
+          father: 'guardian', fathername: 'guardian', 'father name': 'guardian', 'fathers name': 'guardian',
+          phone: 'phone', mobile: 'phone', contact: 'phone', mobileno: 'phone', phoneno: 'phone',
+          guardianphone: 'phone', 'guardian phone': 'phone', fatherphone: 'phone', 'father phone': 'phone',
+          admissiondate: 'admissionDate', 'admission date': 'admissionDate', dateofadmission: 'admissionDate',
+          dob: 'dob', dateofbirth: 'dob', 'date of birth': 'dob', birthdate: 'dob', 'birth date': 'dob',
+          gender: 'gender', sex: 'gender',
+          email: 'email', emailid: 'email', 'email id': 'email',
+          address: 'address',
+          admissionscheme: 'admissionScheme', 'admission scheme': 'admissionScheme', category: 'admissionScheme',
+        }
+
+        // Convert Excel date serial (Windows epoch: Dec 30 1899) to YYYY-MM-DD
+        const excelSerialToDate = n => {
+          if (typeof n !== 'number') return String(n || '').trim()
+          const d = new Date((n - 25569) * 86400 * 1000)
+          const y = d.getUTCFullYear()
+          const m = String(d.getUTCMonth() + 1).padStart(2, '0')
+          const day = String(d.getUTCDate()).padStart(2, '0')
+          return `${y}-${m}-${day}`
+        }
+
+        const normalizeHeader = h => String(h || '').toLowerCase().replace(/[^a-z0-9 /]/g, '').trim()
+
+        let parsed = []
+        try {
+          if (file.name.toLowerCase().endsWith('.xlsx')) {
+            // — Excel file path —
+            const ExcelJS = (await import('exceljs')).default
+            const wb = new ExcelJS.Workbook()
+            await wb.xlsx.load(await file.arrayBuffer())
+            const ws = wb.worksheets[0]
+            if (!ws) throw new Error('No worksheets found in this Excel file.')
+            const headers = {}
+            ws.getRow(1).eachCell((cell, col) => {
+              const raw = cell.value && typeof cell.value === 'object' && cell.value.richText
+                ? cell.value.richText.map(rt => rt.text).join('')
+                : cell.value
+              headers[col] = normalizeHeader(raw)
+            })
+            ws.eachRow((row, rowNum) => {
+              if (rowNum === 1) return
+              const obj = {}
+              row.eachCell((cell, col) => {
+                const h = headers[col]
+                const key = h ? HEADER_MAP[h] : undefined
+                if (!key) return
+                let val = cell.value
+                // Unwrap formula result / rich text
+                if (val && typeof val === 'object' && val.result !== undefined) val = val.result
+                if (val && typeof val === 'object' && val.richText !== undefined) val = val.richText.map(rt => rt.text).join('')
+                if (val instanceof Date) {
+                  const y = val.getFullYear(), m = String(val.getMonth() + 1).padStart(2, '0'), d = String(val.getDate()).padStart(2, '0')
+                  obj[key] = `${y}-${m}-${d}`
+                } else if ((key === 'admissionDate' || key === 'dob') && typeof val === 'number') {
+                  obj[key] = excelSerialToDate(val)
+                } else {
+                  obj[key] = String(val ?? '').trim()
+                }
+              })
+              if (obj.name?.trim() || obj.className?.trim()) parsed.push(obj)
+            })
+          } else {
+            // — CSV file path —
+            const text = await file.text()
+            const lines = text.split(/\r?\n/).filter(l => l.trim())
+            if (!lines.length) throw new Error('The CSV file is empty.')
+            const headers = lines[0].split(',').map(normalizeHeader)
+            for (let i = 1; i < lines.length; i++) {
+              const cols = lines[i].split(',').map(c => c.trim())
+              if (cols.every(c => !c)) continue
+              const obj = {}
+              headers.forEach((h, idx) => {
+                const key = HEADER_MAP[h]
+                if (key && cols[idx] !== undefined) obj[key] = cols[idx]
+              })
+              if (obj.name?.trim() || obj.className?.trim()) parsed.push(obj)
+            }
+          }
+        } catch (parseErr) {
+          console.error('[Import] Parse error', parseErr)
+          alert(`Import failed: ${parseErr.message}`)
+          return
+        }
+
+        if (!parsed.length) {
+          alert('No valid rows found. Make sure your file has "Name" and "Class" columns.')
+          return
+        }
+
+        let success = 0, failed = 0
+        for (const row of parsed) {
+          try {
+            const className = row.section ? `${row.className}-${row.section}` : row.className
+            await onAddStudent({
+              name: row.name || '',
+              className: className || '',
+              guardian: row.guardian || '',
+              phone: row.phone || '',
+              dob: row.dob || '',
+              gender: row.gender || '',
+              email: row.email || '',
+              address: row.address || '',
+              admissionDate: row.admissionDate || today(),
+              admissionScheme: row.admissionScheme || 'General',
+              newAdmission: true,
+            })
+            success++
+          } catch (rowErr) {
+            console.error('[Import] Row failed', row, rowErr)
+            failed++
+          }
+        }
+        alert(`✅ Import complete: ${success} student(s) added${failed ? `, ⚠️ ${failed} failed (check console)` : ''}.`)
       }} /></label>
       <button type="button" className="secondary-button" onClick={onOpenRegister}><Search size={16} /> Search Student</button>
     </div>

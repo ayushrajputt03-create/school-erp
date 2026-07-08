@@ -19,6 +19,7 @@ export default function DatePicker({ value, onChange, required = false, min, max
   const [yearMode, setYearMode] = useState(false)
   const [view, setView] = useState(() => selected || new Date())
   const rootRef = useRef(null)
+  const yearGridRef = useRef(null)
 
   useEffect(() => {
     if (selected) setView(selected)
@@ -55,11 +56,22 @@ export default function DatePicker({ value, onChange, required = false, min, max
       ...Array.from({ length: days }, (_, index) => new Date(year, month, index + 1)),
     ]
   }, [view])
-  const years = useMemo(() => Array.from({ length: 41 }, (_, index) => view.getFullYear() - 20 + index), [view])
+  const years = useMemo(() => {
+    const thisYear = new Date().getFullYear()
+    const start = minDate ? minDate.getFullYear() : thisYear - 100
+    const end = maxDate ? maxDate.getFullYear() : thisYear + 20
+    return Array.from({ length: end - start + 1 }, (_, i) => start + i)
+  }, [minDate, maxDate])
   const isDisabled = date => {
     const candidate = new Date(date.getFullYear(), date.getMonth(), date.getDate())
     return (minDate && candidate < minDate) || (maxDate && candidate > maxDate)
   }
+  useEffect(() => {
+    if (!yearMode || !yearGridRef.current) return
+    const active = yearGridRef.current.querySelector('button.selected')
+    if (active) active.scrollIntoView({ block: 'center', behavior: 'instant' })
+  }, [yearMode])
+
   const display = selected?.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) || ''
 
   const changeMonth = amount => {
@@ -81,7 +93,7 @@ export default function DatePicker({ value, onChange, required = false, min, max
         </button>
         <button type="button" className="calendar-arrow" onClick={() => changeMonth(1)} aria-label="Next month"><ChevronRight size={18} /></button>
       </header>
-      {yearMode ? <div className="calendar-year-grid">
+      {yearMode ? <div className="calendar-year-grid" ref={yearGridRef}>
         {years.map(year => <button type="button" key={year} className={year === view.getFullYear() ? 'selected' : ''} onClick={() => { setView(current => new Date(year, current.getMonth(), 1)); setYearMode(false) }}>{year}</button>)}
       </div> : <>
         <div className="calendar-weekdays">{['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map((day, index) => <span className={index === 0 || index === 6 ? 'weekend' : ''} key={day}>{day}</span>)}</div>

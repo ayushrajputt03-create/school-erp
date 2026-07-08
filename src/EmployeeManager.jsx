@@ -190,7 +190,7 @@ function EmployeeForm({ staff, config, saveEmployee, initial, cancelEdit, onSave
       <label>Father Name<input value={form.fatherName} onChange={e => field('fatherName', e.target.value)} /></label>
       <label>Mother Name<input value={form.motherName} onChange={e => field('motherName', e.target.value)} /></label>
       <label>Gender<select required value={form.gender} onChange={e => field('gender', e.target.value)}><option value="">Select</option><option>Male</option><option>Female</option><option>Other</option></select></label>
-      <label>Date of Birth<DatePicker value={form.dob} onChange={value => field('dob', value)} /></label>
+      <label>Date of Birth<DatePicker value={form.dob} onChange={value => field('dob', value)} max={today()} /></label>
       <label>Phone*<input required inputMode="tel" value={form.phone} onChange={e => field('phone', e.target.value)} /></label>
       <label>Email<input type="email" value={form.email} onChange={e => field('email', e.target.value)} /></label>
       <label>Department*<select required value={form.departmentId} onChange={e => setForm({ ...form, departmentId: e.target.value, designationId: '' })}><option value="">Select department</option>{departments.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
