@@ -40,6 +40,9 @@ import {
   recognitionOptions as schoolRecognitionOptions,
   sectionOptions,
 } from './schoolOptions'
+
+const admissionClasses = classOptions.flatMap(cls => sectionOptions.slice(0, cls.match(/^(11|12)$/) ? 1 : 5).map(section => `${cls}-${section}`))
+
 import { onAuthStateChanged, signOut } from 'firebase/auth'
 import { deleteObject, getDownloadURL, ref as storageRef, uploadBytes } from 'firebase/storage'
 import { auth, isFirebaseConfigured, storage } from './lib/firebase'
@@ -879,26 +882,75 @@ function Dashboard({ students, notices, fees, attendance, activities, staff, sta
   )
 }
 
-function StudentModal({ close, addStudent, getNextAdmissionNumber }) {
-  const [form, setForm] = useState({ name: '', className: '1-A', guardian: '', phone: '' })
+function StudentModal({ close, addStudent, updateStudent, getNextAdmissionNumber, student }) {
+  const [form, setForm] = useState(student ? {
+    name: student.name || '',
+    className: student.className || '1-A',
+    guardian: student.guardian || '',
+    phone: student.phone || '',
+    dob: student.dob || '',
+    gender: student.gender || '',
+    email: student.email || '',
+    address: student.address || '',
+    admissionDate: student.admissionDate || '',
+    admissionScheme: student.admissionScheme || 'General',
+  } : {
+    name: '',
+    className: '1-A',
+    guardian: '',
+    phone: '',
+    dob: '',
+    gender: '',
+    email: '',
+    address: '',
+    admissionDate: '',
+    admissionScheme: 'General',
+  })
   const [saving, setSaving] = useState(false)
-  const [admissionNumber, setAdmissionNumber] = useState('')
-  const [photo, setPhoto] = useState(null)
+  const [admissionNumber, setAdmissionNumber] = useState(student ? student.roll : '')
+  const [photo, setPhoto] = useState(student && student.photoUrl ? { preview: student.photoUrl, compressedSize: student.photoSize || 0 } : null)
   const [error, setError] = useState('')
+
   useEffect(() => {
+    if (student) return
     let active = true
     getNextAdmissionNumber().then(number => active && setAdmissionNumber(String(number)))
     return () => { active = false }
-  }, [])
+  }, [student])
+
   const submit = async e => {
     e.preventDefault()
     if (saving) return
+    if (!form.name.trim()) {
+      setError('Student name is required.')
+      return
+    }
+    if (!/^\d{10}$/.test(String(form.phone || '').replace(/\D/g, ''))) {
+      setError('Phone number must be a valid 10 digit mobile number.')
+      return
+    }
     const parts = form.name.trim().split(/\s+/)
     setSaving(true)
     setError('')
     try {
-      await addStudent({ ...form, roll: admissionNumber, photoFile: photo?.file || null, photoPreview: photo?.preview || '', photoOriginalSize: photo?.originalSize || 0, photoCompressedSize: photo?.compressedSize || 0, initials: parts.map(p => p[0]).slice(0, 2).join('').toUpperCase(), attendance: 100, fee: 'Pending' })
-      alert('Student added successfully!')
+      const payload = {
+        ...form,
+        roll: admissionNumber,
+        photoFile: photo?.file || null,
+        photoPreview: photo?.preview || '',
+        photoOriginalSize: photo?.originalSize || 0,
+        photoCompressedSize: photo?.compressedSize || 0,
+        initials: parts.map(p => p[0]).slice(0, 2).join('').toUpperCase(),
+        attendance: student ? student.attendance : 100,
+        fee: student ? student.fee : 'Pending'
+      }
+      if (student) {
+        await updateStudent(student.id, payload)
+        alert('Student details updated successfully!')
+      } else {
+        await addStudent(payload)
+        alert('Student added successfully!')
+      }
       close()
     } catch (submitError) {
       setError(submitError.message)
@@ -907,18 +959,25 @@ function StudentModal({ close, addStudent, getNextAdmissionNumber }) {
       setSaving(false)
     }
   }
-  return <div className="modal-backdrop"><form className="modal" onSubmit={submit}>
-    <div className="modal-header"><div><h3>Add new student</h3><p>Create a student profile and admission record.</p></div><button type="button" className="icon-button" onClick={close}><X size={19} /></button></div>
+
+  return <div className="modal-backdrop"><form className="modal" onSubmit={submit} style={{ maxHeight: '90vh', overflowY: 'auto' }}>
+    <div className="modal-header"><div><h3>{student ? 'Edit student details' : 'Add new student'}</h3><p>{student ? 'Modify student profile information.' : 'Create a student profile and admission record.'}</p></div><button type="button" className="icon-button" onClick={close}><X size={19} /></button></div>
     <div className="form-grid">
       <div className="full photo-form-row"><PhotoUploader photo={photo} onPhoto={setPhoto} onRemove={() => setPhoto(null)} /></div>
       <label>Admission number<input readOnly className="readonly-input" value={admissionNumber || 'Auto generating...'} /></label>
+      <label>Date of Birth<DatePicker value={form.dob} onChange={value => setForm({...form, dob: value})} max={today()} /></label>
       <label className="full">Student name<input required value={form.name} onChange={e => setForm({...form, name: e.target.value})} placeholder="Full name" /></label>
-      <label>Class & section<select value={form.className} onChange={e => setForm({...form, className: e.target.value})}>{['1-A','2-A','3-A','4-B','5-A','6-A','7-B','8-B','9-C','10-A'].map(c => <option key={c}>{c}</option>)}</select></label>
+      <label>Gender<select value={form.gender} onChange={e => setForm({...form, gender: e.target.value})}><option value="">Select gender</option><option>Male</option><option>Female</option><option>Other</option></select></label>
+      <label>Class & section<select value={form.className} onChange={e => setForm({...form, className: e.target.value})}>{admissionClasses.map(c => <option key={c}>{c}</option>)}</select></label>
       <label>Guardian name<input required value={form.guardian} onChange={e => setForm({...form, guardian: e.target.value})} placeholder="Parent / guardian" /></label>
-      <label className="full">Phone number<input required value={form.phone} onChange={e => setForm({...form, phone: e.target.value})} placeholder="10-digit mobile number" /></label>
+      <label>Phone number<input required value={form.phone} onChange={e => setForm({...form, phone: e.target.value})} placeholder="10-digit mobile number" /></label>
+      <label>Email<input type="email" value={form.email} onChange={e => setForm({...form, email: e.target.value})} placeholder="Email address" /></label>
+      <label>Admission Date<DatePicker value={form.admissionDate} onChange={value => setForm({...form, admissionDate: value})} /></label>
+      <label>Admission Scheme<select value={form.admissionScheme} onChange={e => setForm({...form, admissionScheme: e.target.value})}>{['General','RTE','EWS','Staff Ward','Sibling','Scholarship'].map(s => <option key={s}>{s}</option>)}</select></label>
+      <label className="full">Address<input value={form.address} onChange={e => setForm({...form, address: e.target.value})} placeholder="Full address" /></label>
     </div>
     {error && <div className="form-error">{error}</div>}
-    <div className="modal-actions"><button type="button" className="secondary-button" onClick={close} disabled={saving}>Cancel</button><button className="primary-button" disabled={saving || !admissionNumber}>{saving ? 'Saving...' : <><Plus size={16} /> Add student</>}</button></div>
+    <div className="modal-actions"><button type="button" className="secondary-button" onClick={close} disabled={saving}>Cancel</button><button className="primary-button" disabled={saving || !admissionNumber}>{saving ? 'Saving...' : <>{student ? <Save size={16} /> : <Plus size={16} />}{student ? ' Update student' : ' Add student'}</>}</button></div>
   </form></div>
 }
 
@@ -995,28 +1054,29 @@ function StudentProfile({ student, close, attendance, fees, feeManager, schoolPr
   </div>
 }
 
-function Students({ students, onAddStudent, onSelectStudent, getNextAdmissionNumber }) {
+function Students({ students, onAddStudent, onUpdateStudent, onSelectStudent, getNextAdmissionNumber }) {
   const [search, setSearch] = useState('')
   const [filter, setFilter] = useState('All classes')
-  const [modal, setModal] = useState(false)
+  const [modal, setModal] = useState(null)
   const classes = [...new Set(students.map(student => student.className))].sort()
   const filtered = students.filter(s => (filter === 'All classes' || s.className === filter) && `${s.name} ${s.roll} ${s.phone}`.toLowerCase().includes(search.trim().toLowerCase()))
   const addStudent = student => onAddStudent(student)
   return <>
-    <div className="section-actions"><div><h2>Student directory</h2><p>Manage profiles, guardians, attendance and fee status.</p></div><button className="primary-button" onClick={() => setModal(true)}><Plus size={17} /> Add student</button></div>
+    <div className="section-actions"><div><h2>Student directory</h2><p>Manage profiles, guardians, attendance and fee status.</p></div><button className="primary-button" onClick={() => setModal('add')}><Plus size={17} /> Add student</button></div>
     <div className="mini-stats"><div><span>All students</span><strong>{students.length}</strong></div><div><span>New admissions</span><strong>{students.filter(s => s.createdAt && Date.now() - s.createdAt < 30 * 86400000).length}</strong></div><div><span>Avg. attendance</span><strong>{students.length ? Math.round(students.reduce((sum, s) => sum + s.attendance, 0) / students.length) : 0}%</strong></div><div><span>Fee defaulters</span><strong>{students.filter(s => s.fee !== 'Paid').length}</strong></div></div>
     <div className="panel table-panel">
       <div className="table-toolbar"><div className="table-search"><Search size={16} /><input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search student, roll no. or phone" /></div><select value={filter} onChange={e => setFilter(e.target.value)}><option>All classes</option>{classes.map(c => <option key={c}>{c}</option>)}</select></div>
       <div className="table-scroll"><table><thead><tr><th>Student</th><th>Class</th><th>Guardian</th><th>Attendance</th><th>Fee status</th><th /></tr></thead><tbody>
-        {filtered.map(s => <tr key={s.id} onClick={() => onSelectStudent(s)} className="clickable-row"><td><div className="student-cell"><StudentAvatar student={s} /><div><strong>{s.name}</strong><small>{s.roll}</small></div></div></td><td><span className="class-pill">{s.className}</span></td><td><strong className="regular">{s.guardian}</strong><small className="cell-sub">{s.phone}</small></td><td><div className="attendance-cell"><span>{s.attendance}%</span><div><i style={{width: `${s.attendance}%`}} /></div></div></td><td><span className={`status ${s.fee.toLowerCase()}`}>{s.fee}</span></td><td><button className="icon-button" aria-label={`View ${s.name}`}><Eye size={17} /></button></td></tr>)}
+        {filtered.map(s => <tr key={s.id} onClick={() => onSelectStudent(s)} className="clickable-row"><td><div className="student-cell"><StudentAvatar student={s} /><div><strong>{s.name}</strong><small>{s.roll}</small></div></div></td><td><span className="class-pill">{s.className}</span></td><td><strong className="regular">{s.guardian}</strong><small className="cell-sub">{s.phone}</small></td><td><div className="attendance-cell"><span>{s.attendance}%</span><div><i style={{width: `${s.attendance}%`}} /></div></div></td><td><span className={`status ${s.fee.toLowerCase()}`}>{s.fee}</span></td><td><div style={{ display: 'flex', gap: '4px', justifyContent: 'flex-end' }} onClick={e => e.stopPropagation()}><button type="button" className="icon-button" onClick={() => onSelectStudent(s)} title={`View ${s.name}`}><Eye size={16} /></button><button type="button" className="icon-button" onClick={() => setModal(s)} title={`Edit ${s.name}`}><Pencil size={16} /></button></div></td></tr>)}
         {!filtered.length && <tr><td colSpan="6"><div className="empty-state">No students match this search.</div></td></tr>}
       </tbody></table></div>
     </div>
-    {modal && <StudentModal close={() => setModal(false)} addStudent={addStudent} getNextAdmissionNumber={getNextAdmissionNumber} />}
+    {modal && <StudentModal close={() => setModal(null)} student={modal !== 'add' ? modal : undefined} addStudent={addStudent} updateStudent={onUpdateStudent} getNextAdmissionNumber={getNextAdmissionNumber} />}
   </>
 }
 
-const admissionClasses = classOptions.flatMap(cls => sectionOptions.slice(0, cls.match(/^(11|12)$/) ? 1 : 5).map(section => `${cls}-${section}`))
+
+
 const occupationOptions = ['Business','Service / Job','Government Employee','Private Employee','Farmer','Labour','Teacher','Doctor','Engineer','Lawyer','Self Employed','Armed Forces','Retired','Unemployed','Other']
 const qualificationOptions = ['Below 10th','10th Pass','12th Pass','Graduate','Post Graduate','Professional Degree','Other']
 const religionList = ['Hindu','Muslim','Christian','Sikh','Jain','Buddhist','Parsi','Jewish','Other']
@@ -3461,7 +3521,7 @@ export default function App() {
   const screens = {
     dashboard: <Dashboard students={data.students} notices={data.notices} fees={data.fees} attendance={data.attendance} activities={data.activities} staff={data.staff} staffAttendance={data.staffAttendance} employeeConfig={data.employeeConfig} approvals={data.approvals} expenses={data.expenses} transport={data.transport} library={data.library} leaveData={data.leave} setPage={setPage} onSelectStudent={setSelectedStudent} />,
     admissions: <Admissions students={data.students} enquiries={data.enquiries} onAddStudent={data.addStudent} onUpdateStudent={data.updateStudent} onSaveEnquiry={data.saveEnquiry} getNextAdmissionNumber={data.getNextAdmissionNumber} school={data.workspace.schoolProfile} />,
-    students: <Students students={data.students} onAddStudent={data.addStudent} onSelectStudent={setSelectedStudent} getNextAdmissionNumber={data.getNextAdmissionNumber} />,
+    students: <Students students={data.students} onAddStudent={data.addStudent} onUpdateStudent={data.updateStudent} onSelectStudent={setSelectedStudent} getNextAdmissionNumber={data.getNextAdmissionNumber} />,
     employees: <EmployeeManager staff={data.staff} attendance={data.staffAttendance} config={data.employeeConfig} saveConfig={data.saveEmployeeConfig} deleteConfig={data.deleteEmployeeConfig} saveEmployee={data.saveEmployee} deleteEmployee={data.deleteEmployee} saveAttendance={data.saveStaffAttendance} />,
     leave: <LeaveManager staff={data.staff} config={data.employeeConfig} leave={data.leave} saveLeaveItem={data.saveLeaveItem} deleteLeaveItem={data.deleteLeaveItem} saveStaffAttendance={data.saveStaffAttendance} />,
     attendance: <Attendance students={data.students} attendance={data.attendance} onSaveAttendance={data.saveAttendance} />,
