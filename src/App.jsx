@@ -2712,14 +2712,28 @@ function useSchoolWorkspace(session) {
     setStaff(current => { const next = { ...current }; delete next[employee.id]; return next })
   }
 
-  const saveStaffAttendance = async (date, marks) => {
-    const row = { ...(staffAttendance[date] || {}), ...marks }
+  const saveStaffAttendance = async (date, marks, meta = {}) => {
+    const existing = staffAttendance[date] || {}
+    // Merge marks, preserving any private _audit fields already on the record
+    const row = { ...existing, ...marks }
+    const isEditingPast = date < today()
+    if (isEditingPast || meta.isPastEdit) {
+      row._editedAt = Date.now()
+      row._editedBy = session?.email || session?.uid || 'unknown'
+      row._isEdited = true
+    }
     if (!developmentDemo) {
       const token = await session.getIdToken()
       await databaseRequest(`schools/${workspace.schoolId}/staffAttendance/${date}`, token, { method: 'PUT', body: row })
     }
     setStaffAttendance(current => ({ ...current, [date]: row }))
-    setActivities(current => [{ id: `staff-attendance-${date}-${Date.now()}`, title: 'Employee attendance updated', detail: `${Object.keys(marks).length} staff records saved`, at: Date.now(), icon: 'E' }, ...current])
+    setActivities(current => [{
+      id: `staff-attendance-${date}-${Date.now()}`,
+      title: isEditingPast ? 'Employee attendance edited' : 'Employee attendance updated',
+      detail: `${Object.keys(marks).filter(k => !k.startsWith('_')).length} staff records ${isEditingPast ? 'corrected' : 'saved'} for ${date}`,
+      at: Date.now(),
+      icon: 'E',
+    }, ...current])
   }
 
   const savePeriod = async (className, period) => {

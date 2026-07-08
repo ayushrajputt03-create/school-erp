@@ -237,15 +237,58 @@ function AttendancePage({ staff, attendance, saveAttendance }) {
   const [tab, setTab] = useState('manual')
   const [date, setDate] = useState(today())
   const [marks, setMarks] = useState(attendance[date] || {})
+  const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
-  const changeDate = value => { setDate(value); setMarks(attendance[value] || {}); setSaved(false) }
+  const [saveError, setSaveError] = useState('')
+
+  const isPastDate = date < today()
+  const currentDayRecord = attendance[date] || {}
+  const auditInfo = currentDayRecord._editedAt
+    ? `Last edited ${new Date(currentDayRecord._editedAt).toLocaleString('en-IN')}${currentDayRecord._editedBy ? ` by ${currentDayRecord._editedBy}` : ''}`
+    : null
+
+  const changeDate = value => {
+    setDate(value)
+    setMarks(attendance[value] || {})
+    setSaved(false)
+    setSaveError('')
+  }
+
+  useEffect(() => {
+    setMarks(attendance[date] || {})
+  }, [attendance, date])
+
   const employees = values(staff)
-  const save = async () => { await saveAttendance(date, marks); setSaved(true) }
+
+  const save = async () => {
+    if (saving) return
+    setSaving(true)
+    setSaved(false)
+    setSaveError('')
+    try {
+      await saveAttendance(date, marks, { isPastEdit: isPastDate })
+      setSaved(true)
+      setTimeout(() => setSaved(false), 4000)
+    } catch (error) {
+      setSaveError(error?.message || 'Failed to save attendance. Please try again.')
+    } finally {
+      setSaving(false)
+    }
+  }
+
   return <>
     <div className="sub-tabs employee-subtabs"><button className={tab === 'manual' ? 'active' : ''} onClick={() => setTab('manual')}>Manual Attendance</button><button className={tab === 'biometric' ? 'active' : ''} onClick={() => setTab('biometric')}>Biometric Attendance</button></div>
     {tab === 'biometric' ? <div className="panel biometric-empty"><CalendarCheck size={30} /><strong>Biometric attendance ready</strong><p>Attendance imported from configured biometric shifts will appear here.</p></div> : <>
-      <div className="panel employee-toolbar attendance-toolbar"><label>Date<DatePicker value={date} onChange={changeDate} /></label><button className="secondary-button" onClick={() => setMarks(Object.fromEntries(employees.map(item => [item.id, 'P'])))}>Mark all present</button><button className="primary-button" onClick={save}>Save Attendance</button></div>
-      {saved && <div className="success-banner">Employee attendance saved for {date}.</div>}
+      <div className="panel employee-toolbar attendance-toolbar">
+        <label>Date<DatePicker value={date} onChange={changeDate} max={today()} /></label>
+        <button className="secondary-button" onClick={() => setMarks(Object.fromEntries(employees.map(item => [item.id, 'P'])))}>Mark all present</button>
+        <button className={`primary-button${saving ? ' disabled' : ''}`} onClick={save} disabled={saving}>
+          {saving ? 'Saving...' : isPastDate ? '✎ Update Record' : 'Save Attendance'}
+        </button>
+      </div>
+      {isPastDate && <div className="past-edit-banner"><CalendarCheck size={14} /><div><strong>Editing past attendance record — {date}</strong><span>Changes will update the existing record for this date.{auditInfo ? ` · ${auditInfo}` : ''}</span></div></div>}
+      {saved && <div className="success-banner">✓ {isPastDate ? `Attendance record for ${date} updated successfully.` : `Employee attendance saved for ${date}.`}</div>}
+      {saveError && <div className="error-banner">✕ {saveError}</div>}
       <div className="panel table-panel"><div className="table-scroll"><table><thead><tr><th>#</th><th>Name</th><th>Attendance Status</th><th>Emp Code</th><th>Present / Absent / Leave / Half Day</th></tr></thead><tbody>
         {employees.map((employee, index) => <tr key={employee.id}><td>{index + 1}</td><td><strong>{employeeName(employee)}</strong></td><td><span className={`employee-mark status-${marks[employee.id] || 'none'}`}>{marks[employee.id] || 'Not marked'}</span></td><td>{employee.employeeCode}</td><td><div className="employee-mark-control">{[['P','Present'],['A','Absent'],['L','Leave'],['HD','Half Day']].map(([code, label]) => <button key={code} className={marks[employee.id] === code ? `active ${code}` : ''} onClick={() => setMarks({ ...marks, [employee.id]: code })}>{label}</button>)}</div></td></tr>)}
         {!employees.length && <tr><td colSpan="5"><div className="empty-state">Add employees before marking attendance.</div></td></tr>}
@@ -253,6 +296,7 @@ function AttendancePage({ staff, attendance, saveAttendance }) {
     </>}
   </>
 }
+
 
 function AttendanceReport({ staff, attendance }) {
   const [searchType, setSearchType] = useState('Month')
