@@ -26,11 +26,11 @@ module.exports = async (req, res) => {
   if (req.method !== 'GET') return res.status(405).json({ error: 'Method not allowed' })
 
   try {
-    const app = getAdminApp()
     const authHeader = req.headers.authorization || ''
     const idToken = authHeader.replace('Bearer ', '')
     if (!idToken) return res.status(401).json({ error: 'Missing authorization token' })
 
+    const app = getAdminApp()
     const decoded = await getAuth(app).verifyIdToken(idToken)
     const db = getDatabase(app)
     const uid = decoded.uid
