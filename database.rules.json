@@ -23,9 +23,15 @@
         ".validate": "newData.hasChildren(['schoolId', 'schoolName', 'createdAt'])"
       }
     },
+    "teachersIndex": {
+      "$uid": {
+        ".read": "auth != null && auth.uid === $uid",
+        ".write": "auth != null && (root.child('schools').child(newData.child('schoolId').val()).exists() || root.child('superAdmin').child(auth.uid).exists())"
+      }
+    },
     "schools": {
       "$schoolId": {
-        ".read": "auth != null && (auth.uid === $schoolId || root.child('superAdmin').child(auth.uid).child('role').val() === 'super-admin')",
+        ".read": "auth != null && (auth.uid === $schoolId || root.child('superAdmin').child(auth.uid).child('role').val() === 'super-admin' || root.child('teachersIndex').child(auth.uid).child('schoolId').val() === $schoolId)",
         ".write": "auth != null && (auth.uid === $schoolId || root.child('superAdmin').child(auth.uid).child('role').val() === 'super-admin')",
         "profile": {
           ".validate": "newData.hasChildren(['schoolName', 'email', 'phone', 'address', 'academicYear', 'createdAt'])"
@@ -53,8 +59,16 @@
           }
         },
         "homework": {
+          ".write": "auth != null && (auth.uid === $schoolId || root.child('teachersIndex').child(auth.uid).child('schoolId').val() === $schoolId)",
           "$homeworkId": {
-            ".validate": "!newData.exists() || (newData.hasChildren(['id', 'className', 'section', 'subject', 'title', 'description', 'dueDate', 'priority', 'postedBy', 'createdAt', 'updatedAt']) && newData.child('id').val() === $homeworkId)"
+            ".validate": "!newData.exists() || newData.hasChildren(['id', 'title', 'createdAt'])"
+          }
+        },
+        "teachers": {
+          "$teacherId": {
+            ".read": "auth != null && (auth.uid === $schoolId || auth.uid === $teacherId || root.child('superAdmin').child(auth.uid).exists())",
+            ".write": "auth != null && (auth.uid === $schoolId || root.child('superAdmin').child(auth.uid).exists())",
+            ".validate": "!newData.exists() || newData.hasChildren(['name', 'email', 'role', 'schoolId'])"
           }
         },
         "transport": {
@@ -93,8 +107,9 @@
           }
         },
         "attendance": {
+          ".write": "auth != null && (auth.uid === $schoolId || root.child('teachersIndex').child(auth.uid).child('schoolId').val() === $schoolId)",
           "$recordId": {
-            ".validate": "!newData.exists() || (newData.hasChildren(['studentId', 'date', 'status', 'markedBy']) && newData.child('status').val().matches(/^(P|A|L)$/) && newData.child('markedBy').val() === auth.uid)"
+            ".validate": true
           }
         },
         "notices": {

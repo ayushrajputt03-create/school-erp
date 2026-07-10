@@ -1,9 +1,10 @@
 import React, { useEffect, useMemo, useState } from 'react'
 import {
-  CalendarCheck, Download, FileSpreadsheet, Pencil, Plus, Printer,
+  CalendarCheck, Download, FileSpreadsheet, GraduationCap, Key, Pencil, Plus, Printer,
   Search, Trash2, Upload, UserPlus, Users,
 } from 'lucide-react'
 import DatePicker from './DatePicker'
+import { auth } from './lib/firebase'
 
 const today = () => {
   const date = new Date()
@@ -134,7 +135,38 @@ function EmployeeForm({ staff, config, saveEmployee, initial, cancelEdit, onSave
   const [saving, setSaving] = useState(false)
   const [photoPreview, setPhotoPreview] = useState(initial?.photoUrl || '')
   const designations = values(config.designations).filter(item => !form.departmentId || item.departmentId === form.departmentId)
+  const isTeacherDept = (config.departments?.[form.departmentId]?.name || '').toLowerCase() === 'teacher'
   const field = (key, value) => setForm(current => ({ ...current, [key]: value }))
+  const [teacherCreating, setTeacherCreating] = useState(false)
+  const [teacherMsg, setTeacherMsg] = useState('')
+  const createTeacherLogin = async () => {
+    if (!form.email?.trim()) { setTeacherMsg('Email is required to create teacher login.'); return }
+    const tempPassword = prompt('Set temporary password for teacher (min 8 chars):', '')
+    if (!tempPassword || tempPassword.length < 8) { setTeacherMsg('Password must be at least 8 characters.'); return }
+    setTeacherCreating(true); setTeacherMsg('')
+    try {
+      const token = await auth.currentUser.getIdToken()
+      const schoolId = auth.currentUser.uid
+      const name = `${form.firstName || ''} ${form.lastName || ''}`.trim()
+      const classes = (form.assignedClasses || '').split(',').map(c => c.trim()).filter(Boolean)
+      const sections = (form.assignedSections || '').split(',').map(s => s.trim()).filter(Boolean)
+      const res = await fetch('/api/create-teacher', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+        body: JSON.stringify({ schoolId, email: form.email.trim(), password: tempPassword, teacherData: {
+          name, firstName: form.firstName, lastName: form.lastName, phone: form.phone, email: form.email.trim(),
+          subject: form.subject || '', classes, sections, department: 'Teacher',
+          designation: config.designations?.[form.designationId]?.name || 'Teacher',
+          employeeCode: form.employeeCode || initial?.employeeCode || '', photoUrl: form.photoUrl || '',
+          joiningDate: form.joiningDate || '',
+        } }),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error || 'Failed')
+      setTeacherMsg('Teacher login created! They can login at /teacher/login with their email.')
+    } catch (err) { setTeacherMsg('Error: ' + err.message) }
+    finally { setTeacherCreating(false) }
+  }
   useEffect(() => {
     if (!form.photo) {
       setPhotoPreview(form.photoUrl || '')
@@ -200,7 +232,16 @@ function EmployeeForm({ staff, config, saveEmployee, initial, cancelEdit, onSave
       <label>Aadhaar Card<input value={form.aadhaar} onChange={e => field('aadhaar', e.target.value)} /></label>
       <label className="employee-address">Address<textarea value={form.address} onChange={e => field('address', e.target.value)} /></label>
       <label className="employee-photo">Photo upload<input type="file" accept="image/jpeg,image/png,image/webp" onChange={choosePhoto} /><span>{photoPreview ? <img src={photoPreview} alt="Employee preview" /> : <Upload size={17} />}{form.photo?.name || (photoPreview ? 'Change employee photo' : 'Choose employee photo')}</span>{photoPreview && <button type="button" onClick={removePhoto}>Remove photo</button>}</label>
+      {isTeacherDept && <>
+        <label>Subject<input value={form.subject || ''} onChange={e => field('subject', e.target.value)} placeholder="e.g. Mathematics" /></label>
+        <label>Assigned Classes<input value={form.assignedClasses || ''} onChange={e => field('assignedClasses', e.target.value)} placeholder="e.g. 5,6,7" /></label>
+        <label>Assigned Sections<input value={form.assignedSections || ''} onChange={e => field('assignedSections', e.target.value)} placeholder="e.g. A,B" /></label>
+      </>}
     </div>
+    {isTeacherDept && <div className="teacher-login-section">
+      <button type="button" className="secondary-button" onClick={createTeacherLogin} disabled={teacherCreating}><Key size={14} /> {teacherCreating ? 'Creating...' : 'Create Teacher Login'}</button>
+      {teacherMsg && <small className={teacherMsg.startsWith('Error') ? 'photo-error' : 'compression-info'}>{teacherMsg}</small>}
+    </div>}
     {message && <div className="success-banner">{message}</div>}
     {error && <div className="form-error employee-save-error">{error}</div>}
     <div className="employee-submit">{initial && <button type="button" className="secondary-button" onClick={cancelEdit}>Cancel</button>}<button className="primary-button" disabled={saving}><UserPlus size={15} /> {saving ? 'Saving...' : initial ? 'Update Employee' : 'Submit Employee'}</button></div>

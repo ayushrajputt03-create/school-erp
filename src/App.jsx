@@ -960,23 +960,29 @@ function StudentModal({ close, addStudent, updateStudent, getNextAdmissionNumber
     }
   }
 
-  return <div className="modal-backdrop"><form className="modal" onSubmit={submit} style={{ maxHeight: '90vh', overflowY: 'auto' }}>
+  return <div className="modal-backdrop"><form className="modal student-modal" onSubmit={submit}>
     <div className="modal-header"><div><h3>{student ? 'Edit student details' : 'Add new student'}</h3><p>{student ? 'Modify student profile information.' : 'Create a student profile and admission record.'}</p></div><button type="button" className="icon-button" onClick={close}><X size={19} /></button></div>
-    <div className="form-grid">
-      <div className="full photo-form-row"><PhotoUploader photo={photo} onPhoto={setPhoto} onRemove={() => setPhoto(null)} /></div>
-      <label>Admission number<input readOnly className="readonly-input" value={admissionNumber || 'Auto generating...'} /></label>
-      <label>Date of Birth<DatePicker value={form.dob} onChange={value => setForm({...form, dob: value})} max={today()} /></label>
-      <label className="full">Student name<input required value={form.name} onChange={e => setForm({...form, name: e.target.value})} placeholder="Full name" /></label>
-      <label>Gender<select value={form.gender} onChange={e => setForm({...form, gender: e.target.value})}><option value="">Select gender</option><option>Male</option><option>Female</option><option>Other</option></select></label>
-      <label>Class & section<select value={form.className} onChange={e => setForm({...form, className: e.target.value})}>{admissionClasses.map(c => <option key={c}>{c}</option>)}</select></label>
-      <label>Guardian name<input required value={form.guardian} onChange={e => setForm({...form, guardian: e.target.value})} placeholder="Parent / guardian" /></label>
-      <label>Phone number<input required value={form.phone} onChange={e => setForm({...form, phone: e.target.value})} placeholder="10-digit mobile number" /></label>
-      <label>Email<input type="email" value={form.email} onChange={e => setForm({...form, email: e.target.value})} placeholder="Email address" /></label>
-      <label>Admission Date<DatePicker value={form.admissionDate} onChange={value => setForm({...form, admissionDate: value})} /></label>
-      <label>Admission Scheme<select value={form.admissionScheme} onChange={e => setForm({...form, admissionScheme: e.target.value})}>{['General','RTE','EWS','Staff Ward','Sibling','Scholarship'].map(s => <option key={s}>{s}</option>)}</select></label>
-      <label className="full">Address<input value={form.address} onChange={e => setForm({...form, address: e.target.value})} placeholder="Full address" /></label>
+    <div className="student-modal-body">
+      <div className="student-modal-top">
+        <PhotoUploader photo={photo} onPhoto={setPhoto} onRemove={() => setPhoto(null)} compact />
+        <div className="student-modal-top-fields">
+          <label>Student name<input required value={form.name} onChange={e => setForm({...form, name: e.target.value})} placeholder="Full name" /></label>
+          <label>Admission number<input readOnly className="readonly-input" value={admissionNumber || 'Auto generating...'} /></label>
+          <label>Class & section<select value={form.className} onChange={e => setForm({...form, className: e.target.value})}>{admissionClasses.map(c => <option key={c}>{c}</option>)}</select></label>
+        </div>
+      </div>
+      <div className="form-grid student-form-fields">
+        <label>Date of Birth<DatePicker value={form.dob} onChange={value => setForm({...form, dob: value})} max={today()} /></label>
+        <label>Gender<select value={form.gender} onChange={e => setForm({...form, gender: e.target.value})}><option value="">Select gender</option><option>Male</option><option>Female</option><option>Other</option></select></label>
+        <label>Guardian name<input required value={form.guardian} onChange={e => setForm({...form, guardian: e.target.value})} placeholder="Parent / guardian" /></label>
+        <label>Phone number<input required value={form.phone} onChange={e => setForm({...form, phone: e.target.value})} placeholder="10-digit mobile number" /></label>
+        <label>Email<input type="email" value={form.email} onChange={e => setForm({...form, email: e.target.value})} placeholder="Email address" /></label>
+        <label>Admission Date<DatePicker value={form.admissionDate} onChange={value => setForm({...form, admissionDate: value})} /></label>
+        <label>Admission Scheme<select value={form.admissionScheme} onChange={e => setForm({...form, admissionScheme: e.target.value})}>{['General','RTE','EWS','Staff Ward','Sibling','Scholarship'].map(s => <option key={s}>{s}</option>)}</select></label>
+        <label>Address<input value={form.address} onChange={e => setForm({...form, address: e.target.value})} placeholder="Full address" /></label>
+      </div>
+      {error && <div className="form-error">{error}</div>}
     </div>
-    {error && <div className="form-error">{error}</div>}
     <div className="modal-actions"><button type="button" className="secondary-button" onClick={close} disabled={saving}>Cancel</button><button className="primary-button" disabled={saving || !admissionNumber}>{saving ? 'Saving...' : <>{student ? <Save size={16} /> : <Plus size={16} />}{student ? ' Update student' : ' Add student'}</>}</button></div>
   </form></div>
 }
