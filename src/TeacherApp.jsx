@@ -4,7 +4,7 @@ import {
   Home, LayoutDashboard, LoaderCircle, LogOut, Menu, MessageSquareText, Pencil,
   Search, User, X, Eye, EyeOff, Check, Clock3, Users, Bell, Save, Camera
 } from 'lucide-react'
-import { onAuthStateChanged, signInWithEmailAndPassword, signOut, updatePassword, EmailAuthProvider, reauthenticateWithCredential } from 'firebase/auth'
+import { onAuthStateChanged, signInWithCustomToken, signOut, updatePassword, EmailAuthProvider, reauthenticateWithCredential } from 'firebase/auth'
 import { auth } from './lib/firebase'
 import DatePicker from './DatePicker'
 import './teacher-app.css'
@@ -76,21 +76,6 @@ const longDate = v => v ? new Date(`${v}T00:00:00`).toLocaleDateString('en-IN', 
 const shortDate = v => v ? new Date(`${v}T00:00:00`).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : '-'
 const classParts = v => { const m = String(v || '').match(/^(.+?)\s*[-/]\s*([A-Za-z0-9]+)$/); return m ? { className: m[1].trim(), section: m[2].trim() } : { className: String(v || '').trim(), section: '' } }
 
-const teacherEmail = (mobile, schoolCode) => `${mobile.replace(/\D/g, '')}@${String(schoolCode).trim().toLowerCase()}.teacher.schoolerp.app`
-const legacyTeacherEmail = mobile => `${mobile.replace(/\D/g, '')}@teacher.schoolerp.app`
-// Accepts DOB in any format (15/03/1995, 15-03-1995, 15031995, 1995-03-15) → DDMMYYYY
-const normalizeDob = input => {
-  const digits = String(input || '').replace(/\D/g, '')
-  if (digits.length !== 8) return ''
-  const year = Number(digits.slice(0, 4))
-  const mm = Number(digits.slice(4, 6))
-  const dd = Number(digits.slice(6, 8))
-  if (year >= 1900 && year <= 2099 && mm >= 1 && mm <= 12 && dd >= 1 && dd <= 31) {
-    return digits.slice(6, 8) + digits.slice(4, 6) + digits.slice(0, 4)
-  }
-  return digits
-}
-
 function TeacherLogin() {
   const [schoolCode, setSchoolCode] = useState('')
   const [mobile, setMobile] = useState('')
@@ -105,22 +90,18 @@ function TeacherLogin() {
     const phone = mobile.replace(/\D/g, '')
     if (!code) { setError('Enter your school code.'); setLoading(false); return }
     if (phone.length < 10) { setError('Enter a valid 10-digit mobile number.'); setLoading(false); return }
-    const password = normalizeDob(dob)
-    if (password.length !== 8) { setError('Enter date of birth as DD/MM/YYYY.'); setLoading(false); return }
+    if (!dob.trim()) { setError('Enter your date of birth.'); setLoading(false); return }
     try {
-      await signInWithEmailAndPassword(auth, teacherEmail(phone, code), password)
+      const response = await fetch('/api/teacher-login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ schoolCode: code, phone, password: dob.trim() }),
+      })
+      const data = await response.json().catch(() => ({}))
+      if (!response.ok || !data.token) throw new Error(data.error || 'Login failed.')
+      await signInWithCustomToken(auth, data.token)
     } catch (err) {
-      try {
-        await signInWithEmailAndPassword(auth, legacyTeacherEmail(phone), password)
-      } catch {
-        const messages = {
-          'auth/user-not-found': 'No teacher account found. Contact your school admin.',
-          'auth/wrong-password': 'Incorrect date of birth. Try again.',
-          'auth/invalid-credential': 'Invalid school code, mobile number or date of birth.',
-          'auth/too-many-requests': 'Too many attempts. Try again later.',
-        }
-        setError(messages[err?.code] || err?.message?.replace('Firebase: ', '') || 'Login failed.')
-      }
+      setError(err?.message?.replace('Firebase: ', '') || 'Login failed.')
     } finally { setLoading(false) }
   }
 
