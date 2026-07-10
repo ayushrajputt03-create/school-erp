@@ -44,6 +44,10 @@ module.exports = async (req, res) => {
       const existingUser = await adminAuth.getUserByEmail(email).catch(() => null)
       if (existingUser) {
         teacherUid = existingUser.uid
+        await adminAuth.updateUser(teacherUid, {
+          password,
+          displayName: teacherData.name || `${teacherData.firstName || ''} ${teacherData.lastName || ''}`.trim(),
+        })
       } else {
         const newUser = await adminAuth.createUser({
           email,

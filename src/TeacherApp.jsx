@@ -2,9 +2,9 @@ import React, { useEffect, useMemo, useRef, useState } from 'react'
 import {
   BookOpen, CalendarCheck, ChevronRight, ClipboardList, FileText, GraduationCap,
   Home, LayoutDashboard, LoaderCircle, LogOut, Menu, MessageSquareText, Pencil,
-  Search, User, X, Eye, EyeOff, Mail, Check, Clock3, Users, Bell, Save, Camera
+  Search, User, X, Eye, EyeOff, Check, Clock3, Users, Bell, Save, Camera
 } from 'lucide-react'
-import { onAuthStateChanged, signInWithEmailAndPassword, signOut, sendPasswordResetEmail, updatePassword, EmailAuthProvider, reauthenticateWithCredential } from 'firebase/auth'
+import { onAuthStateChanged, signInWithEmailAndPassword, signOut, updatePassword, EmailAuthProvider, reauthenticateWithCredential } from 'firebase/auth'
 import { auth } from './lib/firebase'
 import DatePicker from './DatePicker'
 import './teacher-app.css'
@@ -76,36 +76,52 @@ const longDate = v => v ? new Date(`${v}T00:00:00`).toLocaleDateString('en-IN', 
 const shortDate = v => v ? new Date(`${v}T00:00:00`).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : '-'
 const classParts = v => { const m = String(v || '').match(/^(.+?)\s*[-/]\s*([A-Za-z0-9]+)$/); return m ? { className: m[1].trim(), section: m[2].trim() } : { className: String(v || '').trim(), section: '' } }
 
+const teacherEmail = (mobile, schoolCode) => `${mobile.replace(/\D/g, '')}@${String(schoolCode).trim().toLowerCase()}.teacher.schoolerp.app`
+const legacyTeacherEmail = mobile => `${mobile.replace(/\D/g, '')}@teacher.schoolerp.app`
+// Accepts DOB in any format (15/03/1995, 15-03-1995, 15031995, 1995-03-15) → DDMMYYYY
+const normalizeDob = input => {
+  const digits = String(input || '').replace(/\D/g, '')
+  if (digits.length !== 8) return ''
+  const year = Number(digits.slice(0, 4))
+  const mm = Number(digits.slice(4, 6))
+  const dd = Number(digits.slice(6, 8))
+  if (year >= 1900 && year <= 2099 && mm >= 1 && mm <= 12 && dd >= 1 && dd <= 31) {
+    return digits.slice(6, 8) + digits.slice(4, 6) + digits.slice(0, 4)
+  }
+  return digits
+}
+
 function TeacherLogin() {
-  const [email, setEmail] = useState('')
-  const [password, setPassword] = useState('')
-  const [showPw, setShowPw] = useState(false)
+  const [schoolCode, setSchoolCode] = useState('')
+  const [mobile, setMobile] = useState('')
+  const [dob, setDob] = useState('')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
-  const [message, setMessage] = useState('')
 
   const submit = async e => {
     e.preventDefault()
-    setError(''); setMessage(''); setLoading(true)
+    setError(''); setLoading(true)
+    const code = schoolCode.trim()
+    const phone = mobile.replace(/\D/g, '')
+    if (!code) { setError('Enter your school code.'); setLoading(false); return }
+    if (phone.length < 10) { setError('Enter a valid 10-digit mobile number.'); setLoading(false); return }
+    const password = normalizeDob(dob)
+    if (password.length !== 8) { setError('Enter date of birth as DD/MM/YYYY.'); setLoading(false); return }
     try {
-      await signInWithEmailAndPassword(auth, email.trim(), password)
+      await signInWithEmailAndPassword(auth, teacherEmail(phone, code), password)
     } catch (err) {
-      const messages = {
-        'auth/user-not-found': 'No teacher account found with this email.',
-        'auth/wrong-password': 'Incorrect password. Try again.',
-        'auth/invalid-credential': 'Invalid email or password.',
-        'auth/too-many-requests': 'Too many attempts. Try again later.',
+      try {
+        await signInWithEmailAndPassword(auth, legacyTeacherEmail(phone), password)
+      } catch {
+        const messages = {
+          'auth/user-not-found': 'No teacher account found. Contact your school admin.',
+          'auth/wrong-password': 'Incorrect date of birth. Try again.',
+          'auth/invalid-credential': 'Invalid school code, mobile number or date of birth.',
+          'auth/too-many-requests': 'Too many attempts. Try again later.',
+        }
+        setError(messages[err?.code] || err?.message?.replace('Firebase: ', '') || 'Login failed.')
       }
-      setError(messages[err?.code] || err?.message?.replace('Firebase: ', '') || 'Login failed.')
     } finally { setLoading(false) }
-  }
-
-  const forgot = async () => {
-    if (!email.trim()) { setError('Enter your email first.'); return }
-    try {
-      await sendPasswordResetEmail(auth, email.trim())
-      setMessage('Password reset link sent to your email.')
-    } catch (err) { setError(err?.message?.replace('Firebase: ', '') || 'Reset failed.') }
   }
 
   return <main className="teacher-login-page">
@@ -113,23 +129,20 @@ function TeacherLogin() {
       <div className="teacher-login-header">
         <div className="teacher-login-icon"><GraduationCap size={28} /></div>
         <h1>Teacher Login</h1>
-        <p>Sign in to your teacher account</p>
+        <p>Sign in with school code, mobile number &amp; date of birth</p>
       </div>
       <form onSubmit={submit}>
-        <label>Email<input required type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="teacher@school.com" autoComplete="email" /></label>
-        <label>Password
-          <span className="teacher-pw-field">
-            <input required type={showPw ? 'text' : 'password'} value={password} onChange={e => setPassword(e.target.value)} placeholder="Enter password" autoComplete="current-password" />
-            <button type="button" onClick={() => setShowPw(p => !p)}>{showPw ? <EyeOff size={16} /> : <Eye size={16} />}</button>
-          </span>
+        <label>School Code<input required value={schoolCode} onChange={e => setSchoolCode(e.target.value.toUpperCase())} placeholder="e.g. NORPUB637" autoComplete="off" style={{textTransform:'uppercase'}} /></label>
+        <label>Mobile Number (Username)<input required type="tel" value={mobile} onChange={e => setMobile(e.target.value)} placeholder="9876543210" autoComplete="tel" maxLength={10} /></label>
+        <label>Date of Birth (Password)
+          <input required value={dob} onChange={e => setDob(e.target.value)} placeholder="DD/MM/YYYY" inputMode="numeric" autoComplete="off" />
         </label>
-        <button type="button" className="teacher-forgot" onClick={forgot}>Forgot Password?</button>
         {error && <div className="teacher-alert error">{error}</div>}
-        {message && <div className="teacher-alert success">{message}</div>}
         <button className="teacher-submit" disabled={loading}>
           {loading && <LoaderCircle className="spin" size={16} />} Sign In
         </button>
       </form>
+      <p style={{textAlign:'center',fontSize:'.82rem',color:'#7DA0CA',marginTop:12}}>Password = your date of birth, any format works (15/03/1995 or 15031995)</p>
       <a href="/" className="teacher-back">Back to Home</a>
     </div>
   </main>

@@ -225,3 +225,14 @@ button:disabled{opacity:.55;cursor:not-allowed}
 
 /* Parent account admin */
 .parent-admin-module{display:grid;gap:16px}.parent-admin-tools{display:grid;grid-template-columns:1fr 220px 170px;gap:12px;align-items:end}.parent-admin-tools>div:last-child{border:1px solid var(--line);border-radius:10px;padding:10px;background:#f8fbff}.parent-admin-tools span,.parent-admin-tools strong{display:block}.parent-admin-tools span{font-size:11px;color:#64748b;font-weight:900;text-transform:uppercase}.parent-admin-tools strong{font-size:20px;color:#052659}.parent-child-pill{display:inline-flex;border-radius:999px;background:#e8f1ff;color:#052659;padding:5px 8px;font-size:11px;font-weight:900;margin:2px}.table-actions{display:flex;gap:6px;flex-wrap:wrap}.table-actions button{border:1px solid var(--line);background:#fff;color:#052659;border-radius:8px;padding:6px 8px;font-size:11px;font-weight:900;cursor:pointer}.theme-dark .parent-admin-tools>div:last-child,.theme-dark .table-actions button{background:var(--surface);border-color:var(--theme-line);color:#c1e8ff}@media(max-width:760px){.parent-admin-tools{grid-template-columns:1fr}.table-actions button{flex:1}}
+
+/* Teacher class allotment chips */
+.employee-allot-group{display:flex;flex-direction:column;gap:6px}
+.employee-allot-label{font-size:.72rem;font-weight:700;color:#40556e;text-transform:uppercase;letter-spacing:.03em}
+.theme-dark .employee-allot-label{color:#7DA0CA}
+.employee-allot-chips{display:flex;flex-wrap:wrap;gap:6px}
+.allot-chip{height:30px;min-width:38px;padding:0 10px;border:1px solid #c9d6e6;border-radius:8px;background:#fff;color:#33475f;font-size:.78rem;font-weight:600;cursor:pointer;transition:all .12s ease}
+.allot-chip:hover{border-color:#5483B3}
+.allot-chip.selected{background:#052659;border-color:#052659;color:#C1E8FF}
+.theme-dark .allot-chip{background:#0b1b30;border-color:#27405e;color:#9fb8d4}
+.theme-dark .allot-chip.selected{background:#5483B3;border-color:#5483B3;color:#021024}

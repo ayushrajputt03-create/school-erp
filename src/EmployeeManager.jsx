@@ -6,6 +6,8 @@ import {
 import DatePicker from './DatePicker'
 import { auth } from './lib/firebase'
 
+const employeeDbUrl = import.meta.env.VITE_FIREBASE_DATABASE_URL?.replace(/\/$/, '')
+
 const today = () => {
   const date = new Date()
   date.setMinutes(date.getMinutes() - date.getTimezoneOffset())
@@ -14,6 +16,14 @@ const today = () => {
 
 const employeeName = employee => `${employee.firstName || ''} ${employee.lastName || ''}`.trim() || employee.name || 'Employee'
 const values = object => Object.values(object || {}).sort((a, b) => Number(a.order || 0) - Number(b.order || 0))
+const CLASS_OPTIONS = ['Nursery', 'LKG', 'UKG', '1', '2', '3', '4', '5', '6', '7', '8', '9', '10', '11', '12']
+const SECTION_OPTIONS = ['A', 'B', 'C', 'D']
+const splitCsv = value => String(value || '').split(',').map(item => item.trim()).filter(Boolean)
+const toggleCsv = (value, item) => {
+  const list = splitCsv(value)
+  const next = list.includes(item) ? list.filter(entry => entry !== item) : [...list, item]
+  return next.join(',')
+}
 const defaultEmployeeConfig = {
   departments: {
     dept_teacher: { id: 'dept_teacher', name: 'Teacher', order: 1 },
@@ -135,35 +145,44 @@ function EmployeeForm({ staff, config, saveEmployee, initial, cancelEdit, onSave
   const [saving, setSaving] = useState(false)
   const [photoPreview, setPhotoPreview] = useState(initial?.photoUrl || '')
   const designations = values(config.designations).filter(item => !form.departmentId || item.departmentId === form.departmentId)
-  const isTeacherDept = (config.departments?.[form.departmentId]?.name || '').toLowerCase() === 'teacher'
+  const isTeacherDept = (config.departments?.[form.departmentId]?.name || '').toLowerCase().includes('teacher')
+    || (config.designations?.[form.designationId]?.name || '').toLowerCase().includes('teacher')
   const field = (key, value) => setForm(current => ({ ...current, [key]: value }))
   const [teacherCreating, setTeacherCreating] = useState(false)
   const [teacherMsg, setTeacherMsg] = useState('')
   const createTeacherLogin = async () => {
-    if (!form.email?.trim()) { setTeacherMsg('Email is required to create teacher login.'); return }
-    const tempPassword = prompt('Set temporary password for teacher (min 8 chars):', '')
-    if (!tempPassword || tempPassword.length < 8) { setTeacherMsg('Password must be at least 8 characters.'); return }
+    const phone = (form.phone || '').replace(/\D/g, '')
+    if (phone.length < 10) { setTeacherMsg('Employee mobile number is required (min 10 digits).'); return }
+    const dob = form.dob || form.dateOfBirth || ''
+    if (!dob) { setTeacherMsg('Date of birth is required to create teacher login (used as password).'); return }
+    const d = new Date(dob); if (isNaN(d)) { setTeacherMsg('Invalid date of birth.'); return }
+    const dd = String(d.getDate()).padStart(2, '0'), mm = String(d.getMonth() + 1).padStart(2, '0'), yyyy = d.getFullYear()
+    const password = `${dd}${mm}${yyyy}`
     setTeacherCreating(true); setTeacherMsg('')
     try {
       const token = await auth.currentUser.getIdToken()
       const schoolId = auth.currentUser.uid
+      const codeResponse = await fetch(`${employeeDbUrl}/schools/${schoolId}/profile/schoolCode.json?auth=${token}`)
+      const schoolCode = codeResponse.ok ? await codeResponse.json() : null
+      if (!schoolCode) { setTeacherMsg('Error: School code not found in school profile. Open Settings and save the profile once.'); setTeacherCreating(false); return }
+      const syntheticEmail = `${phone}@${String(schoolCode).trim().toLowerCase()}.teacher.schoolerp.app`
       const name = `${form.firstName || ''} ${form.lastName || ''}`.trim()
       const classes = (form.assignedClasses || '').split(',').map(c => c.trim()).filter(Boolean)
       const sections = (form.assignedSections || '').split(',').map(s => s.trim()).filter(Boolean)
       const res = await fetch('/api/create-teacher', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-        body: JSON.stringify({ schoolId, email: form.email.trim(), password: tempPassword, teacherData: {
-          name, firstName: form.firstName, lastName: form.lastName, phone: form.phone, email: form.email.trim(),
+        body: JSON.stringify({ schoolId, email: syntheticEmail, password, teacherData: {
+          name, firstName: form.firstName, lastName: form.lastName, phone: form.phone, email: form.email?.trim() || '',
           subject: form.subject || '', classes, sections, department: 'Teacher',
           designation: config.designations?.[form.designationId]?.name || 'Teacher',
           employeeCode: form.employeeCode || initial?.employeeCode || '', photoUrl: form.photoUrl || '',
-          joiningDate: form.joiningDate || '',
+          joiningDate: form.joiningDate || '', dob,
         } }),
       })
       const data = await res.json()
       if (!res.ok) throw new Error(data.error || 'Failed')
-      setTeacherMsg('Teacher login created! They can login at /teacher/login with their email.')
+      setTeacherMsg(`Teacher login created! School Code: ${schoolCode}, Mobile: ${phone}, Password: DOB (${dd}/${mm}/${yyyy}). Login at /teacher/login`)
     } catch (err) { setTeacherMsg('Error: ' + err.message) }
     finally { setTeacherCreating(false) }
   }
@@ -234,8 +253,26 @@ function EmployeeForm({ staff, config, saveEmployee, initial, cancelEdit, onSave
       <label className="employee-photo">Photo upload<input type="file" accept="image/jpeg,image/png,image/webp" onChange={choosePhoto} /><span>{photoPreview ? <img src={photoPreview} alt="Employee preview" /> : <Upload size={17} />}{form.photo?.name || (photoPreview ? 'Change employee photo' : 'Choose employee photo')}</span>{photoPreview && <button type="button" onClick={removePhoto}>Remove photo</button>}</label>
       {isTeacherDept && <>
         <label>Subject<input value={form.subject || ''} onChange={e => field('subject', e.target.value)} placeholder="e.g. Mathematics" /></label>
-        <label>Assigned Classes<input value={form.assignedClasses || ''} onChange={e => field('assignedClasses', e.target.value)} placeholder="e.g. 5,6,7" /></label>
-        <label>Assigned Sections<input value={form.assignedSections || ''} onChange={e => field('assignedSections', e.target.value)} placeholder="e.g. A,B" /></label>
+        <div className="employee-allot-group">
+          <span className="employee-allot-label">Allot Classes</span>
+          <div className="employee-allot-chips">
+            {CLASS_OPTIONS.map(cls => {
+              const selected = splitCsv(form.assignedClasses).includes(cls)
+              return <button type="button" key={cls} className={`allot-chip${selected ? ' selected' : ''}`}
+                onClick={() => field('assignedClasses', toggleCsv(form.assignedClasses, cls))}>{cls}</button>
+            })}
+          </div>
+        </div>
+        <div className="employee-allot-group">
+          <span className="employee-allot-label">Allot Sections</span>
+          <div className="employee-allot-chips">
+            {SECTION_OPTIONS.map(sec => {
+              const selected = splitCsv(form.assignedSections).includes(sec)
+              return <button type="button" key={sec} className={`allot-chip${selected ? ' selected' : ''}`}
+                onClick={() => field('assignedSections', toggleCsv(form.assignedSections, sec))}>{sec}</button>
+            })}
+          </div>
+        </div>
       </>}
     </div>
     {isTeacherDept && <div className="teacher-login-section">
