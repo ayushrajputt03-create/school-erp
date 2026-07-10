@@ -4,7 +4,11 @@ const crypto = require('crypto')
 
 function getAdminApp() {
   if (getApps().length) return getApp()
-  const credentials = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT_JSON || '{}')
+  const raw = process.env.FIREBASE_SERVICE_ACCOUNT_JSON || ''
+  if (!raw) throw new Error('Server config missing: FIREBASE_SERVICE_ACCOUNT_JSON not set.')
+  let credentials
+  try { credentials = JSON.parse(raw) } catch { throw new Error('Server config error: FIREBASE_SERVICE_ACCOUNT_JSON is not valid JSON.') }
+  if (!credentials.project_id) throw new Error('Server config error: service account missing project_id.')
   return initializeApp({
     credential: cert(credentials),
     databaseURL: process.env.FIREBASE_DATABASE_URL || process.env.VITE_FIREBASE_DATABASE_URL,
