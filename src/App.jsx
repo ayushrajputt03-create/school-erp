@@ -1650,16 +1650,19 @@ function Notices({ notices, onAddNotice }) {
 const tones = ['blue', 'violet', 'green', 'orange', 'cyan', 'pink']
 
 function studentFromRow(row, index) {
-  const initials = row.full_name.split(/\s+/).map(part => part[0]).slice(0, 2).join('').toUpperCase()
-  const classLabel = `${row.class_name}-${row.section}`
+  const fullName = row.full_name || row.name || row.fullName || ''
+  const className = row.class_name || row.class || row.className || ''
+  const section = row.section || 'A'
+  const initials = fullName ? fullName.split(/\s+/).map(part => part[0]).slice(0, 2).join('').toUpperCase() : '?'
+  const classLabel = `${className}-${section}`
   return {
     id: row.id,
-    name: row.full_name,
-    roll: row.admission_number || row.admissionNo,
-    admissionNo: row.admission_number || row.admissionNo,
+    name: fullName,
+    roll: row.admission_number || row.admissionNo || row.roll || '',
+    admissionNo: row.admission_number || row.admissionNo || row.roll || '',
     className: classLabel,
-    guardian: row.guardian_name || 'Not provided',
-    phone: row.guardian_phone || 'Not provided',
+    guardian: row.guardian_name || row.fatherName || row.father_name || 'Not provided',
+    phone: row.guardian_phone || row.fatherPhone || row.father_phone || row.phone || 'Not provided',
     attendance: row.attendance_rate || 100,
     fee: row.fee_status || 'Pending',
     createdAt: row.createdAt || 0,
@@ -2066,7 +2069,7 @@ function useSchoolWorkspace(session) {
         }, {})
         const nextFees = feeData || {}
         const nextActivities = [
-          ...studentRows.map(row => ({ id: `student-${row.id}`, title: 'Student admitted', detail: `${row.full_name} joined Class ${row.class_name}-${row.section}`, at: row.createdAt || 0, icon: '+' })),
+          ...studentRows.map(row => ({ id: `student-${row.id}`, title: 'Student admitted', detail: `${row.full_name || row.name || ''} joined Class ${row.class_name || row.class || ''}-${row.section || 'A'}`, at: row.createdAt || 0, icon: '+' })),
           ...Object.entries(nextFees).map(([id, row]) => ({ id: `fee-${id}`, title: 'Fee payment received', detail: `${money(row.amount)} via ${row.method || 'payment'}`, at: row.paidAt || row.updatedAt || 0, icon: 'â‚¹' })),
           ...noticeRows.map(row => ({ id: `notice-${row.id}`, title: 'Notice published', detail: row.title, at: row.publishAt || 0, icon: 'N' })),
           ...Object.entries(attendanceData || {}).map(([id, row]) => ({ id: `attendance-${id}`, title: 'Attendance updated', detail: `${row.date} attendance marked`, at: row.updatedAt || 0, icon: 'âœ“' })),

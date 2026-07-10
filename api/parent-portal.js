@@ -1,11 +1,12 @@
-const admin = require('firebase-admin')
+const { getApps, getApp, initializeApp, cert } = require('firebase-admin/app')
+const { getDatabase } = require('firebase-admin/database')
 const crypto = require('crypto')
 
 function getAdminApp() {
-  if (admin.apps.length) return admin.app()
+  if (getApps().length) return getApp()
   const credentials = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT_JSON || '{}')
-  return admin.initializeApp({
-    credential: admin.credential.cert(credentials),
+  return initializeApp({
+    credential: cert(credentials),
     databaseURL: process.env.FIREBASE_DATABASE_URL || process.env.VITE_FIREBASE_DATABASE_URL,
   })
 }
@@ -226,7 +227,7 @@ module.exports = async function handler(request, response) {
   if (request.method !== 'POST') return response.status(405).json({ error: 'Method not allowed' })
   try {
     const app = getAdminApp()
-    const database = app.database()
+    const database = getDatabase(app)
     const body = request.body || {}
     const action = body.action
 
