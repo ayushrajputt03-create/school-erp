@@ -14,7 +14,7 @@ const databaseUrl = import.meta.env.VITE_FIREBASE_DATABASE_URL?.replace(/\/$/, '
 async function dbRequest(path, token, options = {}) {
   const controller = new AbortController()
   const timeout = setTimeout(() => controller.abort(), 12000)
-  const url = `${databaseUrl}/${path}.json?auth=${token}`
+  const url = `${databaseUrl}/${path}.json?auth=${encodeURIComponent(token)}`
   try {
     const response = await fetch(url, {
       method: options.method || 'GET',
@@ -23,11 +23,50 @@ async function dbRequest(path, token, options = {}) {
       signal: controller.signal,
     })
     clearTimeout(timeout)
-    if (!response.ok) throw new Error(`Firebase ${response.status}`)
+    if (!response.ok) throw new Error(`${path}: Firebase ${response.status}`)
     const data = await response.json()
     return data
   } catch (error) {
     clearTimeout(timeout)
+    throw error
+  }
+}
+
+async function loadTeacherSessionFromApi(token) {
+  const response = await fetch('/api/teacher-session', {
+    headers: { Authorization: `Bearer ${token}` },
+  })
+  const data = await response.json().catch(() => ({}))
+  if (!response.ok) throw new Error(data.error || `Teacher API ${response.status}`)
+  return data
+}
+
+async function loadTeacherSession(token, uid) {
+  try {
+    const index = await dbRequest(`teachersIndex/${uid}`, token)
+    if (!index || !index.schoolId) throw new Error('No teacher account found. Contact your school admin.')
+    const [teacherData, profile, studentsData, hw, noticeData, attData] = await Promise.all([
+      dbRequest(`schools/${index.schoolId}/teachers/${uid}`, token),
+      dbRequest(`schools/${index.schoolId}/profile`, token),
+      dbRequest(`schools/${index.schoolId}/students`, token),
+      dbRequest(`schools/${index.schoolId}/homework`, token),
+      dbRequest(`schools/${index.schoolId}/notices`, token),
+      dbRequest(`schools/${index.schoolId}/attendance`, token),
+    ])
+    if (!teacherData) throw new Error('Teacher profile not found in school data.')
+    return {
+      schoolId: index.schoolId,
+      teacher: { ...teacherData, uid },
+      profile,
+      students: studentsData || {},
+      homework: hw || {},
+      notices: noticeData || {},
+      attendance: attData || {},
+    }
+  } catch (error) {
+    if (/Firebase 401|Firebase 403|teachersIndex|schools\//i.test(error.message || '')) {
+      return loadTeacherSessionFromApi(token)
+    }
     throw error
   }
 }
@@ -493,26 +532,15 @@ export default function TeacherApp() {
     const load = async () => {
       try {
         const token = await session.getIdToken()
-        const index = await dbRequest(`teachersIndex/${session.uid}`, token)
-        if (!index || !index.schoolId) { setLoadError('No teacher account found. Contact your school admin.'); return }
+        const bundle = await loadTeacherSession(token, session.uid)
         if (!active) return
-        setSchoolId(index.schoolId)
-        const [teacherData, profile, studentsData, hw, noticeData, attData] = await Promise.all([
-          dbRequest(`schools/${index.schoolId}/teachers/${session.uid}`, token),
-          dbRequest(`schools/${index.schoolId}/profile`, token),
-          dbRequest(`schools/${index.schoolId}/students`, token),
-          dbRequest(`schools/${index.schoolId}/homework`, token),
-          dbRequest(`schools/${index.schoolId}/notices`, token),
-          dbRequest(`schools/${index.schoolId}/attendance`, token),
-        ])
-        if (!active) return
-        if (!teacherData) { setLoadError('Teacher profile not found in school data.'); return }
-        setTeacher({ ...teacherData, uid: session.uid })
-        setSchoolProfile(profile)
-        setStudents(studentsData)
-        setHomework(hw || {})
-        setNotices(noticeData || {})
-        setAttendance(attData || {})
+        setSchoolId(bundle.schoolId)
+        setTeacher(bundle.teacher)
+        setSchoolProfile(bundle.profile)
+        setStudents(bundle.students || {})
+        setHomework(bundle.homework || {})
+        setNotices(bundle.notices || {})
+        setAttendance(bundle.attendance || {})
       } catch (err) {
         if (active) setLoadError('Failed to load teacher data: ' + err.message)
       }
