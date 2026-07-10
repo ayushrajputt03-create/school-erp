@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react'
+import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { CalendarDays, ChevronLeft, ChevronRight } from 'lucide-react'
 import './DatePicker.css'
 
@@ -20,6 +20,8 @@ export default function DatePicker({ value, onChange, required = false, min, max
   const [view, setView] = useState(() => selected || new Date())
   const rootRef = useRef(null)
   const yearGridRef = useRef(null)
+  const popoverRef = useRef(null)
+  const [popoverStyle, setPopoverStyle] = useState({})
 
   useEffect(() => {
     if (selected) setView(selected)
@@ -66,6 +68,26 @@ export default function DatePicker({ value, onChange, required = false, min, max
     const candidate = new Date(date.getFullYear(), date.getMonth(), date.getDate())
     return (minDate && candidate < minDate) || (maxDate && candidate > maxDate)
   }
+  useLayoutEffect(() => {
+    if (!open || !rootRef.current) return
+    if (window.innerWidth <= 600) { setPopoverStyle({}); return }
+    const rect = rootRef.current.getBoundingClientRect()
+    const popoverHeight = 370, popoverWidth = 310, gap = 8
+    const spaceBelow = window.innerHeight - rect.bottom
+    const goUp = spaceBelow < popoverHeight + gap && rect.top > popoverHeight + gap
+    let left = rect.left
+    if (left + popoverWidth > window.innerWidth - 12) left = window.innerWidth - popoverWidth - 12
+    if (left < 12) left = 12
+    setPopoverStyle({
+      position: 'fixed',
+      top: goUp ? undefined : rect.bottom + gap,
+      bottom: goUp ? window.innerHeight - rect.top + gap : undefined,
+      left,
+      transformOrigin: goUp ? 'bottom left' : 'top left',
+      animation: goUp ? 'calendar-open-up .18s ease-out' : 'calendar-open .18s ease-out',
+    })
+  }, [open])
+
   useEffect(() => {
     if (!yearMode || !yearGridRef.current) return
     const active = yearGridRef.current.querySelector('button.selected')
@@ -85,7 +107,8 @@ export default function DatePicker({ value, onChange, required = false, min, max
       <CalendarDays size={16} />
     </button>
     {required && <input className="date-required-proxy" tabIndex="-1" aria-hidden="true" required value={value || ''} onChange={() => {}} />}
-    {open && <div className="modern-date-popover">
+    {open && <div className="modern-date-backdrop" onClick={() => { setOpen(false); setYearMode(false) }} />}
+    {open && <div className="modern-date-popover" ref={popoverRef} style={popoverStyle}>
       <header>
         <button type="button" className="calendar-arrow" onClick={() => changeMonth(-1)} aria-label="Previous month"><ChevronLeft size={18} /></button>
         <button type="button" className="calendar-title-button" onClick={() => setYearMode(current => !current)}>

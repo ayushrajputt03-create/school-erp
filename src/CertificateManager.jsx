@@ -501,7 +501,7 @@ function TransferCertificate({ student, form, school, settings, certificateNumbe
     </table>
     <section className="tc-certification"><p>{form.bottomText || settings.defaultBottomText || tcBottomText}</p></section>
     <div className="tc-signature-date"><strong>Date: {dashDate(form.issueDate)}</strong></div>
-    <div className="formal-signatures three tc-signatures"><div><span className="signature-line" /><strong>({form.sig1Label || settings.sig1Label || 'Prepared By'})</strong></div><div><span className="signature-line" /><strong>({form.sig2Label || settings.sig2Label || 'Checked By'})</strong></div><div className="principal-block"><span className="signature-line" /><strong>({form.sig3Label || settings.sig3Label || 'Principal'})</strong><small>{settings.principalName || 'Name'} · Seal / Stamp</small></div></div>
+    <div className="formal-signatures three tc-signatures"><div><span className="signature-line" /><strong>({form.sig1Label || settings.sig1Label || 'Prepared By'})</strong></div><div><span className="signature-line" /><strong>({form.sig2Label || settings.sig2Label || 'Checked By'})</strong></div><div className="principal-block">{school.principalSignatureURL && <img className="admit-sign" src={school.principalSignatureURL} alt="Signature" />}<span className="signature-line" /><strong>({form.sig3Label || settings.sig3Label || 'Principal'})</strong><small>{settings.principalName || 'Name'} · Seal / Stamp</small>{school.schoolSealURL && <img className="admit-seal" src={school.schoolSealURL} alt="Seal" />}</div></div>
   </article>
 }
 
@@ -529,7 +529,7 @@ function SimpleCertificate({ type, student, form, school, settings, certificateN
     <FormalTitle title={type === 'sports' ? 'CERTIFICATE OF ACHIEVEMENT' : titles[type] || 'SCHOOL CERTIFICATE'} certificateNumber={certificateNumber} issueDate={form.issueDate} />
     {type !== 'sports' && <h3>To Whomsoever It May Concern</h3>}
     <div className="simple-certificate-body">{paragraphs.map((paragraph, index) => <p key={index}>{paragraph}</p>)}</div>
-    <div className="formal-signatures simple-footer"><div><strong>Date: {shortDate(form.issueDate)}</strong><small>Place: {settings.place || school.city || '-'}</small></div><div className="principal-block"><span className="signature-line" /><strong>{settings.principalName || school.principalName || 'Principal'}</strong><small>Principal · School Seal &amp; Sign</small></div></div>
+    <div className="formal-signatures simple-footer"><div><strong>Date: {shortDate(form.issueDate)}</strong><small>Place: {settings.place || school.city || '-'}</small></div><div className="principal-block">{school.principalSignatureURL && <img className="admit-sign" src={school.principalSignatureURL} alt="Signature" />}<span className="signature-line" /><strong>{settings.principalName || school.principalName || 'Principal'}</strong><small>Principal · School Seal &amp; Sign</small>{school.schoolSealURL && <img className="admit-seal" src={school.schoolSealURL} alt="Seal" />}</div></div>
   </article>
 }
 

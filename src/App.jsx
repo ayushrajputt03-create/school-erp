@@ -2226,13 +2226,16 @@ function useSchoolWorkspace(session) {
     }
     if (!developmentDemo) {
       const token = await session.getIdToken()
+      await databaseRequest(`schools/${workspace.schoolId}/students/${studentId}`, token, { method: 'PUT', body: row })
       const parentPhone = parentIdOf(row.parent_login_phone || row.father_phone || row.guardian_phone)
-      const parentRow = parentPhone ? buildParentAccount(await databaseRequest(`schools/${workspace.schoolId}/parents/${parentPhone}`, token).catch(() => null) || {}, studentId, { ...updated, phone: parentPhone }, workspace.schoolProfile) : null
-      await databaseRequest('', token, { method: 'PATCH', body: {
-        [`schools/${workspace.schoolId}/students/${studentId}`]: row,
-        ...(parentRow ? { [`schools/${workspace.schoolId}/parents/${parentPhone}`]: parentRow } : {}),
-      } })
-      if (parentRow) setParents(current => ({ ...current, [parentPhone]: parentRow }))
+      if (parentPhone) {
+        try {
+          const existingParent = await databaseRequest(`schools/${workspace.schoolId}/parents/${parentPhone}`, token).catch(() => null)
+          const parentRow = buildParentAccount(existingParent || {}, studentId, { ...updated, phone: parentPhone }, workspace.schoolProfile)
+          await databaseRequest(`schools/${workspace.schoolId}/parents/${parentPhone}`, token, { method: 'PUT', body: parentRow })
+          setParents(current => ({ ...current, [parentPhone]: parentRow }))
+        } catch (_) {}
+      }
     }
     setStudents(current => current.map((item, index) => item.id === studentId ? studentFromRow({ id: studentId, ...row }, index) : item))
     setActivities(current => [{ id: `student-update-${studentId}-${Date.now()}`, title: 'Student updated', detail: `${updated.name} moved to Class ${updated.className}`, at: row.updatedAt, icon: 'U' }, ...current])
