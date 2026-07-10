@@ -1,9 +1,7 @@
-const { getApps, getApp, initializeApp, cert } = require('firebase-admin/app')
-const { getAuth } = require('firebase-admin/auth')
-const { getDatabase } = require('firebase-admin/database')
+const admin = require('firebase-admin')
 
 function getAdminApp() {
-  if (getApps().length) return getApp()
+  if (admin.apps.length) return admin.app()
   const raw = process.env.FIREBASE_SERVICE_ACCOUNT_JSON || ''
   if (!raw) throw new Error('Server config missing: FIREBASE_SERVICE_ACCOUNT_JSON not set.')
   let credentials
@@ -12,8 +10,8 @@ function getAdminApp() {
   } catch {
     throw new Error('Server config error: FIREBASE_SERVICE_ACCOUNT_JSON is not valid JSON.')
   }
-  return initializeApp({
-    credential: cert(credentials),
+  return admin.initializeApp({
+    credential: admin.credential.cert(credentials),
     databaseURL: process.env.FIREBASE_DATABASE_URL || process.env.VITE_FIREBASE_DATABASE_URL,
   })
 }
@@ -31,8 +29,8 @@ module.exports = async (req, res) => {
     if (!idToken) return res.status(401).json({ error: 'Missing authorization token' })
 
     const app = getAdminApp()
-    const decoded = await getAuth(app).verifyIdToken(idToken)
-    const db = getDatabase(app)
+    const decoded = await admin.auth(app).verifyIdToken(idToken)
+    const db = admin.database(app)
     const uid = decoded.uid
 
     const [indexSnap, userSnap] = await Promise.all([
