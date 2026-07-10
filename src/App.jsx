@@ -371,6 +371,14 @@ const dateKey = date => {
 const today = () => dateKey(new Date())
 const money = value => new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 }).format(Number(value || 0))
 const readableDate = value => new Date(`${value}T00:00:00`).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })
+const roleLabel = value => {
+  const raw = String(value || '').trim().toLowerCase()
+  if (!raw) return 'Staff'
+  if (raw === 'owner') return 'Owner'
+  if (raw === 'admin' || raw === 'administrator') return 'Administrator'
+  if (raw === 'teacher' || raw === 'faculty') return 'Teacher'
+  return raw.split(/[\s_-]+/).map(part => part ? part[0].toUpperCase() + part.slice(1) : '').join(' ')
+}
 const normalizeAttendanceStatus = value => {
   const raw = String(value || '').trim().toLowerCase()
   if (raw === 'a' || raw === 'absent') return 'A'
@@ -1956,21 +1964,33 @@ function useSchoolWorkspace(session) {
       setWorkspace(current => ({ ...current, loading: true, error: '' }))
       try {
         const token = await session.getIdToken()
-        const schoolId = session.uid
+        const ownSchoolId = session.uid
+        let schoolId = ownSchoolId
+        let workspaceRole = 'Owner'
+        let canMaintainWorkspace = true
         let school = await safeRequest(`schools/${schoolId}`, token)
         if (!active) return
         const pendingProfile = JSON.parse(localStorage.getItem('northstar-pending-school-profile') || 'null')
         const legacyUser = await safeRequest(`users/${session.uid}`, token)
+        const teacherIndex = !school?.profile ? await safeRequest(`teachersIndex/${session.uid}`, token) : null
         if (!active) return
 
-        if (!school?.profile && legacyUser?.schoolId && legacyUser.schoolId !== schoolId) {
-          const legacySchool = await databaseRequest(`schools/${legacyUser.schoolId}`, token).catch(() => null)
-          if (legacySchool?.createdBy === session.uid) {
+        const linkedSchoolId = legacyUser?.schoolId || teacherIndex?.schoolId || ''
+        if (!school?.profile && linkedSchoolId && linkedSchoolId !== schoolId) {
+          const legacySchool = await safeRequest(`schools/${linkedSchoolId}`, token)
+          if (!active) return
+          if (legacySchool?.profile) {
+            schoolId = linkedSchoolId
+            school = legacySchool
+            const linkedRole = legacyUser?.role || teacherIndex?.role || teacherIndex?.employeeRole || 'teacher'
+            workspaceRole = roleLabel(linkedRole)
+            canMaintainWorkspace = ['owner', 'admin', 'administrator'].includes(String(linkedRole || '').toLowerCase())
+          } else if (legacySchool?.createdBy === session.uid) {
             const [legacyStudents, legacyFees, legacyAttendance, legacyNotices] = await Promise.all([
-              databaseRequest(`students/${legacyUser.schoolId}`, token).catch(() => null),
-              databaseRequest(`fees/${legacyUser.schoolId}`, token).catch(() => null),
-              databaseRequest(`attendance/${legacyUser.schoolId}`, token).catch(() => null),
-              databaseRequest(`notices/${legacyUser.schoolId}`, token).catch(() => null),
+              databaseRequest(`students/${linkedSchoolId}`, token).catch(() => null),
+              databaseRequest(`fees/${linkedSchoolId}`, token).catch(() => null),
+              databaseRequest(`attendance/${linkedSchoolId}`, token).catch(() => null),
+              databaseRequest(`notices/${linkedSchoolId}`, token).catch(() => null),
             ])
             school = {
               ...legacySchool,
@@ -2013,7 +2033,7 @@ function useSchoolWorkspace(session) {
           return
         }
 
-        if (!school.profile.schoolCode) {
+        if (canMaintainWorkspace && !school.profile.schoolCode) {
           const code = generateSchoolCode(school.profile.schoolName || school.name || 'School')
           await databaseRequest('', token, { method: 'PATCH', body: {
             [`schools/${schoolId}/profile/schoolCode`]: code,
@@ -2022,7 +2042,7 @@ function useSchoolWorkspace(session) {
           school = { ...school, profile: { ...school.profile, schoolCode: code } }
         }
 
-        if (school.admissionSequenceVersion !== 1) {
+        if (canMaintainWorkspace && school.admissionSequenceVersion !== 1) {
           const orderedStudents = Object.entries(school.students || {}).sort(([, a], [, b]) => (a.createdAt || 0) - (b.createdAt || 0))
           const normalizedStudents = { ...(school.students || {}) }
           const admissionChanges = {
@@ -2045,15 +2065,15 @@ function useSchoolWorkspace(session) {
 
         localStorage.setItem('northstar-school-id', schoolId)
         await databaseRequest(`schools/${schoolId}/lastLoginAt`, token, { method: 'PUT', body: Date.now() }).catch(() => {})
-        await databaseRequest(`users/${session.uid}`, token, { method: 'PUT', body: {
+        await databaseRequest(`users/${session.uid}`, token, { method: 'PATCH', body: {
           uid: session.uid,
           schoolId,
           fullName: session.displayName || session.email.split('@')[0],
           email: session.email || '',
           photoURL: session.photoURL || '',
-          role: 'owner',
+          role: legacyUser?.role || (schoolId === ownSchoolId ? 'owner' : 'teacher'),
           lastLoginAt: Date.now(),
-        } })
+        } }).catch(() => {})
 
         const studentData = school.students || {}
         const noticeData = school.notices || {}
@@ -2125,7 +2145,7 @@ function useSchoolWorkspace(session) {
           schoolProfile: school.profile,
           staffCount: school?.staffCount || 1,
           needsSetup: false,
-          role: 'Owner',
+          role: workspaceRole,
           error: '',
         })
       } catch (error) {
