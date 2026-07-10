@@ -1494,7 +1494,7 @@ function Attendance({ students, attendance, onSaveAttendance }) {
     <div className="panel attendance-filter-panel">
       <label>Class<select value={className} onChange={event => setClassName(event.target.value)}><option value="">Select class</option>{classOptions.map(item => <option key={item}>{item}</option>)}</select></label>
       <label>Section<select value={section} onChange={event => setSection(event.target.value)}><option value="">Select section</option>{sectionOptions.map(item => <option key={item}>{item}</option>)}</select></label>
-      <label>Date<DatePicker value={date} onChange={setDate} /></label>
+      <div className="attendance-date-field"><span>Date</span><DatePicker value={date} onChange={setDate} max={today()} /></div>
       <label className="attendance-search">Search student<div className="table-search"><Search size={15} /><input value={search} onChange={event => setSearch(event.target.value)} placeholder="Name, admission no. or phone" /></div></label>
     </div>
     <div className="attendance-note"><Check size={15} /> All unselected students will be marked Present automatically. Existing attendance for the same class, section and date loads here for editing.</div>
@@ -1508,7 +1508,36 @@ function Attendance({ students, attendance, onSaveAttendance }) {
         return <div className="attendance-row smart-row" key={s.id}><div className="student-cell"><span className={`avatar tone-${s.tone}`}>{s.initials}</span><div><strong>{s.name}</strong><small>Adm/Roll: {s.roll} · {s.className}</small></div></div><div className="mark-control">{['P','A','L'].map(mark => <button key={mark} className={selected === mark ? `selected ${mark}` : ''} onClick={() => updateOne(s.id, mark)}>{mark === 'P' ? 'Present' : mark === 'A' ? 'Absent' : 'Leave'}</button>)}</div></div>
       })}{!filteredStudents.length && <div className="empty-state">{className && section ? 'No students match this search.' : 'Select class and section to load students.'}</div>}</div>
     </div>
+    <AttendanceHistory attendance={attendance} students={students} onDateClick={setDate} />
   </>
+}
+
+function AttendanceHistory({ attendance, students, onDateClick }) {
+  const dates = Object.keys(attendance).filter(d => d && Object.keys(attendance[d] || {}).length).sort().reverse().slice(0, 30)
+  if (!dates.length) return null
+  return <div className="panel" style={{ marginTop: 14 }}>
+    <div className="table-toolbar"><div><strong>Past attendance records</strong><small>{dates.length} dates with saved attendance · click a date to edit</small></div></div>
+    <div className="table-scroll"><table><thead><tr><th>Date</th><th>Present</th><th>Absent</th><th>Leave</th><th>Total marked</th><th>Rate</th><th></th></tr></thead><tbody>
+      {dates.map(d => {
+        const records = attendance[d] || {}
+        const entries = Object.values(records)
+        const present = entries.filter(v => normalizeAttendanceStatus(v) === 'P').length
+        const absent = entries.filter(v => normalizeAttendanceStatus(v) === 'A').length
+        const leave = entries.filter(v => normalizeAttendanceStatus(v) === 'L').length
+        const total = entries.length
+        const pct = total ? Math.round((present / total) * 100) : 0
+        return <tr key={d}>
+          <td><strong>{readableDate(d)}</strong></td>
+          <td style={{ color: '#168357' }}>{present}</td>
+          <td style={{ color: '#d14343' }}>{absent}</td>
+          <td style={{ color: '#c17a20' }}>{leave}</td>
+          <td>{total}</td>
+          <td><span className={`status ${pct >= 75 ? 'paid' : 'overdue'}`}>{pct}%</span></td>
+          <td><button className="text-button" onClick={() => onDateClick(d)}>View / Edit</button></td>
+        </tr>
+      })}
+    </tbody></table></div>
+  </div>
 }
 
 function PaymentModal({ students, close, onRecordPayment }) {
@@ -1903,15 +1932,27 @@ function useSchoolWorkspace(session) {
   useEffect(() => {
     if (!session || !isFirebaseConfigured) return
     let active = true
+    const controller = new AbortController()
+
+    async function safeRequest(path, token, options) {
+      try {
+        return await databaseRequest(path, token, options)
+      } catch (err) {
+        if (!active) return undefined
+        return null
+      }
+    }
 
     async function load() {
       setWorkspace(current => ({ ...current, loading: true, error: '' }))
       try {
         const token = await session.getIdToken()
         const schoolId = session.uid
-        let school = await databaseRequest(`schools/${schoolId}`, token).catch(() => null)
+        let school = await safeRequest(`schools/${schoolId}`, token)
+        if (!active) return
         const pendingProfile = JSON.parse(localStorage.getItem('northstar-pending-school-profile') || 'null')
-        const legacyUser = await databaseRequest(`users/${session.uid}`, token).catch(() => null)
+        const legacyUser = await safeRequest(`users/${session.uid}`, token)
+        if (!active) return
 
         if (!school?.profile && legacyUser?.schoolId && legacyUser.schoolId !== schoolId) {
           const legacySchool = await databaseRequest(`schools/${legacyUser.schoolId}`, token).catch(() => null)
@@ -1952,8 +1993,11 @@ function useSchoolWorkspace(session) {
         if (!school?.profile && pendingProfile) {
           await createSchoolRecord(session, token, pendingProfile)
           localStorage.removeItem('northstar-pending-school-profile')
-          school = await databaseRequest(`schools/${schoolId}`, token)
+          school = await safeRequest(`schools/${schoolId}`, token)
+          if (!active) return
         }
+
+        if (school === undefined) return
 
         if (!school?.profile) {
           if (active) setWorkspace(current => ({ ...current, loading: false, schoolId, needsSetup: true, error: '' }))
@@ -2081,7 +2125,7 @@ function useSchoolWorkspace(session) {
     }
 
     load()
-    return () => { active = false }
+    return () => { active = false; controller.abort() }
   }, [session, setAttendance, setEnquiries, setFees, setNotices, setStudents, setTimetableData, workspaceVersion])
 
   const createSchoolWorkspace = async profile => {
