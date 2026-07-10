@@ -137,7 +137,7 @@ function Topbar({ data, selectedStudentId, setSelectedStudentId, refresh, logout
   const unread = (data.notifications || []).filter(item => !item.isRead).length
   return <header className="parent-topbar">
     <div className="parent-school-id">{data.school.logoURL ? <img src={data.school.logoURL} alt="" /> : <span>{initials(data.school.schoolName)}</span>}<div><strong>{data.school.schoolName}</strong><small><i className={online ? 'live' : 'offline'} /> {online ? 'Live connected' : 'Offline'} | Code {data.school.schoolCode}</small></div></div>
-    {data.students.length > 1 && <select value={selectedStudentId} onChange={event => setSelectedStudentId(event.target.value)}>{data.students.map(student => <option key={student.id} value={student.id}>{student.name} - {student.className}</option>)}</select>}
+    {(data.students || []).length > 1 && <select value={selectedStudentId} onChange={event => setSelectedStudentId(event.target.value)}>{(data.students || []).map(student => <option key={student.id} value={student.id}>{student.name} - {student.className}</option>)}</select>}
     <button className="parent-icon"><Bell size={18} />{unread > 0 && <b>{unread}</b>}</button>
     <button className="parent-icon" onClick={refresh}><RefreshCw size={18} /></button>
     <button className="parent-icon" onClick={logout}><LogOut size={18} /></button>
@@ -282,7 +282,7 @@ export default function ParentPortal() {
   const [selectedStudentId, setSelectedStudentId] = useState(() => data?.selectedStudent?.id || '')
   const [online, setOnline] = useState(navigator.onLine)
   const [loading, setLoading] = useState(false)
-  const selectedData = useMemo(() => data ? { ...data, selectedStudent: data.students.find(student => student.id === selectedStudentId) || data.selectedStudent } : null, [data, selectedStudentId])
+  const selectedData = useMemo(() => data ? { ...data, selectedStudent: (data.students || []).find(student => student.id === selectedStudentId) || data.selectedStudent } : null, [data, selectedStudentId])
   const language = data?.parent?.language || 'english'
 
   useEffect(() => {

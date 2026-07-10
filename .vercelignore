@@ -10,5 +10,4 @@ START-SCHOOL-ERP.*
 RUN-SERVER.cmd
 serve.mjs
 task-runner.ps1
-src/pages
 supabase

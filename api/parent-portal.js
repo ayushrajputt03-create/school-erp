@@ -121,7 +121,7 @@ function sanitizeStudent(id, row = {}) {
     class: row.class_name || row.class || '',
     section: row.section || '',
     rollNumber: row.roll_number || row.rollNumber || row.admission_number || '',
-    dob: row.dob || row.dateOfBirth || '',
+    dob: row.dob || row.date_of_birth || row.dateOfBirth || '',
     fatherName: row.father_name || row.fatherName || row.guardian_name || '',
     motherName: row.mother_name || row.motherName || '',
     phone: studentParentPhone(row),
@@ -249,9 +249,10 @@ module.exports = async function handler(request, response) {
       if (attempts.lockUntil && attempts.lockUntil > now()) throw new Error('Too many wrong attempts. Try again after 15 minutes.')
       const linkedIds = normalizeStudentsList(parent.students)
       const linkedStudents = linkedIds.map(id => school.students?.[id]).filter(Boolean)
-      const eldest = linkedStudents.sort((a, b) => String(dateKey(a.dob)).localeCompare(String(dateKey(b.dob))))[0] || {}
+      const rawDob = row => row.dob || row.date_of_birth || row.dateOfBirth || ''
+      const eldest = linkedStudents.sort((a, b) => String(dateKey(rawDob(a))).localeCompare(String(dateKey(rawDob(b)))))[0] || {}
       const validCustom = parent.passwordHash && hashPassword(password) === parent.passwordHash
-      const validDob = verifyDobPassword(password, eldest.dob)
+      const validDob = verifyDobPassword(password, rawDob(eldest))
       if (!validCustom && !validDob) {
         const failed = Number(attempts.failed || 0) + 1
         await attemptsRef.set({ failed, lockUntil: failed >= 5 ? now() + 15 * 60 * 1000 : 0, updatedAt: now() })
@@ -275,7 +276,8 @@ module.exports = async function handler(request, response) {
       const password = String(body.password || '')
       if (!/[A-Z]/.test(password) || !/\d/.test(password) || password.length < 8) throw new Error('Password must be 8+ chars with 1 capital and 1 number.')
       const firstStudentId = normalizeStudentsList(context.parent.students)[0]
-      const dob = context.school.students?.[firstStudentId]?.dob || ''
+      const firstRow = context.school.students?.[firstStudentId] || {}
+      const dob = firstRow.dob || firstRow.date_of_birth || firstRow.dateOfBirth || ''
       if (verifyDobPassword(password, dob)) throw new Error('New password cannot be same as DOB.')
       await database.ref(`schools/${context.schoolId}/parents/${context.parentId}`).update({ passwordHash: hashPassword(password), mustChangePassword: false, passwordSetAt: now(), updatedAt: now() })
       return response.status(200).json({ ok: true })
