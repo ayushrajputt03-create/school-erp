@@ -1,14 +1,16 @@
-const admin = require('firebase-admin')
+const { getApps, getApp, initializeApp, cert } = require('firebase-admin/app')
+const { getAuth } = require('firebase-admin/auth')
+const { getDatabase } = require('firebase-admin/database')
 
 function getAdminApp() {
-  if (admin.apps.length) return admin.app()
+  if (getApps().length) return getApp()
   const raw = process.env.FIREBASE_SERVICE_ACCOUNT_JSON || ''
   if (!raw) throw new Error('Server config missing: FIREBASE_SERVICE_ACCOUNT_JSON not set.')
   let credentials
   try { credentials = JSON.parse(raw) } catch { throw new Error('Server config error: FIREBASE_SERVICE_ACCOUNT_JSON is not valid JSON.') }
   if (!credentials.project_id) throw new Error('Server config error: service account missing project_id.')
-  return admin.initializeApp({
-    credential: admin.credential.cert(credentials),
+  return initializeApp({
+    credential: cert(credentials),
     databaseURL: process.env.FIREBASE_DATABASE_URL || process.env.VITE_FIREBASE_DATABASE_URL,
   })
 }
@@ -59,7 +61,7 @@ module.exports = async (req, res) => {
 
   try {
     const app = getAdminApp()
-    const database = admin.database(app)
+    const database = getDatabase(app)
     const body = req.body || {}
     const schoolCode = String(body.schoolCode || '').trim().toUpperCase()
     const phone = digits(body.phone)
@@ -82,7 +84,7 @@ module.exports = async (req, res) => {
       return res.status(401).json({ error: 'Incorrect date of birth. Try again.' })
     }
 
-    const customToken = await admin.auth(app).createCustomToken(teacherUid, { role: 'teacher', schoolId })
+    const customToken = await getAuth(app).createCustomToken(teacherUid, { role: 'teacher', schoolId })
 
     return res.status(200).json({ ok: true, token: customToken, schoolId, teacherUid })
   } catch (error) {
