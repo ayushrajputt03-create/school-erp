@@ -70,14 +70,18 @@ const subscriptionFor = school => {
   const studentCount = Object.keys(school.students || {}).length
   const pricingType = sub.pricingType || 'default'
   const computed = calculateSchoolFee({ ...sub, pricingType }, studentCount)
-  const status = computed.status === 'free' ? 'free' : (sub.status || 'trial')
+  const isFree = computed.status === 'free'
+  // If a "free until" window has lapsed, the stored type is still 'free' but the
+  // school is being charged again — surface it as 'default' so the badge matches the amount.
+  const effectiveType = isFree ? 'free' : (pricingType === 'free' ? 'default' : pricingType)
+  const status = isFree ? 'free' : (sub.status || 'trial')
   return {
     plan: sub.plan || 'trial',
     status,
-    pricingType,
+    pricingType: effectiveType,
     fixedAmount: Number(sub.fixedAmount || 0),
     customRate: Number(sub.customRate || 0),
-    isFree: computed.status === 'free',
+    isFree,
     freeUntil: sub.freeUntil ?? null,
     freeReason: sub.freeReason || '',
     studentCount,
@@ -341,7 +345,7 @@ function PricingControl({ row, onSave }) {
 
     {Object.keys(sub.pricingHistory).length > 0 && <div className="sa-pricing-history">
       <h4>Pricing History</h4>
-      {Object.entries(sub.pricingHistory).sort((a, b) => Number(b[0]) - Number(a[0])).map(([key, entry]) =>
+      {Object.entries(sub.pricingHistory).sort((a, b) => Number(b[1].changedAt || 0) - Number(a[1].changedAt || 0)).map(([key, entry]) =>
         <div key={key} className="sa-history-row"><div><strong>{PRICING_LABELS[entry.type] || entry.type}</strong>{entry.reason ? ` — ${entry.reason}` : ''}<small>{dateText(entry.changedAt)} · was {money(entry.previousAmount)}</small></div></div>)}
     </div>}
   </div>
