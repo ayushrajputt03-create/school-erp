@@ -114,7 +114,7 @@ function TeacherLogin() {
       </div>
       <form onSubmit={submit}>
         <label>School Code<input required value={schoolCode} onChange={e => setSchoolCode(e.target.value.toUpperCase())} placeholder="e.g. NORPUB637" autoComplete="off" style={{textTransform:'uppercase'}} /></label>
-        <label>Mobile Number (Username)<input required type="tel" value={mobile} onChange={e => setMobile(e.target.value)} placeholder="9876543210" autoComplete="tel" maxLength={10} /></label>
+        <label>Mobile Number (Username)<input required type="tel" name="teacher-mobile" value={mobile} onChange={e => setMobile(e.target.value.replace(/\D/g, ''))} placeholder="9876543210" autoComplete="off" inputMode="numeric" maxLength={10} /></label>
         <label>Date of Birth (Password)
           <input required value={dob} onChange={e => setDob(e.target.value)} placeholder="DD/MM/YYYY" inputMode="numeric" autoComplete="off" />
         </label>
