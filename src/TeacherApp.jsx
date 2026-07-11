@@ -91,6 +91,9 @@ async function loadTeacherSession(token, uid) {
 const today = () => { const d = new Date(); d.setMinutes(d.getMinutes() - d.getTimezoneOffset()); return d.toISOString().slice(0, 10) }
 const longDate = v => v ? new Date(`${v}T00:00:00`).toLocaleDateString('en-IN', { day: 'numeric', month: 'long', year: 'numeric' }) : '-'
 const shortDate = v => v ? new Date(`${v}T00:00:00`).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : '-'
+// Safe YYYY-MM-DD from a timestamp — never throws on missing/invalid values (some
+// records have no createdAt, which previously crashed the dashboard with RangeError).
+const dayFrom = ts => { const d = new Date(Number(ts) || 0); return isNaN(d.getTime()) ? '' : d.toISOString().slice(0, 10) }
 const classParts = v => { const m = String(v || '').match(/^(.+?)\s*[-/]\s*([A-Za-z0-9]+)$/); return m ? { className: m[1].trim(), section: m[2].trim() } : { className: String(v || '').trim(), section: '' } }
 
 function TeacherLogin() {
@@ -194,7 +197,7 @@ function TeacherDashboard({ teacher, schoolProfile, students, attendance, homewo
       <div className="teacher-notice-list">
         {recentNotices.map(n => <div key={n.id || n.createdAt} className="teacher-notice-item">
           <MessageSquareText size={16} />
-          <div><strong>{n.title || 'Notice'}</strong><span>{shortDate(n.date || new Date(n.createdAt).toISOString().slice(0, 10))}</span></div>
+          <div><strong>{n.title || 'Notice'}</strong><span>{shortDate(n.date || dayFrom(n.createdAt))}</span></div>
         </div>)}
       </div>
     </section>}
@@ -436,7 +439,7 @@ function TeacherNotices({ notices }) {
     <p className="teacher-subtitle">School notices and announcements</p>
     <div className="teacher-notice-full-list">
       {sorted.map(n => <div key={n.id || n.createdAt} className="teacher-notice-full">
-        <div className="notice-full-header"><strong>{n.title || 'Notice'}</strong><span>{shortDate(n.date || new Date(n.createdAt || 0).toISOString().slice(0, 10))}</span></div>
+        <div className="notice-full-header"><strong>{n.title || 'Notice'}</strong><span>{shortDate(n.date || dayFrom(n.createdAt))}</span></div>
         <p>{n.body || n.content || n.message || ''}</p>
         {n.priority && <span className={`hw-priority ${n.priority?.toLowerCase()}`}>{n.priority}</span>}
       </div>)}
