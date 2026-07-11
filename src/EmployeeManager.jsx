@@ -19,6 +19,8 @@ const values = object => Object.values(object || {}).sort((a, b) => Number(a.ord
 const CLASS_OPTIONS = ['Nursery', 'LKG', 'UKG', '1', '2', '3', '4', '5', '6', '7', '8', '9', '10', '11', '12']
 const SECTION_OPTIONS = ['A', 'B', 'C', 'D']
 const splitCsv = value => String(value || '').split(',').map(item => item.trim()).filter(Boolean)
+// Last-10 digits — same rule staff login uses, so the uniqueness check matches login behaviour.
+const phone10 = value => { const d = String(value || '').replace(/\D/g, ''); return d.length > 10 ? d.slice(-10) : d }
 const toggleCsv = (value, item) => {
   const list = splitCsv(value)
   const next = list.includes(item) ? list.filter(entry => entry !== item) : [...list, item]
@@ -214,6 +216,15 @@ function EmployeeForm({ staff, config, saveEmployee, initial, cancelEdit, onSave
   }
   const submit = async event => {
     event.preventDefault()
+    // Duplicate-phone guard: warn if another staff member already uses this mobile (last-10 match).
+    const newPhone = phone10(form.phone)
+    if (newPhone.length === 10) {
+      const dup = Object.entries(staff || {}).find(([id, e]) => id !== (initial?.id || form.id) && phone10(e.phone) === newPhone)
+      if (dup) {
+        const dupName = `${dup[1].firstName || ''} ${dup[1].lastName || ''}`.trim() || dup[1].employeeCode || 'Existing employee'
+        if (!window.confirm(`An employee with this phone number already exists: ${dupName}. Do you want to continue anyway?`)) return
+      }
+    }
     setSaving(true)
     setError('')
     try {
