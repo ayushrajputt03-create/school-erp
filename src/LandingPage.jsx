@@ -26,7 +26,7 @@ const TRUST_STATS = [
 
 const LOGIN_CARDS = [
   { icon: ShieldCheck, cls: 'admin', title: 'Principal / Admin', desc: 'Manage students, staff, fees, academics and reports from a single dashboard.', href: '/login', label: 'Admin Login' },
-  { icon: GraduationCap, cls: 'teacher', title: 'Teacher', desc: 'Mark attendance, enter marks, assign homework and manage classes.', href: '/teacher/login', label: 'Teacher Login' },
+  { icon: GraduationCap, cls: 'teacher', title: 'Staff / Teacher', desc: 'All employees — teachers, accountants, office & more. Attendance, marks, homework and your dashboard.', href: '/teacher/login', label: 'Staff Login' },
   { icon: Users, cls: 'parent', title: 'Parent / Guardian', desc: 'Track attendance, fees, academic progress and notices.', href: '/parent/login', label: 'Parent Login' },
 ]
 

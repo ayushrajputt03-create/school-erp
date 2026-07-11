@@ -41,7 +41,8 @@ module.exports = async (req, res) => {
     const schoolId = index.schoolId || user.schoolId
     if (!schoolId) return res.status(404).json({ error: 'No teacher account found. Contact your school admin.' })
 
-    const [teacherSnap, profileSnap, studentsSnap, homeworkSnap, noticesSnap, attendanceSnap] = await Promise.all([
+    const [staffSnap, teacherSnap, profileSnap, studentsSnap, homeworkSnap, noticesSnap, attendanceSnap] = await Promise.all([
+      db.ref(`schools/${schoolId}/staff/${uid}`).once('value'),
       db.ref(`schools/${schoolId}/teachers/${uid}`).once('value'),
       db.ref(`schools/${schoolId}/profile`).once('value'),
       db.ref(`schools/${schoolId}/students`).once('value'),
@@ -50,8 +51,16 @@ module.exports = async (req, res) => {
       db.ref(`schools/${schoolId}/attendance`).once('value'),
     ])
 
-    const teacher = teacherSnap.val()
-    if (!teacher) return res.status(404).json({ error: 'Teacher profile not found in school data.' })
+    const splitCsv = v => Array.isArray(v) ? v.filter(Boolean) : String(v || '').split(',').map(s => s.trim()).filter(Boolean)
+    const record = staffSnap.val() || teacherSnap.val()
+    if (!record) return res.status(404).json({ error: 'Staff profile not found in school data.' })
+    const teacher = {
+      ...record,
+      name: record.name || `${record.firstName || ''} ${record.lastName || ''}`.trim() || 'Staff',
+      department: record.department || 'Staff',
+      classes: splitCsv(record.assignedClasses || record.classes),
+      sections: splitCsv(record.assignedSections || record.sections),
+    }
 
     return res.status(200).json({
       ok: true,

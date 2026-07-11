@@ -41,22 +41,39 @@ async function loadTeacherSessionFromApi(token) {
   return data
 }
 
+const splitCsv = value => Array.isArray(value) ? value.filter(Boolean) : String(value || '').split(',').map(s => s.trim()).filter(Boolean)
+// Normalise a raw employee record (from the unified staff collection) into the shape the
+// staff dashboard expects — CSV class lists become arrays, department drives the view.
+function buildStaffProfile(id, e) {
+  return {
+    ...e,
+    uid: id,
+    name: e.name || `${e.firstName || ''} ${e.lastName || ''}`.trim() || 'Staff',
+    department: e.department || 'Staff',
+    designation: e.designation || e.employeeRole || '',
+    classes: splitCsv(e.assignedClasses || e.classes),
+    sections: splitCsv(e.assignedSections || e.sections),
+  }
+}
+
 async function loadTeacherSession(token, uid) {
   try {
     const index = await dbRequest(`teachersIndex/${uid}`, token)
-    if (!index || !index.schoolId) throw new Error('No teacher account found. Contact your school admin.')
-    const [teacherData, profile, studentsData, hw, noticeData, attData] = await Promise.all([
-      dbRequest(`schools/${index.schoolId}/teachers/${uid}`, token),
+    if (!index || !index.schoolId) throw new Error('No staff account found. Contact your school admin.')
+    const [staffData, teacherData, profile, studentsData, hw, noticeData, attData] = await Promise.all([
+      dbRequest(`schools/${index.schoolId}/staff/${uid}`, token).catch(() => null),
+      dbRequest(`schools/${index.schoolId}/teachers/${uid}`, token).catch(() => null),
       dbRequest(`schools/${index.schoolId}/profile`, token),
       dbRequest(`schools/${index.schoolId}/students`, token),
       dbRequest(`schools/${index.schoolId}/homework`, token),
       dbRequest(`schools/${index.schoolId}/notices`, token),
       dbRequest(`schools/${index.schoolId}/attendance`, token),
     ])
-    if (!teacherData) throw new Error('Teacher profile not found in school data.')
+    const record = staffData || teacherData
+    if (!record) throw new Error('Staff profile not found in school data.')
     return {
       schoolId: index.schoolId,
-      teacher: { ...teacherData, uid },
+      teacher: buildStaffProfile(uid, record),
       profile,
       students: studentsData || {},
       homework: hw || {},
@@ -109,8 +126,8 @@ function TeacherLogin() {
     <div className="teacher-login-card">
       <div className="teacher-login-header">
         <div className="teacher-login-icon"><GraduationCap size={28} /></div>
-        <h1>Teacher Login</h1>
-        <p>Sign in with school code, mobile number &amp; date of birth</p>
+        <h1>Staff Login</h1>
+        <p>All staff — teacher, accountant, office &amp; more. Sign in with school code, mobile &amp; date of birth</p>
       </div>
       <form onSubmit={submit}>
         <label>School Code<input required value={schoolCode} onChange={e => setSchoolCode(e.target.value.toUpperCase())} placeholder="e.g. NORPUB637" autoComplete="off" style={{textTransform:'uppercase'}} /></label>
@@ -589,19 +606,23 @@ export default function TeacherApp() {
     </div></main>
   }
 
-  const teacherName = teacher.name || `${teacher.firstName || ''} ${teacher.lastName || ''}`.trim() || 'Teacher'
+  const teacherName = teacher.name || `${teacher.firstName || ''} ${teacher.lastName || ''}`.trim() || 'Staff'
   const teacherInitials = teacherName.split(/\s+/).map(p => p[0]).slice(0, 2).join('').toUpperCase()
+  const isTeacher = String(teacher.department || '').toLowerCase() === 'teacher'
+  // Role-based sidebar: teachers get classes/attendance/homework; other staff see a
+  // lean dashboard + notices + profile (broader per-department modules can be added later).
+  const visibleNav = isTeacher ? teacherNav : teacherNav.filter(n => ['dashboard', 'notices', 'profile'].includes(n.id))
 
   return <div className="teacher-shell">
     {sidebarOpen && <button className="teacher-sidebar-overlay" onClick={() => setSidebarOpen(false)} />}
     <aside className={`teacher-sidebar ${sidebarOpen ? 'open' : ''}`}>
       <div className="teacher-sidebar-brand">
         <div className="teacher-sidebar-logo"><GraduationCap size={20} /></div>
-        <div><strong>{schoolProfile?.schoolName || 'School'}</strong><small>Teacher Panel</small></div>
+        <div><strong>{schoolProfile?.schoolName || 'School'}</strong><small>{teacher.department || 'Staff'} Panel</small></div>
         <button className="teacher-sidebar-close" onClick={() => setSidebarOpen(false)}><X size={18} /></button>
       </div>
       <nav>
-        {teacherNav.map(item => <button key={item.id} className={page === item.id ? 'active' : ''} onClick={() => { setPage(item.id); setSidebarOpen(false) }}>
+        {visibleNav.map(item => <button key={item.id} className={page === item.id ? 'active' : ''} onClick={() => { setPage(item.id); setSidebarOpen(false) }}>
           <item.icon size={18} />{item.label}
         </button>)}
       </nav>
@@ -612,7 +633,7 @@ export default function TeacherApp() {
     <main className="teacher-main">
       <header className="teacher-topbar">
         <button className="teacher-menu-btn" onClick={() => setSidebarOpen(true)}><Menu size={20} /></button>
-        <div className="teacher-topbar-title"><h1>{teacherNav.find(n => n.id === page)?.label || 'Dashboard'}</h1></div>
+        <div className="teacher-topbar-title"><h1>{visibleNav.find(n => n.id === page)?.label || 'Dashboard'}</h1></div>
         <div className="teacher-topbar-profile">
           <div className="teacher-avatar">{teacher.photoUrl ? <img src={teacher.photoUrl} alt="" /> : <span>{teacherInitials}</span>}</div>
         </div>

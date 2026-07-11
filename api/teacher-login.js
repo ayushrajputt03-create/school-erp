@@ -16,6 +16,11 @@ function getAdminApp() {
 }
 
 const digits = value => String(value || '').replace(/\D/g, '')
+// Match Indian mobile numbers by their last 10 digits so "07290810294", "+917290810294"
+// and "7290810294" all compare equal — this is the data-mismatch that broke staff login.
+const phone10 = value => { const d = digits(value); return d.length > 10 ? d.slice(-10) : d }
+const splitCsv = value => Array.isArray(value) ? value.filter(Boolean) : String(value || '').split(',').map(s => s.trim()).filter(Boolean)
+
 const dateKey = value => {
   if (!value) return ''
   if (typeof value === 'number') return new Date(value).toISOString().slice(0, 10)
@@ -52,6 +57,29 @@ async function findSchool(database, schoolCode) {
   return found ? { schoolId: found[0], school: found[1] } : null
 }
 
+function buildStaffProfile(id, e, schoolId) {
+  return {
+    uid: id,
+    employeeId: id,
+    employeeCode: e.employeeCode || '',
+    name: `${e.firstName || ''} ${e.lastName || ''}`.trim() || 'Staff',
+    firstName: e.firstName || '',
+    lastName: e.lastName || '',
+    phone: e.phone || '',
+    email: e.email || '',
+    department: e.department || 'Staff',
+    designation: e.designation || e.employeeRole || '',
+    subject: e.subject || '',
+    classes: splitCsv(e.assignedClasses || e.classes),
+    sections: splitCsv(e.assignedSections || e.sections),
+    photoUrl: e.photoUrl || '',
+    joiningDate: e.joiningDate || '',
+    dob: e.dob || '',
+    role: 'staff',
+    schoolId,
+  }
+}
+
 module.exports = async (req, res) => {
   res.setHeader('Access-Control-Allow-Origin', '*')
   res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS')
@@ -64,7 +92,7 @@ module.exports = async (req, res) => {
     const database = getDatabase(app)
     const body = req.body || {}
     const schoolCode = String(body.schoolCode || '').trim().toUpperCase()
-    const phone = digits(body.phone)
+    const phone = phone10(body.phone)
     const password = String(body.password || '')
 
     if (schoolCode.length < 4) return res.status(400).json({ error: 'Enter your school code.' })
@@ -75,20 +103,34 @@ module.exports = async (req, res) => {
     if (!found) return res.status(404).json({ error: 'Invalid school code.' })
     const { schoolId, school } = found
 
-    const teachers = school.teachers || {}
-    const match = Object.entries(teachers).find(([, t]) => digits(t.phone) === phone && t.isActive !== false)
-    if (!match) return res.status(404).json({ error: 'No teacher found with this mobile number. Contact your school admin.' })
-    const [teacherUid, teacher] = match
+    // Search the unified staff collection (every employee, any department) by phone.
+    const staff = school.staff || {}
+    let match = Object.entries(staff).find(([, e]) => phone10(e.phone) === phone && e.active !== false)
+    let source = 'staff'
+    // Fallback: legacy teachers collection (accounts made by the old "Create Teacher Login").
+    if (!match) {
+      const teachers = school.teachers || {}
+      match = Object.entries(teachers).find(([, t]) => phone10(t.phone) === phone && t.isActive !== false)
+      source = 'teachers'
+    }
+    if (!match) return res.status(404).json({ error: 'No staff member found with this mobile number. Contact your school admin.' })
 
-    if (!verifyDobPassword(password, teacher.dob || teacher.dateOfBirth || '')) {
-      return res.status(401).json({ error: 'Incorrect date of birth. Try again.' })
+    const [id, record] = match
+    if (!verifyDobPassword(password, record.dob || record.dateOfBirth || '')) {
+      return res.status(401).json({ error: 'Date of birth does not match our records. Contact your school admin.' })
     }
 
-    const customToken = await getAuth(app).createCustomToken(teacherUid, { role: 'teacher', schoolId })
+    const profile = buildStaffProfile(id, record, schoolId)
 
-    return res.status(200).json({ ok: true, token: customToken, schoolId, teacherUid })
+    // Grant this staff member read access to their school (rules key on teachersIndex).
+    await database.ref(`teachersIndex/${id}`).update({ schoolId, teacherId: id, role: profile.department === 'Teacher' ? 'teacher' : 'staff', source })
+
+    const auth = getAuth(app)
+    const customToken = await auth.createCustomToken(id, { role: 'staff', schoolId, department: profile.department })
+
+    return res.status(200).json({ ok: true, token: customToken, schoolId, employee: profile })
   } catch (error) {
-    console.error('teacher-login error:', error)
+    console.error('staff-login error:', error)
     return res.status(500).json({ error: error.message || 'Login failed. Try again.' })
   }
 }
