@@ -23,7 +23,7 @@ function GoogleLogo() {
 }
 
 export default function AuthScreen() {
-  const [mode, setMode] = useState('signin')
+  const [mode, setMode] = useState(() => /register|signup/i.test(window.location.pathname) ? 'signup' : 'signin')
   const [form, setForm] = useState({
     schoolName: '', email: '', phone: '', address: '', city: '', state: '', pincode: '',
     affiliatedTo: 'Affiliated to CBSE (New Delhi)', customAffiliation: '', affiliationNo: '',
