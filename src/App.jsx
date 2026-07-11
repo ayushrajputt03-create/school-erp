@@ -2068,7 +2068,7 @@ function useSchoolWorkspace(session) {
         await databaseRequest(`users/${session.uid}`, token, { method: 'PATCH', body: {
           uid: session.uid,
           schoolId,
-          fullName: session.displayName || session.email.split('@')[0],
+          fullName: session.displayName || session.email?.split('@')[0] || 'User',
           email: session.email || '',
           photoURL: session.photoURL || '',
           role: legacyUser?.role || (schoolId === ownSchoolId ? 'owner' : 'teacher'),
