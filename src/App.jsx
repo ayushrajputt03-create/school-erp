@@ -2157,6 +2157,51 @@ function useSchoolWorkspace(session) {
     return () => { active = false; controller.abort() }
   }, [session, setAttendance, setEnquiries, setFees, setNotices, setStudents, setTimetableData, workspaceVersion])
 
+  // Near-real-time sync: while on the Command Center dashboard, silently pull fresh school
+  // data so stats and the activity feed reflect changes from the Teacher/Parent panels
+  // (attendance marked, fee paid, new student) without a manual reload. Gated to the
+  // dashboard only — no edit forms are mounted there, so a live refresh can't overwrite work.
+  useEffect(() => {
+    if (!session || !workspace.schoolId || workspace.loading || page !== 'dashboard') return undefined
+    let active = true
+    const tick = async () => {
+      try {
+        const token = await session.getIdToken()
+        const school = await databaseRequest(`schools/${workspace.schoolId}`, token)
+        if (!active || !school) return
+        const studentRows = Object.entries(school.students || {}).map(([id, row]) => ({ id, ...row })).sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0))
+        const noticeRows = Object.entries(school.notices || {}).map(([id, row]) => ({ id, ...row })).sort((a, b) => (b.publishAt || 0) - (a.publishAt || 0))
+        const attendanceByDate = Object.values(school.attendance || {}).reduce((dates, record) => {
+          const studentId = record.studentId || record.student_id
+          if (!studentId || !record.date) return dates
+          dates[record.date] ||= {}
+          dates[record.date][studentId] = normalizeAttendanceStatus(record.mark || record.status)
+          return dates
+        }, {})
+        const nextFees = school.fees || {}
+        const nextActivities = [
+          ...studentRows.map(row => ({ id: `student-${row.id}`, title: 'Student admitted', detail: `${row.full_name || row.name || ''} joined Class ${row.class_name || row.class || ''}-${row.section || 'A'}`, at: row.createdAt || 0, icon: '+' })),
+          ...Object.entries(nextFees).map(([id, row]) => ({ id: `fee-${id}`, title: 'Fee payment received', detail: `${money(row.amount)} via ${row.method || 'payment'}`, at: row.paidAt || row.updatedAt || 0, icon: '₹' })),
+          ...noticeRows.map(row => ({ id: `notice-${row.id}`, title: 'Notice published', detail: row.title, at: row.publishAt || 0, icon: 'N' })),
+          ...Object.entries(school.attendance || {}).map(([id, row]) => ({ id: `attendance-${id}`, title: 'Attendance updated', detail: `${row.date} attendance marked`, at: row.updatedAt || 0, icon: '✓' })),
+        ].filter(item => item.at).sort((a, b) => b.at - a.at)
+        if (!active) return
+        setStudents(studentRows.map(studentFromRow))
+        setNotices(noticeRows.map(noticeFromRow))
+        setFees(nextFees)
+        setAttendance(attendanceByDate)
+        setHomework(school.homework || {})
+        setStaff(school.staff || {})
+        setStaffAttendance(school.staffAttendance || {})
+        setParentNotifications(school.parentNotifications || {})
+        setCertificateRequests(school.certificateRequests || {})
+        setActivities(nextActivities)
+      } catch { /* ignore transient poll failures; next tick retries */ }
+    }
+    const id = setInterval(tick, 25000)
+    return () => { active = false; clearInterval(id) }
+  }, [session, workspace.schoolId, workspace.loading, page])
+
   const createSchoolWorkspace = async profile => {
     const token = await session.getIdToken()
     await createSchoolRecord(session, token, profile)

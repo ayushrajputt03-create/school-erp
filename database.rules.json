@@ -39,6 +39,7 @@
       }
     },
     "schools": {
+      ".read": "auth != null && root.child('superAdmin').child(auth.uid).child('role').val() === 'super-admin'",
       "$schoolId": {
         ".read": "auth != null && (auth.uid === $schoolId || root.child('superAdmin').child(auth.uid).child('role').val() === 'super-admin' || root.child('teachersIndex').child(auth.uid).child('schoolId').val() === $schoolId || root.child('schoolMembers').child($schoolId).child(auth.uid).child('status').val() === 'active' || root.child('users').child(auth.uid).child('schoolId').val() === $schoolId)",
         ".write": "auth != null && (auth.uid === $schoolId || root.child('superAdmin').child(auth.uid).child('role').val() === 'super-admin' || root.child('schoolMembers').child($schoolId).child(auth.uid).child('status').val() === 'active' || root.child('users').child(auth.uid).child('schoolId').val() === $schoolId)",

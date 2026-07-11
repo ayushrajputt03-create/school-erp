@@ -543,6 +543,29 @@ export default function TeacherApp() {
     return () => { active = false }
   }, [session])
 
+  // Near-real-time sync: silently refresh teacher data on an interval so admin/teacher
+  // changes (homework, notices, attendance) appear without a manual reload. Paused on the
+  // attendance page so a live refresh never clobbers marks the teacher is entering.
+  useEffect(() => {
+    if (!session || !schoolId || page === 'attendance') return undefined
+    let active = true
+    const tick = async () => {
+      try {
+        const token = await session.getIdToken()
+        const bundle = await loadTeacherSession(token, session.uid)
+        if (!active) return
+        setTeacher(bundle.teacher)
+        setSchoolProfile(bundle.profile)
+        setStudents(bundle.students || {})
+        setHomework(bundle.homework || {})
+        setNotices(bundle.notices || {})
+        setAttendance(bundle.attendance || {})
+      } catch { /* ignore transient poll failures; next tick retries */ }
+    }
+    const id = setInterval(tick, 20000)
+    return () => { active = false; clearInterval(id) }
+  }, [session, schoolId, page])
+
   const doLogout = async () => { await signOut(auth); window.location.href = '/' }
 
   if (window.location.pathname === '/teacher/login' || window.location.pathname === '/teacher/login/') {
