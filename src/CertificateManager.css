@@ -66,10 +66,10 @@
 .tc-serial-box span{font-weight:700;text-transform:uppercase}
 .tc-serial-box strong{font-size:28px;color:#111}
 .tc-serial-box small{text-align:left;font-size:10px;line-height:1.35}
-.tc-template .academic-history-table{margin-top:14px;width:100%;border-collapse:collapse;font:7.7px/1.18 Arial,sans-serif;text-align:center}
-.tc-template .academic-history-table th,.tc-template .academic-history-table td{border:1px solid #000;padding:4px 2px;vertical-align:middle;color:#000}
+.tc-template .academic-history-table{margin-top:14px;width:100%;table-layout:fixed;border-collapse:collapse;font:7.7px/1.18 Arial,sans-serif;text-align:center}
+.tc-template .academic-history-table th,.tc-template .academic-history-table td{border:1px solid #000;padding:4px 2px;vertical-align:middle;color:#000;word-wrap:break-word;overflow-wrap:break-word}
 .tc-template .academic-history-table th{background:#fff;font-weight:900}
-.tc-template .academic-history-table td:nth-child(5){text-align:left;min-width:105px}
+.tc-template .academic-history-table td:nth-child(5){text-align:left}
 .tc-template .tc-certification{margin:17px 4px 0;max-width:470px;font:11px/1.65 Arial,sans-serif;color:#111}
 .tc-template .tc-certification p{margin:0 0 8px}
 .tc-signature-date{margin:18px 4px 0;font:12px Arial,sans-serif}
@@ -81,7 +81,56 @@
 .tc-history-editor td,.tc-history-editor th{vertical-align:middle}
 .tc-history-editor select,.tc-history-editor input{min-width:92px}
 .tc-history-editor .date-field{min-width:120px}
-@media print{.tc-template{padding:10mm!important}.tc-template .academic-history-table{font-size:6.9px}.tc-student-section{grid-template-columns:1fr 42mm}.tc-left-details>div{min-height:20px}.tc-signatures{margin-top:18px}.tc-title-row{margin-bottom:8px}.tc-school-top h1{font-size:24px}}
+@media print{
+  .tc-template{padding:8mm!important;font-family:Arial,sans-serif!important}
+  .tc-school-top{margin-bottom:6px!important}
+  .tc-school-top h1{font-size:20pt!important;line-height:1.05!important;margin:0!important}
+  .tc-school-top strong{margin-top:2px!important;font-size:10px!important}
+  .tc-school-top p{margin:2px 0 0!important;font-size:9px!important}
+  .tc-school-top small{margin-top:1px!important;font-size:8px!important}
+  .tc-title-row{grid-template-columns:22mm 1fr 30mm!important;gap:6mm!important;margin:3mm 0 2mm!important}
+  .tc-template .formal-logo{width:20mm!important;height:20mm!important}
+  .tc-template .formal-student-photo{width:28mm!important;height:34mm!important}
+  .tc-title{padding:6px 20px!important;font-size:16px!important}
+  .tc-reg-row{margin:4px 2px 6px!important;font-size:10px!important}
+  .tc-student-section{grid-template-columns:1fr 30mm!important;gap:4mm!important}
+  .tc-left-details{font-size:7.5pt!important;gap:0.8mm!important}
+  .tc-left-details>div{grid-template-columns:38mm 1fr!important;min-height:4.2mm!important}
+  .tc-left-details span{padding:0.8mm 1.2mm!important}
+  .tc-serial-box{min-height:auto!important;padding:5px!important;gap:4px!important;font-size:8px!important}
+  .tc-serial-box strong{font-size:18px!important}
+  .tc-template .academic-history-table{
+    width:100%!important;max-width:100%!important;table-layout:fixed!important;margin-top:2mm!important;border-collapse:collapse!important;font:5.5pt/1.1 Arial,sans-serif!important
+  }
+  .tc-template .academic-history-table th,
+  .tc-template .academic-history-table td{
+    padding:1mm 0.5mm!important;white-space:normal!important;word-break:break-word!important;overflow-wrap:anywhere!important;min-width:0!important
+  }
+  .tc-template .academic-history-table th:nth-child(1),
+  .tc-template .academic-history-table td:nth-child(1){width:8%!important}
+  .tc-template .academic-history-table th:nth-child(2),
+  .tc-template .academic-history-table td:nth-child(2),
+  .tc-template .academic-history-table th:nth-child(3),
+  .tc-template .academic-history-table td:nth-child(3),
+  .tc-template .academic-history-table th:nth-child(4),
+  .tc-template .academic-history-table td:nth-child(4){width:12%!important}
+  .tc-template .academic-history-table th:nth-child(5),
+  .tc-template .academic-history-table td:nth-child(5){width:22%!important;text-align:left!important}
+  .tc-template .academic-history-table th:nth-child(6),
+  .tc-template .academic-history-table td:nth-child(6){width:12%!important}
+  .tc-template .academic-history-table th:nth-child(7),
+  .tc-template .academic-history-table td:nth-child(7),
+  .tc-template .academic-history-table th:nth-child(8),
+  .tc-template .academic-history-table td:nth-child(8),
+  .tc-template .academic-history-table th:nth-child(9),
+  .tc-template .academic-history-table td:nth-child(9){width:8%!important}
+  .tc-template .tc-certification{max-width:none!important;margin-top:3mm!important;font:8pt/1.4 Arial,sans-serif!important}
+  .tc-template .tc-certification p{margin:0 0 4px!important}
+  .tc-signature-date{margin-top:3mm!important;font-size:9pt!important}
+  .tc-signatures{margin-top:5mm!important;gap:10mm!important;font-size:8.5pt!important}
+  .tc-signatures .signature-line{height:28px!important}
+  .tc-signatures .principal-block i{width:70px!important;height:38px!important}
+}
 
 /* Professional Admit Card */
 .admit-module{display:grid;gap:16px}.admit-tabs{display:flex;gap:8px;overflow-x:auto}.admit-tabs button{border:1px solid var(--border);background:var(--panel);color:var(--muted);padding:10px 14px;border-radius:7px;font:inherit;font-weight:800;cursor:pointer}.admit-tabs button.active{background:#052659;color:#fff;border-color:#052659}.admit-filter-panel,.admit-date-sheet-form{display:grid;gap:14px}.admit-filter-panel>.secondary-button{justify-self:start}.admit-results{display:grid;gap:8px;padding-top:8px}.admit-result-row,.select-all{display:grid;grid-template-columns:auto auto minmax(120px,.5fr) 1fr;gap:10px;align-items:center;border:1px solid var(--border);background:var(--input);border-radius:8px;padding:10px 12px;color:var(--text);font-size:13px}.select-all{display:flex;font-weight:800;color:var(--muted)}.admit-result-row small{color:var(--muted)}.admit-print-grid{display:grid;gap:14px}.admit-card{width:min(100%,780px);margin:0 auto;background:#fff;color:#021024;border:2px solid #052659;border-radius:4px;overflow:hidden;font-family:Arial,sans-serif;letter-spacing:0;box-shadow:0 16px 38px #0002;page-break-inside:avoid;break-inside:avoid}.admit-school-header{display:grid;grid-template-columns:86px minmax(0,1fr);gap:16px;align-items:center;background:#052659;color:#fff;padding:14px 18px}.admit-school-logo{width:74px;height:74px;border:2px solid #fff;background:#fff;border-radius:8px;display:grid;place-items:center;overflow:hidden;color:#052659}.admit-school-logo img{width:100%;height:100%;object-fit:contain}.admit-school-logo span{display:grid;text-align:center;font-size:18px;line-height:1}.admit-school-logo small{font-size:9px;letter-spacing:1px}.admit-school-copy{min-width:0}.admit-school-copy h1{margin:0 0 5px;font-size:clamp(20px,3.2vw,30px);line-height:1.06;text-transform:uppercase;overflow-wrap:anywhere;word-break:normal;letter-spacing:.2px}.admit-school-copy p{margin:0 0 3px;font-size:12px;line-height:1.25;overflow-wrap:anywhere}.admit-school-copy small{display:block;font-size:11px;line-height:1.2;opacity:.94;overflow-wrap:anywhere}.admit-title-band{display:grid;grid-template-columns:1fr 3.5cm;gap:16px;align-items:center;border-top:4px solid #7da0ca;border-bottom:2px solid #052659;padding:12px 18px;background:#eff6ff}.admit-title-band h2{margin:0;color:#052659;font-size:28px;letter-spacing:2px}.admit-title-band strong{display:block;margin-top:4px;color:#021024}.admit-student-photo{width:3.5cm;height:4.5cm;justify-self:end;border:1px solid #052659;background:#fff;display:grid;place-items:center;color:#64748b;font:700 11px/1.25 Arial;text-align:center}.admit-student-photo img{width:100%;height:100%;object-fit:cover}.admit-student-photo span{border:1px dashed #94a3b8;width:calc(100% - 12px);height:calc(100% - 12px);display:grid;place-items:center;padding:8px}.admit-student-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px 18px;padding:16px 18px 10px}.admit-student-grid div{display:grid;grid-template-columns:120px 1fr;gap:8px;align-items:baseline;border-bottom:1px dotted #b8c6d9;padding-bottom:5px;font-size:13px}.admit-student-grid .full{grid-column:1/-1}.admit-student-grid strong{color:#052659}.admit-date-table{width:calc(100% - 36px);margin:8px 18px 14px;border-collapse:collapse;font-size:13px}.admit-date-table th{background:#5483b3;color:#fff;text-align:left;padding:8px 10px;border:1px solid #052659}.admit-date-table td{padding:8px 10px;border:1px solid #b9c8dc}.admit-date-table tbody tr:nth-child(even){background:#eff6ff}.admit-instructions{margin:0 18px 14px;padding:12px 14px;background:#f0f7ff;border:1px solid #b9d2f0;border-radius:6px}.admit-instructions h3{margin:0 0 7px;color:#052659;font-size:13px}.admit-instructions ol{margin:0;padding-left:18px;font-size:11px;line-height:1.5}.admit-pending-fee{display:block;margin:0 18px 8px;color:#b91c1c;font-size:13px}.admit-signatures{display:grid;grid-template-columns:1.35fr 1fr 1fr;gap:20px;align-items:end;padding:10px 18px 18px;font-size:12px}.admit-signatures>strong{grid-column:1/-1}.admit-signatures div{display:grid;gap:5px;text-align:center}.admit-signatures i{height:34px;border-bottom:1px solid #021024}.admit-signatures .principal{grid-column:1/-1;justify-self:center;width:230px}.admit-date-sheet-form .table-scroll{margin-top:6px}
