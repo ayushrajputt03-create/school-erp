@@ -719,7 +719,7 @@ function AdmitCardManager({ students, fees, school, settings, examData, onSaveEx
   const [showSuggestions, setShowSuggestions] = useState(false)
   const suggestions = useMemo(() => {
     const q = admissionQuery.trim().toLowerCase()
-    if (q.length < 2 || pickedStudent) return []
+    if (!q || pickedStudent) return []
     return students.filter(s => s.status !== 'dropout' && (`${admissionNo(s)} ${s.name} ${s.phone || ''}`.toLowerCase().includes(q))).slice(0, 10)
   }, [admissionQuery, students, pickedStudent])
   const [sheetForm, setSheetForm] = useState({ examId: exams[0]?.id || 'annual-2026', target: 'single', className: '', section: '', subject: 'Mathematics', date: today(), fromTime: '10:00', toTime: '12:00' })
@@ -771,7 +771,7 @@ function AdmitCardManager({ students, fees, school, settings, examData, onSaveEx
       return
     }
     const query = admissionQuery.trim().toLowerCase()
-    if (query.length >= 2) {
+    if (query) {
       const matches = students.filter(student => {
         if (student.status === 'dropout') return false
         const text = `${admissionNo(student)} ${student.name} ${student.phone || ''}`.toLowerCase()
@@ -784,10 +784,7 @@ function AdmitCardManager({ students, fees, school, settings, examData, onSaveEx
       return
     }
     if (!className) {
-      if (query) {
-        setResults([])
-        setSearchMessage('Type 2+ characters or select a class.')
-      } else {
+      if (!query) {
         setResults([])
         setSelected({})
         setGeneratedIds([])
@@ -889,7 +886,7 @@ function AdmitCardManager({ students, fees, school, settings, examData, onSaveEx
         <label>Adm No / Name
           <div style={{ position: 'relative' }}>
             <div style={{ display: 'flex', gap: 0 }}>
-              <input value={admissionQuery} onChange={event => { setAdmissionQuery(event.target.value); setPickedStudent(null); setShowSuggestions(true) }} onFocus={() => { if (suggestions.length && !pickedStudent) setShowSuggestions(true) }} onBlur={() => setTimeout(() => setShowSuggestions(false), 200)} placeholder="Type 2+ chars to search..." style={{ flex: 1, borderRadius: pickedStudent ? '6px 0 0 6px' : undefined }} />
+              <input value={admissionQuery} onChange={event => { setAdmissionQuery(event.target.value); setPickedStudent(null); setShowSuggestions(true) }} onFocus={() => { if (suggestions.length && !pickedStudent) setShowSuggestions(true) }} onBlur={() => setTimeout(() => setShowSuggestions(false), 200)} placeholder="Admission no. or student name..." style={{ flex: 1, borderRadius: pickedStudent ? '6px 0 0 6px' : undefined }} />
               {pickedStudent && <button type="button" onClick={clearPicked} style={{ height: 36, width: 32, marginTop: 6, border: '1px solid #dce1e8', borderLeft: 0, borderRadius: '0 6px 6px 0', background: '#fee2e2', color: '#b91c1c', cursor: 'pointer', display: 'grid', placeItems: 'center', fontSize: 14, fontWeight: 700 }} title="Clear selection">&times;</button>}
             </div>
             {showSuggestions && suggestions.length > 0 && <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, background: '#fff', border: '1px solid #dfe3ea', borderRadius: '0 0 8px 8px', boxShadow: '0 4px 12px rgba(0,0,0,0.12)', zIndex: 100, maxHeight: 220, overflowY: 'auto', marginTop: -1 }}>
