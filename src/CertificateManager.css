@@ -92,19 +92,7 @@
 @media(max-width:720px){.date-sheet-builder{grid-template-columns:1fr}.exam-preset-row button{flex:1}}
 @media(max-width:720px){.admit-result-row{grid-template-columns:auto auto 1fr}.admit-result-row small{grid-column:3}.admit-school-header{grid-template-columns:70px 1fr;padding:12px}.admit-school-logo{width:60px;height:60px}.admit-school-copy h1{font-size:18px}.admit-title-band{grid-template-columns:1fr 88px;padding:10px 12px}.admit-title-band h2{font-size:21px}.admit-student-photo{width:82px;height:106px}.admit-student-grid{grid-template-columns:1fr;padding:12px}.admit-student-grid div{grid-template-columns:108px 1fr}.admit-date-table{width:calc(100% - 24px);margin-inline:12px}.admit-instructions{margin-inline:12px}.admit-signatures{grid-template-columns:1fr 1fr;padding-inline:12px}.admit-signatures .principal{grid-column:1/-1;width:200px}}
 
-@media print{
-  html,body,#root{background:#fff!important;width:100%!important;height:auto!important;overflow:visible!important}
-  body *{visibility:hidden!important}
-  .app-shell,.main-area,.page-content,.certificate-module{display:block!important;overflow:visible!important;background:#fff!important}
-  .admit-print-grid,.admit-print-grid *,.admit-card,.admit-card *{visibility:visible!important}
-  .no-print,.certificate-menu,.section-actions,.certificate-preview-toolbar,.admit-tabs,.admit-filter-panel,.admit-date-sheet-form{display:none!important}
-  .admit-print-grid{position:static!important;inset:auto!important;display:block!important;width:100%!important;min-height:1px!important;margin:0!important;padding:0!important;background:#fff!important}
-  .admit-card{display:block!important;width:190mm!important;min-height:132mm!important;max-height:140mm!important;margin:4mm auto!important;box-shadow:none!important;border-radius:0!important;page-break-inside:avoid!important;break-inside:avoid!important}
-  .certificate-preview-shell .admit-card{position:static!important;left:auto!important;top:auto!important;transform:none!important}
-  .admit-card:nth-child(2n-1){border-bottom-style:dotted!important}
-  .admit-card:nth-child(2n){page-break-after:always!important}
-  .admit-school-header{padding:5mm!important}.admit-title-band{padding:3mm 5mm!important}.admit-student-grid{padding:4mm 5mm 2mm!important}.admit-date-table{width:calc(100% - 10mm)!important;margin:2mm 5mm 3mm!important}.admit-instructions{margin:0 5mm 3mm!important;padding:3mm!important}.admit-signatures{padding:1mm 5mm 4mm!important}.admit-instructions ol{font-size:8.6pt!important;line-height:1.35!important}
-}
+/* admit card compact print (2-per-page) rules merged into main @media print block above */
 
 .formal-certificate,.admit-card{position:relative;box-sizing:border-box;border:2px solid #000!important;background:#fff!important}
 .formal-certificate::after,.admit-card::after{content:"";position:absolute;inset:8px;border:1px solid #000;pointer-events:none;z-index:5}
@@ -117,27 +105,36 @@
 
 @page{size:A4;margin:10mm}
 @media print{
-  html,body,#root{width:100%!important;min-height:100%!important;height:auto!important;margin:0!important;padding:0!important;background:#fff!important;overflow:visible!important}
-  body *{visibility:hidden!important}
-  .formal-certificate,.formal-certificate *,
-  .admit-print-grid,.admit-print-grid *,
-  .admit-card,.admit-card *{visibility:visible!important}
+  html,body,#root{width:210mm!important;height:auto!important;margin:0!important;padding:0!important;background:#fff!important;overflow:visible!important}
+  body>*:not(#root){display:none!important}
+  #root>*{display:none!important}
+  .app-shell{display:block!important}
+  .app-shell>*{display:none!important}
+  .main-area{display:block!important}
+  .main-area>*{display:none!important}
+  .page-content{display:block!important}
+  .page-content>*{display:none!important}
+  .certificate-module{display:block!important}
+  .certificate-module>*{display:none!important}
+  .certificate-preview-overlay{display:block!important;position:static!important;width:auto!important;height:auto!important;margin:0!important;padding:0!important;background:#fff!important;overflow:visible!important;inset:auto!important}
+  .certificate-preview-overlay>*{display:none!important}
+  .certificate-preview-shell{display:block!important;position:static!important;width:auto!important;margin:0!important;padding:0!important;background:#fff!important;overflow:visible!important}
+  .certificate-preview-shell>*:not(.formal-certificate){display:none!important}
+  .certificate-inline-preview{display:block!important;position:static!important;width:auto!important;margin:0!important;padding:0!important;background:#fff!important;overflow:visible!important}
+  .certificate-inline-preview>*:not(.formal-certificate){display:none!important}
+  .admit-module{display:block!important}
+  .admit-module>*:not(.admit-print-grid){display:none!important}
+  .admit-print-grid{display:block!important;position:static!important;width:100%!important;margin:0!important;padding:0!important;background:#fff!important;overflow:visible!important}
   nav,aside,.sidebar,.topbar,.app-sidebar,.app-topbar,
   .certificate-menu,.section-actions,.certificate-preview-toolbar,
-  .no-print,.admit-tabs,.admit-filter-panel,.admit-date-sheet-form,
-  button,.icon-button,.primary-button,.secondary-button{display:none!important}
-  .app-shell,.main-area,.page-content,.certificate-module,
-  .certificate-preview-overlay,.certificate-preview-shell,
-  .certificate-inline-preview,.admit-module,.admit-print-grid{
-    display:block!important;position:static!important;inset:auto!important;width:100%!important;max-width:none!important;min-width:0!important;height:auto!important;min-height:0!important;margin:0!important;padding:0!important;background:#fff!important;box-shadow:none!important;overflow:visible!important;transform:none!important
-  }
+  .no-print,.admit-tabs,.admit-filter-panel,.admit-date-sheet-form{display:none!important}
   .formal-certificate{
-    display:block!important;position:relative!important;left:auto!important;top:auto!important;transform:none!important;width:190mm!important;min-width:190mm!important;max-width:190mm!important;height:277mm!important;min-height:277mm!important;max-height:277mm!important;margin:0 auto!important;padding:12mm!important;background:#fff!important;color:#000!important;border:2px solid #000!important;border-radius:0!important;box-shadow:none!important;overflow:hidden!important;page-break-after:always!important;page-break-inside:avoid!important;break-inside:avoid!important
+    display:block!important;position:relative!important;width:190mm!important;min-width:190mm!important;max-width:190mm!important;height:277mm!important;min-height:277mm!important;max-height:277mm!important;margin:0 auto!important;padding:12mm!important;background:#fff!important;color:#000!important;border:2px solid #000!important;border-radius:0!important;box-shadow:none!important;overflow:hidden!important;page-break-after:always!important;page-break-inside:avoid!important;break-inside:avoid!important
   }
   .admit-card{
-    display:block!important;position:relative!important;left:auto!important;top:auto!important;transform:none!important;width:190mm!important;min-width:190mm!important;max-width:190mm!important;min-height:277mm!important;height:auto!important;max-height:none!important;margin:0 auto!important;padding:12mm!important;background:#fff!important;color:#000!important;border:2px solid #000!important;border-radius:0!important;box-shadow:none!important;overflow:hidden!important;page-break-after:always!important;page-break-inside:avoid!important;break-inside:avoid!important
+    display:block!important;position:relative!important;width:190mm!important;min-width:190mm!important;max-width:190mm!important;min-height:277mm!important;height:auto!important;max-height:none!important;margin:0 auto!important;padding:12mm!important;background:#fff!important;color:#000!important;border:2px solid #000!important;border-radius:0!important;box-shadow:none!important;overflow:hidden!important;page-break-after:always!important;page-break-inside:avoid!important;break-inside:avoid!important
   }
-  .formal-certificate::after,.admit-card::after{content:"" !important;position:absolute!important;inset:8px!important;border:1px solid #000!important;display:block!important;visibility:visible!important;pointer-events:none!important}
+  .formal-certificate::after,.admit-card::after{content:""!important;position:absolute!important;inset:8px!important;border:1px solid #000!important;display:block!important;pointer-events:none!important}
   .formal-certificate>*,
   .admit-card>*{position:relative!important;z-index:6!important}
   .formal-school-header,.character-top,.tc-school-top,.admit-school-header{page-break-inside:avoid!important;break-inside:avoid!important}
@@ -156,21 +153,31 @@
 }
 
 @media print{
-  body.erp-printing *{visibility:hidden!important}
-  body.erp-printing .print-target,
-  body.erp-printing .print-target *{visibility:visible!important}
+  body.erp-printing>*:not(#root){display:none!important}
+  body.erp-printing #root>*{display:none!important}
+  body.erp-printing .app-shell{display:block!important}
+  body.erp-printing .app-shell>*{display:none!important}
+  body.erp-printing .main-area{display:block!important}
+  body.erp-printing .main-area>*{display:none!important}
+  body.erp-printing .page-content{display:block!important}
+  body.erp-printing .page-content>*{display:none!important}
+  body.erp-printing .certificate-module{display:block!important}
+  body.erp-printing .certificate-module>*{display:none!important}
   body.erp-printing .print-target{
     display:block!important;position:static!important;inset:auto!important;width:100%!important;max-width:none!important;min-width:0!important;height:auto!important;margin:0!important;padding:0!important;background:#fff!important;box-shadow:none!important;overflow:visible!important;transform:none!important
   }
-  body.erp-printing .certificate-preview-overlay,
-  body.erp-printing .certificate-preview-shell,
+  body.erp-printing .print-target>*:not(.formal-certificate):not(.admit-card){display:none!important}
+  body.erp-printing .certificate-preview-overlay{display:block!important;position:static!important;width:auto!important;height:auto!important;margin:0!important;padding:0!important;background:#fff!important;overflow:visible!important;inset:auto!important}
+  body.erp-printing .certificate-preview-overlay>*:not(.certificate-preview-shell){display:none!important}
+  body.erp-printing .certificate-preview-shell{display:block!important;position:static!important;width:auto!important;margin:0!important;padding:0!important;background:#fff!important;overflow:visible!important}
+  body.erp-printing .certificate-preview-shell>*:not(.formal-certificate){display:none!important}
   body.erp-printing .admit-print-grid{display:block!important;position:static!important;width:100%!important;margin:0!important;padding:0!important;background:#fff!important;overflow:visible!important}
   body.erp-printing .print-target .formal-certificate{
-    display:block!important;visibility:visible!important;width:190mm!important;min-width:190mm!important;max-width:190mm!important;height:277mm!important;min-height:277mm!important;max-height:277mm!important;margin:0 auto!important;padding:10mm!important;background:#fff!important;color:#000!important;border:2px solid #000!important;border-radius:0!important;box-shadow:none!important;overflow:hidden!important;page-break-after:always!important;page-break-inside:avoid!important;break-inside:avoid!important
+    display:block!important;width:190mm!important;min-width:190mm!important;max-width:190mm!important;height:277mm!important;min-height:277mm!important;max-height:277mm!important;margin:0 auto!important;padding:10mm!important;background:#fff!important;color:#000!important;border:2px solid #000!important;border-radius:0!important;box-shadow:none!important;overflow:hidden!important;page-break-after:always!important;page-break-inside:avoid!important;break-inside:avoid!important
   }
   body.erp-printing .print-target.admit-print-grid .admit-card,
   body.erp-printing .print-target .admit-card{
-    display:block!important;visibility:visible!important;width:190mm!important;min-width:190mm!important;max-width:190mm!important;min-height:277mm!important;height:auto!important;margin:0 auto!important;padding:10mm!important;background:#fff!important;color:#000!important;border:2px solid #000!important;border-radius:0!important;box-shadow:none!important;overflow:hidden!important;page-break-after:always!important;page-break-inside:avoid!important;break-inside:avoid!important
+    display:block!important;width:190mm!important;min-width:190mm!important;max-width:190mm!important;min-height:277mm!important;height:auto!important;margin:0 auto!important;padding:10mm!important;background:#fff!important;color:#000!important;border:2px solid #000!important;border-radius:0!important;box-shadow:none!important;overflow:hidden!important;page-break-after:always!important;page-break-inside:avoid!important;break-inside:avoid!important
   }
   body.erp-printing .print-target .tc-template{padding:8mm!important;font-family:Arial,sans-serif!important}
   body.erp-printing .print-target .tc-school-top h1{font-size:20pt!important;line-height:1.05!important;margin:0!important}
