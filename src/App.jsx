@@ -36,12 +36,24 @@ import {
   formatAadhaar,
   generateSchoolCode,
   indianStates,
+  isSeniorClass,
   onlyDigits,
   recognitionOptions as schoolRecognitionOptions,
   sectionOptions,
+  STREAM_OPTIONS,
 } from './schoolOptions'
 
 const admissionClasses = classOptions.flatMap(cls => sectionOptions.slice(0, cls.match(/^(11|12)$/) ? 1 : 5).map(section => `${cls}-${section}`))
+
+// Student lifecycle status. Anything without a status is treated as active (legacy records).
+const STUDENT_STATUS_META = {
+  active: { key: 'active', label: 'Active', bg: '', color: '' },
+  dropout: { key: 'dropout', label: 'Drop Out', bg: '#fee2e2', color: '#b91c1c' },
+  transfer: { key: 'transfer', label: 'Transfer Out', bg: '#ffedd5', color: '#c2410c' },
+  passedout: { key: 'passedout', label: 'Passed Out', bg: '#e2e8f0', color: '#475569' },
+}
+const studentStatusKey = student => (student?.status && STUDENT_STATUS_META[student.status] ? student.status : 'active')
+const isActiveStudent = student => studentStatusKey(student) === 'active'
 
 import { onAuthStateChanged, signOut } from 'firebase/auth'
 import { deleteObject, getDownloadURL, ref as storageRef, uploadBytes } from 'firebase/storage'
@@ -902,6 +914,10 @@ function StudentModal({ close, addStudent, updateStudent, getNextAdmissionNumber
     address: student.address || '',
     admissionDate: student.admissionDate || '',
     admissionScheme: student.admissionScheme || 'General',
+    stream: student.stream || '',
+    status: student.status || 'active',
+    dropOutDate: student.dropOutDate || '',
+    dropOutReason: student.dropOutReason || '',
   } : {
     name: '',
     className: '1-A',
@@ -913,6 +929,10 @@ function StudentModal({ close, addStudent, updateStudent, getNextAdmissionNumber
     address: '',
     admissionDate: '',
     admissionScheme: 'General',
+    stream: '',
+    status: 'active',
+    dropOutDate: '',
+    dropOutReason: '',
   })
   const [saving, setSaving] = useState(false)
   const [admissionNumber, setAdmissionNumber] = useState(student ? student.roll : '')
@@ -976,7 +996,8 @@ function StudentModal({ close, addStudent, updateStudent, getNextAdmissionNumber
         <div className="student-modal-top-fields">
           <label>Student name<input required value={form.name} onChange={e => setForm({...form, name: e.target.value})} placeholder="Full name" /></label>
           <label>Admission number<input readOnly className="readonly-input" value={admissionNumber || 'Auto generating...'} /></label>
-          <label>Class & section<select value={form.className} onChange={e => setForm({...form, className: e.target.value})}>{admissionClasses.map(c => <option key={c}>{c}</option>)}</select></label>
+          <label>Class & section<select value={form.className} onChange={e => { const className = e.target.value; setForm(current => ({ ...current, className, stream: isSeniorClass(className.split('-')[0]) ? current.stream : '' })) }}>{admissionClasses.map(c => <option key={c}>{c}</option>)}</select></label>
+          {isSeniorClass(form.className.split('-')[0]) && <label>Stream<select value={form.stream} onChange={e => setForm({...form, stream: e.target.value})}><option value="">Select stream</option>{STREAM_OPTIONS.map(s => <option key={s}>{s}</option>)}</select></label>}
         </div>
       </div>
       <div className="form-grid student-form-fields">
@@ -988,6 +1009,9 @@ function StudentModal({ close, addStudent, updateStudent, getNextAdmissionNumber
         <label>Admission Date<DatePicker value={form.admissionDate} onChange={value => setForm({...form, admissionDate: value})} /></label>
         <label>Admission Scheme<select value={form.admissionScheme} onChange={e => setForm({...form, admissionScheme: e.target.value})}>{['General','RTE','EWS','Staff Ward','Sibling','Scholarship'].map(s => <option key={s}>{s}</option>)}</select></label>
         <label>Address<input value={form.address} onChange={e => setForm({...form, address: e.target.value})} placeholder="Full address" /></label>
+        <label>Student Status<select value={form.status} onChange={e => { const status = e.target.value; setForm(current => ({ ...current, status, dropOutDate: status === 'dropout' ? (current.dropOutDate || today()) : '', dropOutReason: status === 'active' ? '' : current.dropOutReason })) }}><option value="active">Active</option><option value="dropout">Drop Out</option><option value="transfer">Transfer Out (TC Given)</option><option value="passedout">Passed Out</option></select></label>
+        {form.status === 'dropout' && <label>Drop Out Date<DatePicker value={form.dropOutDate} onChange={value => setForm({...form, dropOutDate: value})} max={today()} /></label>}
+        {form.status !== 'active' && <label className="full">Reason / Remark<input value={form.dropOutReason} onChange={e => setForm({...form, dropOutReason: e.target.value})} placeholder="Optional note (e.g. shifted city, TC issued)" /></label>}
       </div>
       {error && <div className="form-error">{error}</div>}
     </div>
@@ -1068,20 +1092,37 @@ function StudentProfile({ student, close, attendance, fees, feeManager, schoolPr
   </div>
 }
 
+function StudentStatusBadge({ student }) {
+  const meta = STUDENT_STATUS_META[studentStatusKey(student)]
+  if (!meta || meta.key === 'active') return null
+  return <span className="student-status-badge" style={{ background: meta.bg, color: meta.color }}>{meta.label}</span>
+}
+
 function Students({ students, onAddStudent, onUpdateStudent, onSelectStudent, getNextAdmissionNumber }) {
   const [search, setSearch] = useState('')
   const [filter, setFilter] = useState('All classes')
+  const [statusFilter, setStatusFilter] = useState('all')
+  const [streamFilter, setStreamFilter] = useState('')
   const [modal, setModal] = useState(null)
   const classes = [...new Set(students.map(student => student.className))].sort()
-  const filtered = students.filter(s => (filter === 'All classes' || s.className === filter) && `${s.name} ${s.roll} ${s.phone}`.toLowerCase().includes(search.trim().toLowerCase()))
+  const seniorFilter = isSeniorClass(String(filter).split('-')[0])
+  const filtered = students.filter(s => {
+    const okClass = filter === 'All classes' || s.className === filter
+    const okStatus = statusFilter === 'all' || studentStatusKey(s) === statusFilter
+    const okStream = !streamFilter || (s.stream || '') === streamFilter
+    const okSearch = `${s.name} ${s.roll} ${s.phone}`.toLowerCase().includes(search.trim().toLowerCase())
+    return okClass && okStatus && okStream && okSearch
+  })
   const addStudent = student => onAddStudent(student)
+  const activeStudents = students.filter(isActiveStudent)
+  const dropoutCount = students.filter(s => studentStatusKey(s) === 'dropout').length
   return <>
     <div className="section-actions"><div><h2>Student directory</h2><p>Manage profiles, guardians, attendance and fee status.</p></div><button className="primary-button" onClick={() => setModal('add')}><Plus size={17} /> Add student</button></div>
-    <div className="mini-stats"><div><span>All students</span><strong>{students.length}</strong></div><div><span>New admissions</span><strong>{students.filter(s => s.createdAt && Date.now() - s.createdAt < 30 * 86400000).length}</strong></div><div><span>Avg. attendance</span><strong>{students.length ? Math.round(students.reduce((sum, s) => sum + s.attendance, 0) / students.length) : 0}%</strong></div><div><span>Fee defaulters</span><strong>{students.filter(s => s.fee !== 'Paid').length}</strong></div></div>
+    <div className="mini-stats"><div><span>All students</span><strong>{students.length}</strong></div><div><span>Active</span><strong>{activeStudents.length}</strong></div><div><span>Drop outs</span><strong>{dropoutCount}</strong></div><div><span>Fee defaulters</span><strong>{activeStudents.filter(s => s.fee !== 'Paid').length}</strong></div></div>
     <div className="panel table-panel">
-      <div className="table-toolbar"><div className="table-search"><Search size={16} /><input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search student, roll no. or phone" /></div><select value={filter} onChange={e => setFilter(e.target.value)}><option>All classes</option>{classes.map(c => <option key={c}>{c}</option>)}</select></div>
+      <div className="table-toolbar"><div className="table-search"><Search size={16} /><input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search student, roll no. or phone" /></div><select value={filter} onChange={e => { setFilter(e.target.value); setStreamFilter('') }}><option>All classes</option>{classes.map(c => <option key={c}>{c}</option>)}</select>{seniorFilter && <select value={streamFilter} onChange={e => setStreamFilter(e.target.value)}><option value="">All streams</option>{STREAM_OPTIONS.map(s => <option key={s}>{s}</option>)}</select>}<select value={statusFilter} onChange={e => setStatusFilter(e.target.value)}><option value="all">All statuses</option><option value="active">Active</option><option value="dropout">Drop Out</option><option value="transfer">Transfer Out</option><option value="passedout">Passed Out</option></select></div>
       <div className="table-scroll"><table><thead><tr><th>Student</th><th>Class</th><th>Guardian</th><th>Attendance</th><th>Fee status</th><th /></tr></thead><tbody>
-        {filtered.map(s => <tr key={s.id} onClick={() => onSelectStudent(s)} className="clickable-row"><td><div className="student-cell"><StudentAvatar student={s} /><div><strong>{s.name}</strong><small>{s.roll}</small></div></div></td><td><span className="class-pill">{s.className}</span></td><td><strong className="regular">{s.guardian}</strong><small className="cell-sub">{s.phone}</small></td><td><div className="attendance-cell"><span>{s.attendance}%</span><div><i style={{width: `${s.attendance}%`}} /></div></div></td><td><span className={`status ${s.fee.toLowerCase()}`}>{s.fee}</span></td><td><div style={{ display: 'flex', gap: '4px', justifyContent: 'flex-end' }} onClick={e => e.stopPropagation()}><button type="button" className="icon-button" onClick={() => onSelectStudent(s)} title={`View ${s.name}`}><Eye size={16} /></button><button type="button" className="icon-button" onClick={() => setModal(s)} title={`Edit ${s.name}`}><Pencil size={16} /></button></div></td></tr>)}
+        {filtered.map(s => <tr key={s.id} onClick={() => onSelectStudent(s)} className="clickable-row"><td><div className="student-cell"><StudentAvatar student={s} /><div><strong>{s.name} <StudentStatusBadge student={s} /></strong><small>{s.roll}</small></div></div></td><td><span className="class-pill">{s.className}</span>{s.stream && <span className="stream-pill">{s.stream}</span>}</td><td><strong className="regular">{s.guardian}</strong><small className="cell-sub">{s.phone}</small></td><td><div className="attendance-cell"><span>{s.attendance}%</span><div><i style={{width: `${s.attendance}%`}} /></div></div></td><td><span className={`status ${s.fee.toLowerCase()}`}>{s.fee}</span></td><td><div style={{ display: 'flex', gap: '4px', justifyContent: 'flex-end' }} onClick={e => e.stopPropagation()}><button type="button" className="icon-button" onClick={() => onSelectStudent(s)} title={`View ${s.name}`}><Eye size={16} /></button><button type="button" className="icon-button" onClick={() => setModal(s)} title={`Edit ${s.name}`}><Pencil size={16} /></button></div></td></tr>)}
         {!filtered.length && <tr><td colSpan="6"><div className="empty-state">No students match this search.</div></td></tr>}
       </tbody></table></div>
     </div>
@@ -1482,6 +1523,7 @@ function Attendance({ students, attendance, onSaveAttendance }) {
   const classOptions = Array.from(new Set(students.map(student => splitClassSection(student.className).className).filter(Boolean))).sort()
   const sectionOptions = Array.from(new Set(students.filter(student => !className || splitClassSection(student.className).className === className).map(student => splitClassSection(student.className).section).filter(Boolean))).sort()
   const selectedStudents = students.filter(student => {
+    if (!isActiveStudent(student)) return false
     const parts = splitClassSection(student.className)
     return parts.className === className && parts.section === section
   })
@@ -1591,7 +1633,7 @@ function AttendanceHistory({ attendance, students, onDateClick }) {
 }
 
 function PaymentModal({ students, close, onRecordPayment }) {
-  const pending = students.filter(student => student.fee !== 'Paid')
+  const pending = students.filter(student => isActiveStudent(student) && student.fee !== 'Paid')
   const [form, setForm] = useState({ studentId: pending[0]?.id || '', amount: 18500, method: 'UPI' })
   const [saving, setSaving] = useState(false)
   const submit = async event => {
@@ -1996,6 +2038,26 @@ function useSchoolWorkspace(session) {
       }
     }
 
+    // The primary school fetch must NOT be treated as "school absent" when it
+    // merely fails (network blip, token expiry, permission race). Otherwise an
+    // already-registered school gets bounced to the setup screen. Retry once,
+    // and record a hard failure so we can show a reload prompt instead of setup.
+    let primaryFailed = false
+    async function fetchPrimarySchool(path, token) {
+      for (let attempt = 0; attempt < 2; attempt += 1) {
+        try {
+          return await databaseRequest(path, token)
+        } catch (err) {
+          if (!active) return undefined
+          if (attempt === 1) {
+            primaryFailed = true
+            return null
+          }
+        }
+      }
+      return null
+    }
+
     async function load() {
       setWorkspace(current => ({ ...current, loading: true, error: '' }))
       try {
@@ -2004,7 +2066,7 @@ function useSchoolWorkspace(session) {
         let schoolId = ownSchoolId
         let workspaceRole = 'Owner'
         let canMaintainWorkspace = true
-        let school = await safeRequest(`schools/${schoolId}`, token)
+        let school = await fetchPrimarySchool(`schools/${schoolId}`, token)
         if (!active) return
         const pendingProfile = JSON.parse(localStorage.getItem('northstar-pending-school-profile') || 'null')
         const legacyUser = await safeRequest(`users/${session.uid}`, token)
@@ -2065,6 +2127,10 @@ function useSchoolWorkspace(session) {
         if (school === undefined) return
 
         if (!school?.profile) {
+          if (primaryFailed) {
+            if (active) setWorkspace(current => ({ ...current, loading: false, schoolId, needsSetup: false, error: 'We could not reach your school workspace. Please check your connection and reload — your data is safe.' }))
+            return
+          }
           if (active) setWorkspace(current => ({ ...current, loading: false, schoolId, needsSetup: true, error: '' }))
           return
         }
@@ -3633,7 +3699,7 @@ export default function App() {
   if (data.workspace.needsSetup) return <SchoolSetup user={session} onSubmit={data.createSchoolWorkspace} />
   if (loginSplash) return <SplashScreen onComplete={() => { setLoginSplash(false); setPage('dashboard') }} />
   if (data.workspace.loading) return <SplashScreen persistent />
-  if (data.workspace.error) return <main className="setup-error"><ShieldCheck size={30} /><h1>Workspace unavailable</h1><p>{data.workspace.error}</p><button className="secondary-button" onClick={() => signOut(auth)}>Sign out</button></main>
+  if (data.workspace.error) return <main className="setup-error"><ShieldCheck size={30} /><h1>Workspace unavailable</h1><p>{data.workspace.error}</p><div style={{ display: 'flex', gap: 10 }}><button className="primary-button" onClick={() => window.location.reload()}>Reload</button><button className="secondary-button" onClick={() => signOut(auth)}>Sign out</button></div></main>
 
   const userName = session?.displayName || session?.email?.split('@')[0] || 'Demo Admin'
   const profile = {

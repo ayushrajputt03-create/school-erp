@@ -45,6 +45,9 @@
 
 /* Exact Transfer Certificate layout */
 .tc-template{border:2px solid #000;color:#000;padding:22px 28px;font-family:Arial,sans-serif;min-height:1050px}
+.tc-logo-watermark{position:absolute;inset:0;z-index:-1;display:grid;place-items:center;pointer-events:none}
+.tc-logo-watermark img{width:62%;max-width:360px;height:auto;opacity:.06;filter:grayscale(100%)}
+@media print{.tc-logo-watermark img{opacity:.07}}
 .tc-school-top{text-align:center;margin-bottom:15px}
 .tc-school-top h1{margin:0;color:#8b0000;font:900 28px/1.05 Arial,sans-serif;text-transform:uppercase;letter-spacing:0}
 .tc-school-top strong{display:block;margin-top:4px;font:700 italic 12px/1.25 Arial,sans-serif;color:#111}

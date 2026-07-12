@@ -479,6 +479,7 @@ function TransferCertificate({ student, form, school, settings, certificateNumbe
     ['Name Of Previous School', display.previousSchool],
   ]
   return <article className="formal-certificate tc-template">
+    {logo && <div className="tc-logo-watermark" aria-hidden="true"><img src={logo} alt="" /></div>}
     {duplicate && <div className="duplicate-watermark">DUPLICATE</div>}
     <header className="tc-school-top">
       <h1>{schoolName}</h1>
