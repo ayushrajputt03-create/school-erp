@@ -96,6 +96,31 @@ const shortDate = v => v ? new Date(`${v}T00:00:00`).toLocaleDateString('en-IN',
 const dayFrom = ts => { const d = new Date(Number(ts) || 0); return isNaN(d.getTime()) ? '' : d.toISOString().slice(0, 10) }
 const classParts = v => { const m = String(v || '').match(/^(.+?)\s*[-/]\s*([A-Za-z0-9]+)$/); return m ? { className: m[1].trim(), section: m[2].trim() } : { className: String(v || '').trim(), section: '' } }
 
+const CLASS_ORDER = ['Nursery', 'PG', 'Prep', 'LKG', 'UKG', 'KG', '1', '2', '3', '4', '5', '6', '7', '8', '9', '10', '11', '12']
+const classRank = name => { const i = CLASS_ORDER.indexOf(String(name || '').trim()); return i < 0 ? 500 : i }
+// Class-section options a staff member can work with. Uses explicit assignment when the admin
+// set it; otherwise falls back to every class-section that actually has students in the school,
+// so the panel still works when no classes were assigned (the empty-dropdown bug).
+function classSectionOptions(teacher, students) {
+  const all = new Set()
+  Object.values(students || {}).forEach(s => {
+    const { className, section } = classParts(s.class_name || s.className || s.class || '')
+    if (className) all.add(`${className}-${section || 'A'}`)
+  })
+  let list = [...all]
+  if (teacher?.classes?.length) {
+    const allowed = new Set(teacher.classes.map(c => String(c).trim()))
+    const filtered = list.filter(cs => allowed.has(classParts(cs).className))
+    list = filtered.length ? filtered : teacher.classes.flatMap(cls => ['A', 'B', 'C', 'D'].map(sec => `${cls}-${sec}`))
+    if (teacher.sections?.length) {
+      const secs = new Set(teacher.sections.map(x => String(x).trim()))
+      const secFiltered = list.filter(cs => secs.has(classParts(cs).section))
+      if (secFiltered.length) list = secFiltered
+    }
+  }
+  return list.sort((a, b) => classRank(classParts(a).className) - classRank(classParts(b).className) || classParts(a).section.localeCompare(classParts(b).section))
+}
+
 function TeacherLogin() {
   const [schoolCode, setSchoolCode] = useState('')
   const [mobile, setMobile] = useState('')
@@ -150,13 +175,14 @@ function TeacherLogin() {
 }
 
 function TeacherDashboard({ teacher, schoolProfile, students, attendance, homework, notices, token, schoolId, onLogout, onNavigate }) {
+  const myClassSet = useMemo(() => new Set(classSectionOptions(teacher, students)), [teacher, students])
   const myStudents = useMemo(() => {
-    if (!students || !teacher.classes?.length) return []
+    if (!students) return []
     return Object.values(students).filter(s => {
-      const { className } = classParts(s.class_name || s.className || s.class || '')
-      return teacher.classes.includes(className) && (!teacher.sections?.length || teacher.sections.includes(s.section || 'A'))
+      const p = classParts(s.class_name || s.className || s.class || '')
+      return myClassSet.has(`${p.className}-${p.section || 'A'}`)
     })
-  }, [students, teacher])
+  }, [students, myClassSet])
 
   const todayStr = today()
   const todayAttendance = attendance?.[todayStr]
@@ -183,7 +209,7 @@ function TeacherDashboard({ teacher, schoolProfile, students, attendance, homewo
       <div className="teacher-stat"><Users size={20} /><div><strong>{myStudents.length}</strong><span>My Students</span></div></div>
       <div className="teacher-stat"><CalendarCheck size={20} /><div><strong>{attendanceMarked ? 'Done' : 'Pending'}</strong><span>Today's Attendance</span></div></div>
       <div className="teacher-stat"><BookOpen size={20} /><div><strong>{hwThisWeek}</strong><span>HW This Week</span></div></div>
-      <div className="teacher-stat"><ClipboardList size={20} /><div><strong>{teacher.classes?.length || 0}</strong><span>My Classes</span></div></div>
+      <div className="teacher-stat"><ClipboardList size={20} /><div><strong>{myClassSet.size}</strong><span>My Classes</span></div></div>
     </div>
 
     {!attendanceMarked && <div className="teacher-action-card" onClick={() => onNavigate('attendance')}>
@@ -221,15 +247,7 @@ function TeacherAttendance({ teacher, students, attendance, token, schoolId, onS
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
 
-  const assignedClasses = useMemo(() => {
-    if (!teacher.classes?.length) return []
-    const list = []
-    for (const cls of teacher.classes) {
-      const sections = teacher.sections?.length ? teacher.sections : ['A']
-      for (const sec of sections) list.push(`${cls}-${sec}`)
-    }
-    return list
-  }, [teacher])
+  const assignedClasses = useMemo(() => classSectionOptions(teacher, students), [teacher, students])
 
   useEffect(() => { if (assignedClasses.length && !selectedClass) setSelectedClass(assignedClasses[0]) }, [assignedClasses])
 
@@ -319,17 +337,14 @@ function TeacherAttendance({ teacher, students, attendance, token, schoolId, onS
 
 function TeacherClasses({ teacher, students }) {
   const classData = useMemo(() => {
-    if (!teacher.classes?.length || !students) return []
-    const sections = teacher.sections?.length ? teacher.sections : ['A']
-    return teacher.classes.flatMap(cls =>
-      sections.map(sec => {
-        const count = Object.values(students).filter(s => {
-          const { className } = classParts(s.class_name || s.className || s.class || '')
-          return className === cls && (s.section || 'A') === sec
-        }).length
-        return { className: cls, section: sec, count, subject: teacher.subject || '' }
-      })
-    )
+    return classSectionOptions(teacher, students).map(cs => {
+      const { className, section } = classParts(cs)
+      const count = Object.values(students || {}).filter(s => {
+        const p = classParts(s.class_name || s.className || s.class || '')
+        return p.className === className && (s.section || 'A') === (section || 'A')
+      }).length
+      return { className, section: section || 'A', count, subject: teacher.subject || '' }
+    })
   }, [teacher, students])
 
   return <div className="teacher-page">
@@ -353,11 +368,7 @@ function TeacherHomework({ teacher, homework, students, token, schoolId }) {
   const [posting, setPosting] = useState(false)
   const [showForm, setShowForm] = useState(false)
 
-  const assignedClasses = useMemo(() => {
-    if (!teacher.classes?.length) return []
-    const sections = teacher.sections?.length ? teacher.sections : ['A']
-    return teacher.classes.flatMap(cls => sections.map(sec => `${cls}-${sec}`))
-  }, [teacher])
+  const assignedClasses = useMemo(() => classSectionOptions(teacher, students), [teacher, students])
 
   useEffect(() => { if (assignedClasses.length && !form.className) setForm(f => ({ ...f, className: assignedClasses[0] })) }, [assignedClasses])
 
