@@ -419,6 +419,7 @@ function CharacterCertificate({ student, form, school, settings, certificateNumb
     footerLocation: form.characterFooterLocation || location,
   }
   return <article className="formal-certificate character-template">
+    {logo && <div className="cert-watermark" aria-hidden="true"><img src={logo} alt="" /></div>}
     {duplicate && <div className="duplicate-watermark">DUPLICATE</div>}
     <div className="character-top-serial">Serial No: {display.serial}</div>
     <header className="character-certificate-header">
@@ -479,7 +480,7 @@ function TransferCertificate({ student, form, school, settings, certificateNumbe
     ['Name Of Previous School', display.previousSchool],
   ]
   return <article className="formal-certificate tc-template">
-    {logo && <div className="tc-logo-watermark" aria-hidden="true"><img src={logo} alt="" /></div>}
+    {logo && <div className="cert-watermark" aria-hidden="true"><img src={logo} alt="" /></div>}
     {duplicate && <div className="duplicate-watermark">DUPLICATE</div>}
     <header className="tc-school-top">
       <h1>{schoolName}</h1>
@@ -510,6 +511,7 @@ function TransferCertificate({ student, form, school, settings, certificateNumbe
 function SimpleCertificate({ type, student, form, school, settings, certificateNumber, photoUrl, duplicate }) {
   const p = pronouns(student)
   const { className, section } = classParts(student.className)
+  const logo = schoolLogo(school, settings)
   let paragraphs = []
   if (type === 'bonafide') paragraphs = [
     <>This is to certify that Mr./Ms. <strong>{student.name}</strong>, {p.relation} of <strong>{student.fatherName || student.guardian}</strong>, is a bonafide student of this school.</>,
@@ -526,6 +528,7 @@ function SimpleCertificate({ type, student, form, school, settings, certificateN
     <>We congratulate {p.object} for this achievement and wish {p.object} continued success.</>,
   ]
   return <article className={`formal-certificate simple-template ${type}-template`}>
+    {logo && <div className="cert-watermark" aria-hidden="true"><img src={logo} alt="" /></div>}
     {duplicate && <div className="duplicate-watermark">DUPLICATE</div>}
     <SchoolHeader school={school} settings={settings} student={student} photoUrl={photoUrl} />
     <FormalTitle title={type === 'sports' ? 'CERTIFICATE OF ACHIEVEMENT' : titles[type] || 'SCHOOL CERTIFICATE'} certificateNumber={certificateNumber} issueDate={form.issueDate} />
