@@ -5,6 +5,7 @@ import {
 } from 'lucide-react'
 import DatePicker from './DatePicker'
 import { auth } from './lib/firebase'
+import { classOptions } from './schoolOptions'
 
 const employeeDbUrl = import.meta.env.VITE_FIREBASE_DATABASE_URL?.replace(/\/$/, '')
 
@@ -16,7 +17,7 @@ const today = () => {
 
 const employeeName = employee => `${employee.firstName || ''} ${employee.lastName || ''}`.trim() || employee.name || 'Employee'
 const values = object => Object.values(object || {}).sort((a, b) => Number(a.order || 0) - Number(b.order || 0))
-const CLASS_OPTIONS = ['Nursery', 'LKG', 'UKG', '1', '2', '3', '4', '5', '6', '7', '8', '9', '10', '11', '12']
+const CLASS_OPTIONS = classOptions
 const SECTION_OPTIONS = ['A', 'B', 'C', 'D']
 const splitCsv = value => String(value || '').split(',').map(item => item.trim()).filter(Boolean)
 // Last-10 digits — same rule staff login uses, so the uniqueness check matches login behaviour.

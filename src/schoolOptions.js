@@ -24,7 +24,13 @@ export const recognitionOptions = [
 ]
 
 export const boardOptions = ['CBSE', 'ICSE', 'State Board', 'NIOS', 'Other']
-export const classOptions = ['Nursery', 'LKG', 'UKG', '1', '2', '3', '4', '5', '6', '7', '8', '9', '10', '11', '12']
+// Single source of truth for class names — order matters (used for sorting everywhere).
+export const classOptions = ['Playway', 'Nursery', 'LKG', 'UKG', '1', '2', '3', '4', '5', '6', '7', '8', '9', '10', '11', '12']
+// Alias so any module can import the canonical list under a clear name.
+export const CLASS_LIST = classOptions
+// Streams apply only to senior classes (11 & 12).
+export const STREAM_OPTIONS = ['Science', 'Commerce', 'Arts']
+export const isSeniorClass = cls => cls === '11' || cls === '12'
 export const sectionOptions = ['A', 'B', 'C', 'D', 'E']
 export const academicYears = ['2026-27', '2027-28', '2028-29', '2029-30']
 export const feeGroups = ['Regular', 'RTE', 'EWS', 'DG', 'Staff Ward', 'Sibling', 'Scholarship', 'No Fee', 'Custom']

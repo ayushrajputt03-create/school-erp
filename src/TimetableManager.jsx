@@ -1,6 +1,7 @@
 import React, { useMemo, useState } from 'react'
 import { Download, FileImage, FileText, Pencil, Plus, Search, Trash2, Upload, X } from 'lucide-react'
 import DatePicker from './DatePicker'
+import { classOptions } from './schoolOptions'
 
 const today = () => {
   const date = new Date()
@@ -62,8 +63,7 @@ export default function TimetableManager({ records, students, saveRecord, delete
   const [editing, setEditing] = useState(null)
   const classes = useMemo(() => {
     const available = [...new Set(students.map(student => student.className.split('-')[0]).filter(Boolean))]
-    const standard = ['Nursery','LKG','UKG','1','2','3','4','5','6','7','8','9','10','11','12']
-    return [...new Set([...standard, ...available])]
+    return [...new Set([...classOptions, ...available])]
   }, [students])
   const rows = Object.values(records || {}).sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0)).filter(record => {
     const matchesSearch = `${record.title} ${record.className} ${record.section}`.toLowerCase().includes(search.trim().toLowerCase())

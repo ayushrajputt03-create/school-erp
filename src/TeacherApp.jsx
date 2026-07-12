@@ -96,7 +96,7 @@ const shortDate = v => v ? new Date(`${v}T00:00:00`).toLocaleDateString('en-IN',
 const dayFrom = ts => { const d = new Date(Number(ts) || 0); return isNaN(d.getTime()) ? '' : d.toISOString().slice(0, 10) }
 const classParts = v => { const m = String(v || '').match(/^(.+?)\s*[-/]\s*([A-Za-z0-9]+)$/); return m ? { className: m[1].trim(), section: m[2].trim() } : { className: String(v || '').trim(), section: '' } }
 
-const CLASS_ORDER = ['Nursery', 'PG', 'Prep', 'LKG', 'UKG', 'KG', '1', '2', '3', '4', '5', '6', '7', '8', '9', '10', '11', '12']
+const CLASS_ORDER = ['Playway', 'Nursery', 'PG', 'Prep', 'LKG', 'UKG', 'KG', '1', '2', '3', '4', '5', '6', '7', '8', '9', '10', '11', '12']
 const classRank = name => { const i = CLASS_ORDER.indexOf(String(name || '').trim()); return i < 0 ? 500 : i }
 // Guard against corrupt student records (some rows carry binary garbage in class_name):
 // only accept short, printable class names so the dropdown never fills with junk.

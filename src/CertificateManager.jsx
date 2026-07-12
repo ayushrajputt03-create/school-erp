@@ -6,6 +6,7 @@ import {
   ShieldCheck, Trash2, X,
 } from 'lucide-react'
 import DatePicker from './DatePicker'
+import { classOptions } from './schoolOptions'
 import './CertificateManager.css'
 
 const certificateTypes = [
@@ -303,7 +304,7 @@ const recognitionOptions = [
   'Affiliated to UP Board (UPMSP)', 'Affiliated to Bihar Board (BSEB)', 'Affiliated to MP Board (MPBSE)', 'Affiliated to Rajasthan Board (RBSE)',
   'Affiliated to Haryana Board (HBSE)', 'Affiliated to Delhi Board', 'Write Custom Text...',
 ]
-const classHistoryClasses = ['Nursery', 'LKG', 'UKG', '1', '2', '3', '4', '5', '6', '7', '8', '9', '10', '11', '12']
+const classHistoryClasses = classOptions
 const sessions = Array.from({ length: 12 }, (_, index) => `${2015 + index}-${2016 + index}`)
 const occupations = ['BUSINESS', 'SERVICE/JOB', 'FARMER', 'LABOUR', 'TEACHER', 'DOCTOR', 'ENGINEER', 'LAWYER', 'GOVERNMENT EMPLOYEE', 'PRIVATE EMPLOYEE', 'SELF EMPLOYED', 'OTHER']
 const casteOptions = ['GENERAL', 'OBC', 'SC', 'ST', 'BRAHMIN', 'RAJPUT', 'YADAV', 'KAYASTHA', 'VAISHYA', 'OTHER']
