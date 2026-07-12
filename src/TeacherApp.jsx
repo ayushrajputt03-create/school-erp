@@ -98,6 +98,10 @@ const classParts = v => { const m = String(v || '').match(/^(.+?)\s*[-/]\s*([A-Z
 
 const CLASS_ORDER = ['Nursery', 'PG', 'Prep', 'LKG', 'UKG', 'KG', '1', '2', '3', '4', '5', '6', '7', '8', '9', '10', '11', '12']
 const classRank = name => { const i = CLASS_ORDER.indexOf(String(name || '').trim()); return i < 0 ? 500 : i }
+// Guard against corrupt student records (some rows carry binary garbage in class_name):
+// only accept short, printable class names so the dropdown never fills with junk.
+const isValidClassName = name => /^[A-Za-z0-9][A-Za-z0-9 .+/-]{0,11}$/.test(String(name || '').trim())
+const isValidSection = sec => sec === '' || /^[A-Za-z0-9]{1,4}$/.test(String(sec || '').trim())
 // Class-section options a staff member can work with. Uses explicit assignment when the admin
 // set it; otherwise falls back to every class-section that actually has students in the school,
 // so the panel still works when no classes were assigned (the empty-dropdown bug).
@@ -105,7 +109,7 @@ function classSectionOptions(teacher, students) {
   const all = new Set()
   Object.values(students || {}).forEach(s => {
     const { className, section } = classParts(s.class_name || s.className || s.class || '')
-    if (className) all.add(`${className}-${section || 'A'}`)
+    if (className && isValidClassName(className) && isValidSection(section)) all.add(`${className}-${section || 'A'}`)
   })
   let list = [...all]
   if (teacher?.classes?.length) {
