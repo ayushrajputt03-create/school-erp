@@ -1178,17 +1178,53 @@ function AdmissionForm({ students, onAddStudent, onUpdateStudent, onOpenRegister
       alert(`Error: ${error.message}`)
     } finally { setSaving(false) }
   }
+  const printAdmissionForm = filled => {
+    const s = school || {}
+    const d = filled ? form : {}
+    const [cls = '', sec = ''] = String(d.className || '').split('-')
+    const logo = s.logo || s.logoURL || ''
+    const esc = v => String(v == null ? '' : v).replace(/[<>&]/g, c => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;' }[c]))
+    const fld = v => v ? `<b>${esc(v)}</b>` : '<span style="display:inline-block;min-width:150px;border-bottom:1px dotted #555">&nbsp;</span>'
+    const row = (a, av, b, bv) => `<tr><td class="lbl">${a}</td><td>${fld(av)}</td><td class="lbl">${b || ''}</td><td>${b ? fld(bv) : ''}</td></tr>`
+    const addr = [s.address, s.city, s.state, s.pincode].filter(Boolean).join(', ')
+    const html = `<!doctype html><html><head><meta charset="utf-8"><title>Admission Form</title>
+<style>@page{size:A4;margin:12mm}*{box-sizing:border-box}body{font-family:Arial,Helvetica,sans-serif;color:#111;font-size:13px;margin:0}
+.head{display:flex;align-items:center;gap:14px;border-bottom:2px solid #052659;padding-bottom:10px}
+.head img{width:64px;height:64px;object-fit:contain}
+.head .mark{width:64px;height:64px;border-radius:8px;background:#052659;color:#fff;display:flex;align-items:center;justify-content:center;font-size:22px;font-weight:bold}
+.head h1{margin:0;font-size:22px;color:#052659}.head p{margin:2px 0 0;font-size:12px;color:#444}
+.title{text-align:center;margin:14px 0 6px;font-size:16px;font-weight:bold;letter-spacing:2px;color:#052659}
+.meta{display:flex;justify-content:space-between;font-size:12px;color:#333;margin-bottom:10px}
+.photo{float:right;width:110px;height:130px;border:1px solid #333;display:flex;align-items:center;justify-content:center;font-size:10px;color:#888;margin:0 0 8px 10px}
+table{width:100%;border-collapse:collapse}td{padding:7px 6px;vertical-align:bottom;font-size:12.5px}
+td.lbl{color:#333;width:130px;font-weight:600}
+.sec{margin-top:14px;font-weight:bold;color:#052659;border-bottom:1px solid #cbd6e6;padding-bottom:3px;font-size:12px;letter-spacing:1px}
+.sign{display:flex;justify-content:space-between;margin-top:44px;font-size:12px}
+.sign div{border-top:1px solid #333;padding-top:4px;width:200px;text-align:center}
+.note{margin-top:14px;font-size:10px;color:#666}
+</style></head><body onload="window.focus();setTimeout(function(){window.print()},250)">
+<div class="head">${logo ? `<img src="${esc(logo)}">` : `<div class="mark">${esc((s.schoolName || 'S').slice(0, 1))}</div>`}
+<div><h1>${esc(s.schoolName || 'School')}</h1><p>${esc(addr || 'Address not set')}</p><p>${esc(s.schoolContactNo || s.phone || '')} ${s.schoolEmail || s.email ? '· ' + esc(s.schoolEmail || s.email) : ''}</p></div></div>
+<div class="title">ADMISSION FORM</div>
+<div class="meta"><span>Session: <b>${esc(d.academicSession || s.academicYear || '2026-27')}</b></span><span>School Code: <b>${esc(s.schoolCode || '')}</b></span></div>
+<div class="photo">Affix<br>Photo</div>
+<div class="sec">ADMISSION DETAILS</div>
+<table>${row('Admission No', d.roll || d.rollNumber, 'Date', d.admissionDate)}${row('Class', cls, 'Section', sec)}${row('Scheme', d.admissionScheme, 'Fee Group', d.feeGroup)}</table>
+<div class="sec">STUDENT DETAILS</div>
+<table>${row('Student Name', d.name, 'Gender', d.gender)}${row('Date of Birth', d.dob, 'Blood Group', d.bloodGroup === "Don't Know" ? '' : d.bloodGroup)}${row('Category', d.category, 'Religion', d.religion)}${row('Aadhaar No', d.aadhaar, 'PEN ID', d.penId)}</table>
+<div class="sec">PARENT / GUARDIAN</div>
+<table>${row('Father Name', d.fatherName, 'Mother Name', d.motherName)}${row('Guardian', d.guardian, 'Mobile', d.phone)}${row('Email', d.email, '', '')}${row('Address', d.address, '', '')}</table>
+<div class="sign"><div>Parent Signature</div><div>Principal Signature</div></div>
+<div class="note">This is a system-generated admission form from ${esc(s.schoolName || 'the school')} · Northstar School OS.</div>
+</body></html>`
+    const w = window.open('', '_blank')
+    if (!w) { alert('Please allow pop-ups for this site to print the admission form.'); return }
+    w.document.write(html); w.document.close()
+  }
   const section = (id, title, content) => <section className="panel admission-card"><button type="button" className="collapse-title" onClick={() => setExpanded(expanded === id ? '' : id)}><span>{title}</span><ChevronRight className={expanded === id ? 'rotated' : ''} size={18} /></button>{expanded === id && <div className="admission-fields">{content}</div>}</section>
   return <form className="admission-form admission-form-pro" onSubmit={submit}>
     <div className="admission-toolbar">
-      <button type="button" className="secondary-button" onClick={() => {
-        const content = `NXT OpenERP School\nADMISSION FORM\n\nAdmission No: __________  Date: __________\nStudent Name: ______________________________\nClass/Section: __________  Gender: __________\nFather: __________________  Mother: __________________\nMobile: __________________  DOB: __________________\nAddress: ____________________________________________`
-        const link = document.createElement('a')
-        link.href = URL.createObjectURL(new Blob([content], { type: 'text/plain' }))
-        link.download = 'admission-form.txt'
-        link.click()
-        URL.revokeObjectURL(link.href)
-      }}><Download size={16} /> Download Admission Form</button>
+      <button type="button" className="secondary-button" onClick={() => printAdmissionForm(true)}><Printer size={16} /> Print Admission Form</button>
       <label className="secondary-button file-button"><Upload size={16} /> Import Excel<input type="file" accept=".csv,text/csv,.xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" onChange={async event => {
         const file = event.target.files?.[0]
         if (!file) return
@@ -1359,7 +1395,7 @@ function AdmissionForm({ students, onAddStudent, onUpdateStudent, onOpenRegister
     {section('transport', 'Section 8: Transport', <div className="admission-grid four"><label>Transport Required?<select value={form.transportRequired ? 'Yes' : 'No'} onChange={e => update('transportRequired', e.target.value === 'Yes')}><option>No</option><option>Yes</option></select></label>{form.transportRequired && <><label>Route<input value={form.routeName} onChange={e => update('routeName', e.target.value)} /></label><label>Stop<input value={form.stopName} onChange={e => update('stopName', e.target.value)} /></label><label>Pickup Time<input value={form.pickupTime} onChange={e => update('pickupTime', e.target.value)} /></label><label>Drop Time<input value={form.dropTime} onChange={e => update('dropTime', e.target.value)} /></label></>}</div>)}
     {section('documents', 'Section 9: Documents Upload', <div className="document-placeholder-grid">{['Birth Certificate','Aadhaar Card','Transfer Certificate','Caste Certificate','Category Certificate','Disability Certificate','Previous Marksheet','Parent ID Proof'].map(item => <div key={item}><FileText size={18} /><strong>{item}</strong><small>Upload support is available in Student Profile documents tab after saving.</small></div>)}</div>)}
     <div className="admission-options panel"><div className="sms-toggle"><button type="button" className={!form.smsEnabled ? 'active' : ''} onClick={() => update('smsEnabled', false)}>Don&apos;t Send SMS</button><button type="button" className={form.smsEnabled ? 'active' : ''} onClick={() => update('smsEnabled', true)}>Send SMS</button></div><label className="check-line"><input type="checkbox" checked={form.confirmDetails} onChange={e => update('confirmDetails', e.target.checked)} /> I confirm all details are correct</label></div>
-    {success && <div className="admission-success"><strong>Student Registered Successfully!</strong><span>Admission Number: {success.admissionNo}</span><span>School Code: {success.schoolCode}</span><span>Parent Login: {success.phone || 'Father phone'} / Password: {success.password}</span><button type="button" className="secondary-button" onClick={() => window.print()}><Printer size={15} /> Print Admission Form</button></div>}
+    {success && <div className="admission-success"><strong>Student Registered Successfully!</strong><span>Admission Number: {success.admissionNo}</span><span>School Code: {success.schoolCode}</span><span>Parent Login: {success.phone || 'Father phone'} / Password: {success.password}</span><button type="button" className="secondary-button" onClick={() => printAdmissionForm(true)}><Printer size={15} /> Print Admission Form</button></div>}
     {submitError && <div className="form-error">{submitError}</div>}
     <button className="primary-button admission-submit" disabled={saving || numberLoading}><Save size={16} /> {saving ? 'Saving...' : 'Submit'}</button>
   </form>
