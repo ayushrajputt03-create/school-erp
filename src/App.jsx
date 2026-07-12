@@ -1100,6 +1100,7 @@ function StudentStatusBadge({ student }) {
 
 function Students({ students, onAddStudent, onUpdateStudent, onSelectStudent, getNextAdmissionNumber }) {
   const [search, setSearch] = useState('')
+  const [codeSearch, setCodeSearch] = useState('')
   const [filter, setFilter] = useState('All classes')
   const [statusFilter, setStatusFilter] = useState('all')
   const [streamFilter, setStreamFilter] = useState('')
@@ -1110,8 +1111,9 @@ function Students({ students, onAddStudent, onUpdateStudent, onSelectStudent, ge
     const okClass = filter === 'All classes' || s.className === filter
     const okStatus = statusFilter === 'all' || studentStatusKey(s) === statusFilter
     const okStream = !streamFilter || (s.stream || '') === streamFilter
-    const okSearch = `${s.name} ${s.roll} ${s.phone}`.toLowerCase().includes(search.trim().toLowerCase())
-    return okClass && okStatus && okStream && okSearch
+    const okSearch = !search.trim() || `${s.name} ${s.roll} ${s.phone}`.toLowerCase().includes(search.trim().toLowerCase())
+    const okCode = !codeSearch.trim() || String(s.roll || '').toLowerCase().includes(codeSearch.trim().toLowerCase())
+    return okClass && okStatus && okStream && okSearch && okCode
   })
   const addStudent = student => onAddStudent(student)
   const activeStudents = students.filter(isActiveStudent)
@@ -1120,7 +1122,7 @@ function Students({ students, onAddStudent, onUpdateStudent, onSelectStudent, ge
     <div className="section-actions"><div><h2>Student directory</h2><p>Manage profiles, guardians, attendance and fee status.</p></div><button className="primary-button" onClick={() => setModal('add')}><Plus size={17} /> Add student</button></div>
     <div className="mini-stats"><div><span>All students</span><strong>{students.length}</strong></div><div><span>Active</span><strong>{activeStudents.length}</strong></div><div><span>Drop outs</span><strong>{dropoutCount}</strong></div><div><span>Fee defaulters</span><strong>{activeStudents.filter(s => s.fee !== 'Paid').length}</strong></div></div>
     <div className="panel table-panel">
-      <div className="table-toolbar"><div className="table-search"><Search size={16} /><input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search student, roll no. or phone" /></div><select value={filter} onChange={e => { setFilter(e.target.value); setStreamFilter('') }}><option>All classes</option>{classes.map(c => <option key={c}>{c}</option>)}</select>{seniorFilter && <select value={streamFilter} onChange={e => setStreamFilter(e.target.value)}><option value="">All streams</option>{STREAM_OPTIONS.map(s => <option key={s}>{s}</option>)}</select>}<select value={statusFilter} onChange={e => setStatusFilter(e.target.value)}><option value="all">All statuses</option><option value="active">Active</option><option value="dropout">Drop Out</option><option value="transfer">Transfer Out</option><option value="passedout">Passed Out</option></select></div>
+      <div className="table-toolbar"><div className="table-search"><Search size={16} /><input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search student, roll no. or phone" /></div><input className="code-filter-input" value={codeSearch} onChange={e => setCodeSearch(e.target.value)} placeholder="Admission No." style={{ width: '120px', padding: '7px 10px', borderRadius: '7px', border: '1px solid #cbd6e6', fontSize: '13px' }} /><select value={filter} onChange={e => { setFilter(e.target.value); setStreamFilter('') }}><option>All classes</option>{classes.map(c => <option key={c}>{c}</option>)}</select>{seniorFilter && <select value={streamFilter} onChange={e => setStreamFilter(e.target.value)}><option value="">All streams</option>{STREAM_OPTIONS.map(s => <option key={s}>{s}</option>)}</select>}<select value={statusFilter} onChange={e => setStatusFilter(e.target.value)}><option value="all">All statuses</option><option value="active">Active</option><option value="dropout">Drop Out</option><option value="transfer">Transfer Out</option><option value="passedout">Passed Out</option></select></div>
       <div className="table-scroll"><table><thead><tr><th>Student</th><th>Class</th><th>Guardian</th><th>Attendance</th><th>Fee status</th><th /></tr></thead><tbody>
         {filtered.map(s => <tr key={s.id} onClick={() => onSelectStudent(s)} className="clickable-row"><td><div className="student-cell"><StudentAvatar student={s} /><div><strong>{s.name} <StudentStatusBadge student={s} /></strong><small>{s.roll}</small></div></div></td><td><span className="class-pill">{s.className}</span>{s.stream && <span className="stream-pill">{s.stream}</span>}</td><td><strong className="regular">{s.guardian}</strong><small className="cell-sub">{s.phone}</small></td><td><div className="attendance-cell"><span>{s.attendance}%</span><div><i style={{width: `${s.attendance}%`}} /></div></div></td><td><span className={`status ${s.fee.toLowerCase()}`}>{s.fee}</span></td><td><div style={{ display: 'flex', gap: '4px', justifyContent: 'flex-end' }} onClick={e => e.stopPropagation()}><button type="button" className="icon-button" onClick={() => onSelectStudent(s)} title={`View ${s.name}`}><Eye size={16} /></button><button type="button" className="icon-button" onClick={() => setModal(s)} title={`Edit ${s.name}`}><Pencil size={16} /></button></div></td></tr>)}
         {!filtered.length && <tr><td colSpan="6"><div className="empty-state">No students match this search.</div></td></tr>}
@@ -1150,7 +1152,7 @@ function AdmissionForm({ students, onAddStudent, onUpdateStudent, onOpenRegister
   const [success, setSuccess] = useState(null)
   const [submitError, setSubmitError] = useState('')
   const [form, setForm] = useState({
-    admissionType: 'new', className: 'Nursery-A', admissionScheme: 'General', roll: '',
+    admissionType: 'new', className: 'Nursery-A', stream: '', admissionScheme: 'General', roll: '',
     admissionDate: today(), academicSession: school.academicYear || '2026-27', rollNumber: '', feeGroup: 'Regular',
     name: '', fatherName: '', motherName: '', guardian: '', gender: '', dob: '', ageOn31March: '', phone: '', email: '',
     aadhaar: '', penId: '', apaarId: '', bloodGroup: "Don't Know", height: '', weight: '', motherTongue: 'Hindi', nationality: 'Indian',
@@ -1173,7 +1175,7 @@ function AdmissionForm({ students, onAddStudent, onUpdateStudent, onOpenRegister
     } finally { setNumberLoading(false) }
   }
   useEffect(() => { refreshNumber() }, [])
-  const update = (key, value) => setForm(current => ({ ...current, [key]: value, ...(key === 'dob' ? { ageOn31March: ageOnDate(value) } : {}) }))
+  const update = (key, value) => setForm(current => ({ ...current, [key]: value, ...(key === 'dob' ? { ageOn31March: ageOnDate(value) } : {}), ...(key === 'className' ? { stream: isSeniorClass(String(value).split('-')[0]) ? current.stream : '' } : {}) }))
   const toggleDisability = value => setForm(current => ({ ...current, disabilityType: current.disabilityType.includes(value) ? current.disabilityType.filter(item => item !== value) : [...current.disabilityType, value] }))
   const oldMatches = oldSearch.trim() ? students.filter(student => `${student.roll} ${student.name} ${student.phone}`.toLowerCase().includes(oldSearch.toLowerCase())).slice(0, 8) : []
   const selectOldStudent = student => {
@@ -1209,7 +1211,7 @@ function AdmissionForm({ students, onAddStudent, onUpdateStudent, onOpenRegister
       const summary = { admissionNo, schoolCode: school.schoolCode || 'Not set', phone: payload.parentLoginPhone, password: form.dob || 'DOB' }
       setSuccess(summary)
       alert(`Student saved successfully!\nAdmission Number: ${admissionNo}\nSchool Code: ${summary.schoolCode}`)
-      setForm(current => ({ ...current, roll: '', name: '', fatherName: '', motherName: '', guardian: '', gender: '', dob: '', phone: '', email: '', state: '', city: '', address: '', pincode: '', aadhaar: '', penId: '', apaarId: '', permanentAddress: '' }))
+      setForm(current => ({ ...current, roll: '', name: '', fatherName: '', motherName: '', guardian: '', gender: '', dob: '', phone: '', email: '', state: '', city: '', address: '', pincode: '', aadhaar: '', penId: '', apaarId: '', permanentAddress: '', stream: '' }))
       setPhoto(null)
       setSelectedOldStudent(null)
       await refreshNumber()
@@ -1405,6 +1407,7 @@ td.lbl{color:#333;width:130px;font-weight:600}
       <div className="admission-grid five">
         <label>Class*<select required value={form.className.split('-')[0]} onChange={e => update('className', `${e.target.value}-${form.className.split('-')[1] || 'A'}`)}>{classOptions.map(item => <option key={item}>{item}</option>)}</select></label>
         <label>Section*<select required value={form.className.split('-')[1] || 'A'} onChange={e => update('className', `${form.className.split('-')[0]}-${e.target.value}`)}>{sectionOptions.map(item => <option key={item}>{item}</option>)}</select></label>
+        {isSeniorClass(form.className.split('-')[0]) && <label>Stream*<select required value={form.stream} onChange={e => update('stream', e.target.value)}><option value="">Select stream</option>{STREAM_OPTIONS.map(s => <option key={s}>{s}</option>)}</select></label>}
         <label>Academic Session*<select required value={form.academicSession} onChange={e => update('academicSession', e.target.value)}>{academicYears.map(item => <option key={item}>{item}</option>)}</select></label>
         <label>Admission Number*<input required readOnly value={numberLoading ? 'Auto generating...' : form.roll} className="readonly-input" /></label>
         <label>Date of Admission*<DatePicker required value={form.admissionDate} onChange={value => update('admissionDate', value)} /></label>
