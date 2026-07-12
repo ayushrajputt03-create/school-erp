@@ -771,35 +771,41 @@ function AdmitCardManager({ students, fees, school, settings, examData, onSaveEx
       return
     }
     const query = admissionQuery.trim().toLowerCase()
-    if ((searchBy === 'Admission No' || searchBy === 'Student Name') && !query) {
-      setResults([])
-      setSelected({})
-      setGeneratedIds([])
-      setSearchMessage(searchBy === 'Admission No' ? 'Admission number daalo, ya dropdown se student select karo.' : 'Student name type karo, ya dropdown se select karo.')
+    if (query.length >= 2) {
+      const matches = students.filter(student => {
+        if (student.status === 'dropout') return false
+        const text = `${admissionNo(student)} ${student.name} ${student.phone || ''}`.toLowerCase()
+        return text.includes(query)
+      })
+      setResults(matches)
+      setSelected(Object.fromEntries(matches.map(student => [student.id, true])))
+      setGeneratedIds(matches.map(student => student.id))
+      setSearchMessage(matches.length ? `${matches.length} admit card auto-generated.` : 'No matching student found.')
       return
     }
-    if (searchBy === 'Class/Section' && !className) {
-      setResults([])
-      setSelected({})
-      setGeneratedIds([])
-      setSearchMessage('Class select karo. Empty search se all students generate nahi honge.')
+    if (!className) {
+      if (query) {
+        setResults([])
+        setSearchMessage('Type 2+ characters or select a class.')
+      } else {
+        setResults([])
+        setSelected({})
+        setGeneratedIds([])
+        setSearchMessage('Class select karo ya student ka naam/admission no. type karo.')
+      }
       return
     }
     const matches = students.filter(student => {
       if (student.status === 'dropout') return false
       const parts = classParts(student.className)
-      const classOk = !className || String(parts.className) === String(className)
+      const classOk = String(parts.className) === String(className)
       const sectionOk = !section || String(parts.section) === String(section)
-      let queryOk = true
-      if (searchBy === 'Admission No') queryOk = String(admissionNo(student)).toLowerCase().includes(query)
-      if (searchBy === 'Student Name') queryOk = `${admissionNo(student)} ${student.name} ${student.phone || ''}`.toLowerCase().includes(query)
-      if (searchBy === 'Class/Section') queryOk = !query || `${admissionNo(student)} ${student.name} ${student.phone || ''}`.toLowerCase().includes(query)
-      return classOk && sectionOk && queryOk
+      return classOk && sectionOk
     })
     setResults(matches)
     setSelected(Object.fromEntries(matches.map(student => [student.id, true])))
     setGeneratedIds(matches.map(student => student.id))
-    setSearchMessage(matches.length ? `${matches.length} admit card auto-generated from current search.` : 'No matching student found.')
+    setSearchMessage(matches.length ? `${matches.length} admit card auto-generated.` : 'No matching student found.')
   }
   useEffect(() => {
     const timer = setTimeout(() => runSearch(true), 250)
@@ -883,7 +889,7 @@ function AdmitCardManager({ students, fees, school, settings, examData, onSaveEx
         <label>Adm No / Name
           <div style={{ position: 'relative' }}>
             <div style={{ display: 'flex', gap: 0 }}>
-              <input value={admissionQuery} onChange={event => { setAdmissionQuery(event.target.value); setPickedStudent(null); setShowSuggestions(true); clearSearch() }} onFocus={() => { if (suggestions.length && !pickedStudent) setShowSuggestions(true) }} onBlur={() => setTimeout(() => setShowSuggestions(false), 200)} placeholder="Type 2+ chars to search..." style={{ flex: 1, borderRadius: pickedStudent ? '6px 0 0 6px' : undefined }} />
+              <input value={admissionQuery} onChange={event => { setAdmissionQuery(event.target.value); setPickedStudent(null); setShowSuggestions(true) }} onFocus={() => { if (suggestions.length && !pickedStudent) setShowSuggestions(true) }} onBlur={() => setTimeout(() => setShowSuggestions(false), 200)} placeholder="Type 2+ chars to search..." style={{ flex: 1, borderRadius: pickedStudent ? '6px 0 0 6px' : undefined }} />
               {pickedStudent && <button type="button" onClick={clearPicked} style={{ height: 36, width: 32, marginTop: 6, border: '1px solid #dce1e8', borderLeft: 0, borderRadius: '0 6px 6px 0', background: '#fee2e2', color: '#b91c1c', cursor: 'pointer', display: 'grid', placeItems: 'center', fontSize: 14, fontWeight: 700 }} title="Clear selection">&times;</button>}
             </div>
             {showSuggestions && suggestions.length > 0 && <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, background: '#fff', border: '1px solid #dfe3ea', borderRadius: '0 0 8px 8px', boxShadow: '0 4px 12px rgba(0,0,0,0.12)', zIndex: 100, maxHeight: 220, overflowY: 'auto', marginTop: -1 }}>
