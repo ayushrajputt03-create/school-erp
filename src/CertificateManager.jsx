@@ -807,7 +807,7 @@ function AdmitCardManager({ students, fees, school, settings, examData, onSaveEx
   useEffect(() => {
     const timer = setTimeout(() => runSearch(true), 250)
     return () => clearTimeout(timer)
-  }, [searchBy, className, section, admissionQuery, examId, showPendingFee, students, pickedStudent])
+  }, [searchBy, className, section, admissionQuery, examId, showPendingFee, pickedStudent])
   const generatePreview = () => {
     setGeneratedIds(selectedStudents.map(student => student.id))
     setSearchMessage(selectedStudents.length ? `${selectedStudents.length} admit card preview generated from current search only.` : 'Pehle searched students select karo.')
@@ -927,7 +927,7 @@ function AdmitCardManager({ students, fees, school, settings, examData, onSaveEx
       <div className="table-scroll"><table><thead><tr><th>Subject</th><th>Exam</th><th>Class</th><th>Section</th><th>Date</th><th>From</th><th>To</th><th>Actions</th></tr></thead><tbody>{allDateRows.map(row => <tr key={row.id}><td>{row.subject}</td><td>{exams.find(exam => exam.id === row.examId)?.name || row.examId}</td><td>{row.className}</td><td>{row.section}</td><td>{shortDate(row.date)}</td><td>{row.fromTime}</td><td>{row.toTime}</td><td><button className="icon-button danger" onClick={() => onDeleteDateSheet(row.id)}><Trash2 size={14} /></button></td></tr>)}{!allDateRows.length && <tr><td colSpan="8"><div className="empty-state">No date sheet rows added yet.</div></td></tr>}</tbody></table></div>
     </section>}
     <section className="admit-print-grid">
-      {generatedStudents.map(student => <AdmitCardPaper key={student.id} student={student} exam={selectedExam} dateRows={matchingDateRows(student)} school={school} settings={settings} showPendingFee={showPendingFee === 'Yes'} pendingAmount={pendingFeeForStudent(student, fees)} />)}
+      {selectedStudents.map(student => <AdmitCardPaper key={student.id} student={student} exam={selectedExam} dateRows={matchingDateRows(student)} school={school} settings={settings} showPendingFee={showPendingFee === 'Yes'} pendingAmount={pendingFeeForStudent(student, fees)} />)}
     </section>
   </div>
 }
