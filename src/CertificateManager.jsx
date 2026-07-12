@@ -705,7 +705,7 @@ function AdmitCardManager({ students, fees, school, settings, examData, onSaveEx
   }, [examData])
   const [tab, setTab] = useState('generate')
   const [examId, setExamId] = useState(exams[0]?.id || 'annual-2026')
-  const [searchBy, setSearchBy] = useState('Student Name')
+  const [searchBy, setSearchBy] = useState('Class/Section')
   const [className, setClassName] = useState('')
   const [section, setSection] = useState('')
   const [admissionQuery, setAdmissionQuery] = useState('')
@@ -715,6 +715,13 @@ function AdmitCardManager({ students, fees, school, settings, examData, onSaveEx
   const [searchMessage, setSearchMessage] = useState('')
   const [generatedIds, setGeneratedIds] = useState([])
   const [pendingPrint, setPendingPrint] = useState(false)
+  const [pickedStudent, setPickedStudent] = useState(null)
+  const [showSuggestions, setShowSuggestions] = useState(false)
+  const suggestions = useMemo(() => {
+    const q = admissionQuery.trim().toLowerCase()
+    if (q.length < 2 || pickedStudent) return []
+    return students.filter(s => s.status !== 'dropout' && (`${admissionNo(s)} ${s.name} ${s.phone || ''}`.toLowerCase().includes(q))).slice(0, 10)
+  }, [admissionQuery, students, pickedStudent])
   const [sheetForm, setSheetForm] = useState({ examId: exams[0]?.id || 'annual-2026', target: 'single', className: '', section: '', subject: 'Mathematics', date: today(), fromTime: '10:00', toTime: '12:00' })
   const [sheetExamName, setSheetExamName] = useState('Annual Examination 2026-27')
   const [savingSheet, setSavingSheet] = useState(false)
@@ -740,20 +747,35 @@ function AdmitCardManager({ students, fees, school, settings, examData, onSaveEx
     setPendingPrint(false)
     setSearchMessage('Search filters changed. Click Search again.')
   }
+  const clearPicked = () => {
+    setPickedStudent(null)
+    setAdmissionQuery('')
+    setShowSuggestions(false)
+    clearSearch()
+  }
+  const pickStudent = student => {
+    setPickedStudent(student)
+    setAdmissionQuery(`${admissionNo(student)} - ${student.name}`)
+    setShowSuggestions(false)
+    setResults([student])
+    setSelected({ [student.id]: true })
+    setGeneratedIds([student.id])
+    setSearchMessage(`1 admit card generated for ${student.name}.`)
+  }
   const runSearch = (silent = false) => {
-    const query = admissionQuery.trim().toLowerCase()
-    if (searchBy === 'Admission No' && !query) {
-      setResults([])
-      setSelected({})
-      setGeneratedIds([])
-      setSearchMessage('Admission number daalo, phir sirf wahi student generate hoga.')
+    if (pickedStudent) {
+      setResults([pickedStudent])
+      setSelected({ [pickedStudent.id]: true })
+      setGeneratedIds([pickedStudent.id])
+      setSearchMessage(`1 admit card generated for ${pickedStudent.name}.`)
       return
     }
-    if (searchBy === 'Student Name' && !query) {
+    const query = admissionQuery.trim().toLowerCase()
+    if ((searchBy === 'Admission No' || searchBy === 'Student Name') && !query) {
       setResults([])
       setSelected({})
       setGeneratedIds([])
-      setSearchMessage('Admission no, student name ya phone type karo. Card automatic generate hoga.')
+      setSearchMessage(searchBy === 'Admission No' ? 'Admission number daalo, ya dropdown se student select karo.' : 'Student name type karo, ya dropdown se select karo.')
       return
     }
     if (searchBy === 'Class/Section' && !className) {
@@ -764,11 +786,12 @@ function AdmitCardManager({ students, fees, school, settings, examData, onSaveEx
       return
     }
     const matches = students.filter(student => {
+      if (student.status === 'dropout') return false
       const parts = classParts(student.className)
       const classOk = !className || String(parts.className) === String(className)
       const sectionOk = !section || String(parts.section) === String(section)
       let queryOk = true
-      if (searchBy === 'Admission No') queryOk = String(admissionNo(student)).toLowerCase() === query
+      if (searchBy === 'Admission No') queryOk = String(admissionNo(student)).toLowerCase().includes(query)
       if (searchBy === 'Student Name') queryOk = `${admissionNo(student)} ${student.name} ${student.phone || ''}`.toLowerCase().includes(query)
       if (searchBy === 'Class/Section') queryOk = !query || `${admissionNo(student)} ${student.name} ${student.phone || ''}`.toLowerCase().includes(query)
       return classOk && sectionOk && queryOk
@@ -781,7 +804,7 @@ function AdmitCardManager({ students, fees, school, settings, examData, onSaveEx
   useEffect(() => {
     const timer = setTimeout(() => runSearch(true), 250)
     return () => clearTimeout(timer)
-  }, [searchBy, className, section, admissionQuery, examId, showPendingFee, students])
+  }, [searchBy, className, section, admissionQuery, examId, showPendingFee, students, pickedStudent])
   const generatePreview = () => {
     setGeneratedIds(selectedStudents.map(student => student.id))
     setSearchMessage(selectedStudents.length ? `${selectedStudents.length} admit card preview generated from current search only.` : 'Pehle searched students select karo.')
@@ -857,7 +880,17 @@ function AdmitCardManager({ students, fees, school, settings, examData, onSaveEx
         <label>Search By<select value={searchBy} onChange={event => { setSearchBy(event.target.value); clearSearch() }}><option>Class/Section</option><option>Admission No</option><option>Student Name</option></select></label>
         <label>Select Class<select value={className} onChange={event => { setClassName(event.target.value); clearSearch() }}><option value="">All Classes</option>{classOptionsFromStudents(students).map(item => <option key={item}>{item}</option>)}</select></label>
         <label>Select Section<select value={section} onChange={event => { setSection(event.target.value); clearSearch() }}><option value="">All Sections</option>{sectionOptionsFromStudents(students).map(item => <option key={item}>{item}</option>)}</select></label>
-        <label>Adm No / Name<input value={admissionQuery} onChange={event => { setAdmissionQuery(event.target.value); clearSearch() }} placeholder="Admission no., student name or phone" /></label>
+        <label>Adm No / Name
+          <div style={{ position: 'relative' }}>
+            <div style={{ display: 'flex', gap: 0 }}>
+              <input value={admissionQuery} onChange={event => { setAdmissionQuery(event.target.value); setPickedStudent(null); setShowSuggestions(true); clearSearch() }} onFocus={() => { if (suggestions.length && !pickedStudent) setShowSuggestions(true) }} onBlur={() => setTimeout(() => setShowSuggestions(false), 200)} placeholder="Type 2+ chars to search..." style={{ flex: 1, borderRadius: pickedStudent ? '6px 0 0 6px' : undefined }} />
+              {pickedStudent && <button type="button" onClick={clearPicked} style={{ height: 36, width: 32, marginTop: 6, border: '1px solid #dce1e8', borderLeft: 0, borderRadius: '0 6px 6px 0', background: '#fee2e2', color: '#b91c1c', cursor: 'pointer', display: 'grid', placeItems: 'center', fontSize: 14, fontWeight: 700 }} title="Clear selection">&times;</button>}
+            </div>
+            {showSuggestions && suggestions.length > 0 && <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, background: '#fff', border: '1px solid #dfe3ea', borderRadius: '0 0 8px 8px', boxShadow: '0 4px 12px rgba(0,0,0,0.12)', zIndex: 100, maxHeight: 220, overflowY: 'auto', marginTop: -1 }}>
+              {suggestions.map(s => <div key={s.id} onMouseDown={() => pickStudent(s)} style={{ padding: '8px 12px', cursor: 'pointer', borderBottom: '1px solid #f0f2f5', display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 11 }}><strong style={{ color: '#1e293b' }}>{s.name}</strong><span style={{ color: '#6b7280', fontSize: 10 }}>{admissionNo(s)} · {s.className}</span></div>)}
+            </div>}
+          </div>
+        </label>
         <label>Pending Fee Show<select value={showPendingFee} onChange={event => { setShowPendingFee(event.target.value); clearSearch() }}><option>No</option><option>Yes</option></select></label>
       </div>
       <button className="secondary-button" onClick={() => runSearch()}><Search size={15} /> Search / Auto Generate</button>
