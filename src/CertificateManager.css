@@ -82,23 +82,23 @@
 .tc-history-editor select,.tc-history-editor input{min-width:92px}
 .tc-history-editor .date-field{min-width:120px}
 @media print{
-  .tc-template{padding:8mm!important;font-family:Arial,sans-serif!important}
-  .tc-school-top{margin-bottom:6px!important}
-  .tc-school-top h1{font-size:20pt!important;line-height:1.05!important;margin:0!important}
-  .tc-school-top strong{margin-top:2px!important;font-size:10px!important}
-  .tc-school-top p{margin:2px 0 0!important;font-size:9px!important}
-  .tc-school-top small{margin-top:1px!important;font-size:8px!important}
-  .tc-title-row{grid-template-columns:22mm 1fr 30mm!important;gap:6mm!important;margin:3mm 0 2mm!important}
-  .tc-template .formal-logo{width:20mm!important;height:20mm!important}
-  .tc-template .formal-student-photo{width:28mm!important;height:34mm!important}
-  .tc-title{padding:6px 20px!important;font-size:16px!important}
-  .tc-reg-row{margin:4px 2px 6px!important;font-size:10px!important}
-  .tc-student-section{grid-template-columns:1fr 30mm!important;gap:4mm!important}
-  .tc-left-details{font-size:7.5pt!important;gap:0.8mm!important}
-  .tc-left-details>div{grid-template-columns:38mm 1fr!important;min-height:4.2mm!important}
-  .tc-left-details span{padding:0.8mm 1.2mm!important}
-  .tc-serial-box{min-height:auto!important;padding:5px!important;gap:4px!important;font-size:8px!important}
-  .tc-serial-box strong{font-size:18px!important}
+  .tc-template{padding:6mm!important;font-family:Arial,sans-serif!important}
+  .tc-school-top{margin-bottom:4px!important}
+  .tc-school-top h1{font-size:18pt!important;line-height:1.05!important;margin:0!important}
+  .tc-school-top strong{margin-top:1px!important;font-size:9px!important}
+  .tc-school-top p{margin:1px 0 0!important;font-size:8px!important}
+  .tc-school-top small{margin-top:1px!important;font-size:7px!important}
+  .tc-title-row{grid-template-columns:20mm 1fr 28mm!important;gap:5mm!important;margin:2mm 0 1.5mm!important}
+  .tc-template .formal-logo{width:18mm!important;height:18mm!important}
+  .tc-template .formal-student-photo{width:26mm!important;height:32mm!important}
+  .tc-title{padding:4px 16px!important;font-size:14px!important}
+  .tc-reg-row{margin:2px 2px 4px!important;font-size:9px!important}
+  .tc-student-section{grid-template-columns:1fr 28mm!important;gap:3mm!important}
+  .tc-left-details{font-size:7pt!important;gap:0.6mm!important}
+  .tc-left-details>div{grid-template-columns:36mm 1fr!important;min-height:3.8mm!important}
+  .tc-left-details span{padding:0.6mm 1mm!important}
+  .tc-serial-box{min-height:auto!important;padding:4px!important;gap:3px!important;font-size:7px!important}
+  .tc-serial-box strong{font-size:16px!important}
   .tc-template .academic-history-table{
     width:100%!important;max-width:100%!important;table-layout:fixed!important;margin-top:2mm!important;border-collapse:collapse!important;font:5.5pt/1.1 Arial,sans-serif!important
   }
@@ -107,29 +107,29 @@
     padding:1mm 0.5mm!important;white-space:normal!important;word-break:break-word!important;overflow-wrap:anywhere!important;min-width:0!important
   }
   .tc-template .academic-history-table th:nth-child(1),
-  .tc-template .academic-history-table td:nth-child(1){width:8%!important}
+  .tc-template .academic-history-table td:nth-child(1){width:7%!important}
   .tc-template .academic-history-table th:nth-child(2),
   .tc-template .academic-history-table td:nth-child(2),
   .tc-template .academic-history-table th:nth-child(3),
   .tc-template .academic-history-table td:nth-child(3),
   .tc-template .academic-history-table th:nth-child(4),
-  .tc-template .academic-history-table td:nth-child(4){width:12%!important}
+  .tc-template .academic-history-table td:nth-child(4){width:11%!important}
   .tc-template .academic-history-table th:nth-child(5),
-  .tc-template .academic-history-table td:nth-child(5){width:22%!important;text-align:left!important}
+  .tc-template .academic-history-table td:nth-child(5){width:20%!important;text-align:left!important}
   .tc-template .academic-history-table th:nth-child(6),
-  .tc-template .academic-history-table td:nth-child(6){width:12%!important}
+  .tc-template .academic-history-table td:nth-child(6){width:11%!important}
   .tc-template .academic-history-table th:nth-child(7),
-  .tc-template .academic-history-table td:nth-child(7),
+  .tc-template .academic-history-table td:nth-child(7){width:8%!important}
   .tc-template .academic-history-table th:nth-child(8),
-  .tc-template .academic-history-table td:nth-child(8),
+  .tc-template .academic-history-table td:nth-child(8){width:8%!important}
   .tc-template .academic-history-table th:nth-child(9),
-  .tc-template .academic-history-table td:nth-child(9){width:8%!important}
-  .tc-template .tc-certification{max-width:none!important;margin-top:3mm!important;font:8pt/1.4 Arial,sans-serif!important}
-  .tc-template .tc-certification p{margin:0 0 4px!important}
-  .tc-signature-date{margin-top:3mm!important;font-size:9pt!important}
-  .tc-signatures{margin-top:5mm!important;gap:10mm!important;font-size:8.5pt!important}
-  .tc-signatures .signature-line{height:28px!important}
-  .tc-signatures .principal-block i{width:70px!important;height:38px!important}
+  .tc-template .academic-history-table td:nth-child(9){width:7%!important}
+  .tc-template .tc-certification{max-width:none!important;margin-top:2mm!important;font:7.5pt/1.3 Arial,sans-serif!important}
+  .tc-template .tc-certification p{margin:0 0 2px!important}
+  .tc-signature-date{margin-top:2mm!important;font-size:8.5pt!important}
+  .tc-signatures{margin-top:3mm!important;gap:8mm!important;font-size:8pt!important}
+  .tc-signatures .signature-line{height:24px!important}
+  .tc-signatures .principal-block i{width:60px!important;height:32px!important}
 }
 
 /* Professional Admit Card */
@@ -227,26 +227,26 @@
     padding:1.2mm .6mm!important;white-space:normal!important;word-break:break-word!important;overflow-wrap:anywhere!important;min-width:0!important
   }
   body.erp-printing .print-target .academic-history-table th:nth-child(1),
-  body.erp-printing .print-target .academic-history-table td:nth-child(1){width:8%!important}
+  body.erp-printing .print-target .academic-history-table td:nth-child(1){width:7%!important}
   body.erp-printing .print-target .academic-history-table th:nth-child(2),
   body.erp-printing .print-target .academic-history-table td:nth-child(2),
   body.erp-printing .print-target .academic-history-table th:nth-child(3),
   body.erp-printing .print-target .academic-history-table td:nth-child(3),
   body.erp-printing .print-target .academic-history-table th:nth-child(4),
-  body.erp-printing .print-target .academic-history-table td:nth-child(4){width:12%!important}
+  body.erp-printing .print-target .academic-history-table td:nth-child(4){width:11%!important}
   body.erp-printing .print-target .academic-history-table th:nth-child(5),
-  body.erp-printing .print-target .academic-history-table td:nth-child(5){width:22%!important;text-align:left!important}
+  body.erp-printing .print-target .academic-history-table td:nth-child(5){width:20%!important;text-align:left!important}
   body.erp-printing .print-target .academic-history-table th:nth-child(6),
-  body.erp-printing .print-target .academic-history-table td:nth-child(6){width:12%!important}
+  body.erp-printing .print-target .academic-history-table td:nth-child(6){width:11%!important}
   body.erp-printing .print-target .academic-history-table th:nth-child(7),
-  body.erp-printing .print-target .academic-history-table td:nth-child(7),
+  body.erp-printing .print-target .academic-history-table td:nth-child(7){width:8%!important}
   body.erp-printing .print-target .academic-history-table th:nth-child(8),
-  body.erp-printing .print-target .academic-history-table td:nth-child(8),
+  body.erp-printing .print-target .academic-history-table td:nth-child(8){width:8%!important}
   body.erp-printing .print-target .academic-history-table th:nth-child(9),
-  body.erp-printing .print-target .academic-history-table td:nth-child(9){width:8%!important}
-  body.erp-printing .print-target .tc-certification{max-width:none!important;margin-top:4mm!important;font:8.3pt/1.45 Arial,sans-serif!important}
-  body.erp-printing .print-target .tc-signature-date{margin-top:4mm!important;font-size:9pt!important}
-  body.erp-printing .print-target .tc-signatures{margin-top:8mm!important;gap:12mm!important;font-size:8.5pt!important}
+  body.erp-printing .print-target .academic-history-table td:nth-child(9){width:7%!important}
+  body.erp-printing .print-target .tc-certification{max-width:none!important;margin-top:2mm!important;font:7.5pt/1.3 Arial,sans-serif!important}
+  body.erp-printing .print-target .tc-signature-date{margin-top:2mm!important;font-size:8.5pt!important}
+  body.erp-printing .print-target .tc-signatures{margin-top:3mm!important;gap:8mm!important;font-size:8pt!important}
   body.erp-printing .print-target .admit-card{font-family:Arial,sans-serif!important;padding:9mm!important}
   body.erp-printing .print-target .admit-school-header{background:#fff!important;color:#000!important;border-bottom:2px solid #000!important;padding:0 0 5mm!important;grid-template-columns:24mm 1fr!important;gap:6mm!important}
   body.erp-printing .print-target .admit-school-logo{width:22mm!important;height:22mm!important;border:1px solid #000!important;background:#fff!important;color:#000!important;border-radius:3px!important}
