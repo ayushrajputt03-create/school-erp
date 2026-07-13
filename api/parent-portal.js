@@ -247,7 +247,14 @@ module.exports = async function handler(request, response) {
       if (!found) throw new Error('Invalid School Code')
       const { schoolId, school } = found
       const ensured = await ensureParent(database, schoolId, school, phone)
-      if (!ensured) throw new Error('Phone number not registered. Contact school.')
+      if (!ensured) {
+        const studentCount = Object.keys(school.students || {}).length
+        const samplePhones = Object.entries(school.students || {}).slice(0, 5).map(([id, row]) => {
+          const ph = studentParentPhone(row)
+          return `${(row.full_name || row.name || '?').slice(0, 15)}:${ph || 'NONE'}`
+        })
+        throw new Error(`Phone number not registered. Contact school. [debug: ${studentCount} students, looking for ${phone}, samples: ${samplePhones.join(', ')}]`)
+      }
       const { parentId, parent } = ensured
       if (parent.status === 'inactive') throw new Error('Parent account is inactive. Contact school.')
       const attemptsRef = database.ref(`schools/${schoolId}/parentLoginAttempts/${parentId}`)
