@@ -1,4 +1,5 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react'
+import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { CalendarDays, ChevronLeft, ChevronRight } from 'lucide-react'
 import './DatePicker.css'
 
@@ -20,6 +21,8 @@ export default function DatePicker({ value, onChange, required = false, min, max
   const [view, setView] = useState(() => selected || new Date())
   const rootRef = useRef(null)
   const yearGridRef = useRef(null)
+  const popoverRef = useRef(null)
+  const [popoverStyle, setPopoverStyle] = useState({})
 
   useEffect(() => {
     if (selected) setView(selected)
@@ -27,10 +30,11 @@ export default function DatePicker({ value, onChange, required = false, min, max
 
   useEffect(() => {
     const close = event => {
-      if (!rootRef.current?.contains(event.target)) {
-        setOpen(false)
-        setYearMode(false)
-      }
+      // Popover is portaled to <body>, so it is NOT inside rootRef — check both.
+      if (rootRef.current?.contains(event.target)) return
+      if (popoverRef.current?.contains(event.target)) return
+      setOpen(false)
+      setYearMode(false)
     }
     const escape = event => {
       if (event.key === 'Escape') {
@@ -66,6 +70,37 @@ export default function DatePicker({ value, onChange, required = false, min, max
     const candidate = new Date(date.getFullYear(), date.getMonth(), date.getDate())
     return (minDate && candidate < minDate) || (maxDate && candidate > maxDate)
   }
+  useLayoutEffect(() => {
+    if (!open) return undefined
+    const compute = () => {
+      if (!rootRef.current) return
+      if (window.innerWidth <= 600) { setPopoverStyle({}); return }
+      const rect = rootRef.current.getBoundingClientRect()
+      const popoverHeight = 370, popoverWidth = 310, gap = 8
+      const spaceBelow = window.innerHeight - rect.bottom
+      const goUp = spaceBelow < popoverHeight + gap && rect.top > popoverHeight + gap
+      let left = rect.left
+      if (left + popoverWidth > window.innerWidth - 12) left = window.innerWidth - popoverWidth - 12
+      if (left < 12) left = 12
+      setPopoverStyle({
+        position: 'fixed',
+        top: goUp ? undefined : rect.bottom + gap,
+        bottom: goUp ? window.innerHeight - rect.top + gap : undefined,
+        left,
+        transformOrigin: goUp ? 'bottom left' : 'top left',
+        animation: goUp ? 'calendar-open-up .18s ease-out' : 'calendar-open .18s ease-out',
+      })
+    }
+    compute()
+    // Keep it glued to the trigger if the page/modal scrolls or the window resizes.
+    window.addEventListener('scroll', compute, true)
+    window.addEventListener('resize', compute)
+    return () => {
+      window.removeEventListener('scroll', compute, true)
+      window.removeEventListener('resize', compute)
+    }
+  }, [open])
+
   useEffect(() => {
     if (!yearMode || !yearGridRef.current) return
     const active = yearGridRef.current.querySelector('button.selected')
@@ -85,7 +120,9 @@ export default function DatePicker({ value, onChange, required = false, min, max
       <CalendarDays size={16} />
     </button>
     {required && <input className="date-required-proxy" tabIndex="-1" aria-hidden="true" required value={value || ''} onChange={() => {}} />}
-    {open && <div className="modern-date-popover">
+    {open && createPortal(<>
+    <div className="modern-date-backdrop" onClick={() => { setOpen(false); setYearMode(false) }} />
+    <div className="modern-date-popover" ref={popoverRef} style={popoverStyle}>
       <header>
         <button type="button" className="calendar-arrow" onClick={() => changeMonth(-1)} aria-label="Previous month"><ChevronLeft size={18} /></button>
         <button type="button" className="calendar-title-button" onClick={() => setYearMode(current => !current)}>
@@ -116,6 +153,7 @@ export default function DatePicker({ value, onChange, required = false, min, max
           <button type="button" onClick={() => { const current = new Date(); if (!isDisabled(current)) onChange(toValue(current)); setOpen(false) }}>Today</button>
         </footer>
       </>}
-    </div>}
+    </div>
+    </>, document.body)}
   </div>
 }

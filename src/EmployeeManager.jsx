@@ -1,9 +1,13 @@
 import React, { useEffect, useMemo, useState } from 'react'
 import {
-  CalendarCheck, Download, FileSpreadsheet, Pencil, Plus, Printer,
+  CalendarCheck, Download, FileSpreadsheet, GraduationCap, Key, Pencil, Plus, Printer,
   Search, Trash2, Upload, UserPlus, Users,
 } from 'lucide-react'
 import DatePicker from './DatePicker'
+import { auth } from './lib/firebase'
+import { classOptions } from './schoolOptions'
+
+const employeeDbUrl = import.meta.env.VITE_FIREBASE_DATABASE_URL?.replace(/\/$/, '')
 
 const today = () => {
   const date = new Date()
@@ -13,6 +17,16 @@ const today = () => {
 
 const employeeName = employee => `${employee.firstName || ''} ${employee.lastName || ''}`.trim() || employee.name || 'Employee'
 const values = object => Object.values(object || {}).sort((a, b) => Number(a.order || 0) - Number(b.order || 0))
+const CLASS_OPTIONS = classOptions
+const SECTION_OPTIONS = ['A', 'B', 'C', 'D']
+const splitCsv = value => String(value || '').split(',').map(item => item.trim()).filter(Boolean)
+// Last-10 digits — same rule staff login uses, so the uniqueness check matches login behaviour.
+const phone10 = value => { const d = String(value || '').replace(/\D/g, ''); return d.length > 10 ? d.slice(-10) : d }
+const toggleCsv = (value, item) => {
+  const list = splitCsv(value)
+  const next = list.includes(item) ? list.filter(entry => entry !== item) : [...list, item]
+  return next.join(',')
+}
 const defaultEmployeeConfig = {
   departments: {
     dept_teacher: { id: 'dept_teacher', name: 'Teacher', order: 1 },
@@ -127,14 +141,54 @@ function EmployeeForm({ staff, config, saveEmployee, initial, cancelEdit, onSave
   const [form, setForm] = useState(initial || {
     employeeCode: nextCode, firstName: '', lastName: '', fatherName: '', motherName: '',
     gender: '', dob: '', phone: '', email: '', departmentId: '', designationId: '',
-    joiningDate: today(), salary: '', address: '', aadhaar: '', photo: null,
+    joiningDate: today(), salary: '', address: '', aadhaar: '', photo: null, employeeStatus: 'active',
   })
   const [message, setMessage] = useState('')
   const [error, setError] = useState('')
   const [saving, setSaving] = useState(false)
   const [photoPreview, setPhotoPreview] = useState(initial?.photoUrl || '')
   const designations = values(config.designations).filter(item => !form.departmentId || item.departmentId === form.departmentId)
+  const isTeacherDept = (config.departments?.[form.departmentId]?.name || '').toLowerCase().includes('teacher')
+    || (config.designations?.[form.designationId]?.name || '').toLowerCase().includes('teacher')
   const field = (key, value) => setForm(current => ({ ...current, [key]: value }))
+  const [teacherCreating, setTeacherCreating] = useState(false)
+  const [teacherMsg, setTeacherMsg] = useState('')
+  const createTeacherLogin = async () => {
+    const phone = (form.phone || '').replace(/\D/g, '')
+    if (phone.length < 10) { setTeacherMsg('Employee mobile number is required (min 10 digits).'); return }
+    const dob = form.dob || form.dateOfBirth || ''
+    if (!dob) { setTeacherMsg('Date of birth is required to create teacher login (used as password).'); return }
+    const d = new Date(dob); if (isNaN(d)) { setTeacherMsg('Invalid date of birth.'); return }
+    const dd = String(d.getDate()).padStart(2, '0'), mm = String(d.getMonth() + 1).padStart(2, '0'), yyyy = d.getFullYear()
+    const password = `${dd}${mm}${yyyy}`
+    setTeacherCreating(true); setTeacherMsg('')
+    try {
+      const token = await auth.currentUser.getIdToken()
+      const schoolId = auth.currentUser.uid
+      const codeResponse = await fetch(`${employeeDbUrl}/schools/${schoolId}/profile/schoolCode.json?auth=${token}`)
+      const schoolCode = codeResponse.ok ? await codeResponse.json() : null
+      if (!schoolCode) { setTeacherMsg('Error: School code not found in school profile. Open Settings and save the profile once.'); setTeacherCreating(false); return }
+      const syntheticEmail = `${phone}@${String(schoolCode).trim().toLowerCase()}.teacher.schoolerp.app`
+      const name = `${form.firstName || ''} ${form.lastName || ''}`.trim()
+      const classes = (form.assignedClasses || '').split(',').map(c => c.trim()).filter(Boolean)
+      const sections = (form.assignedSections || '').split(',').map(s => s.trim()).filter(Boolean)
+      const res = await fetch('/api/create-teacher', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+        body: JSON.stringify({ schoolId, email: syntheticEmail, password, teacherData: {
+          name, firstName: form.firstName, lastName: form.lastName, phone: form.phone, email: form.email?.trim() || '',
+          subject: form.subject || '', classes, sections, department: 'Teacher',
+          designation: config.designations?.[form.designationId]?.name || 'Teacher',
+          employeeCode: form.employeeCode || initial?.employeeCode || '', photoUrl: form.photoUrl || '',
+          joiningDate: form.joiningDate || '', dob,
+        } }),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error || 'Failed')
+      setTeacherMsg(`Teacher login created! School Code: ${schoolCode}, Mobile: ${phone}, Password: DOB (${dd}/${mm}/${yyyy}). Login at /teacher/login`)
+    } catch (err) { setTeacherMsg('Error: ' + err.message) }
+    finally { setTeacherCreating(false) }
+  }
   useEffect(() => {
     if (!form.photo) {
       setPhotoPreview(form.photoUrl || '')
@@ -163,6 +217,15 @@ function EmployeeForm({ staff, config, saveEmployee, initial, cancelEdit, onSave
   }
   const submit = async event => {
     event.preventDefault()
+    // Duplicate-phone guard: warn if another staff member already uses this mobile (last-10 match).
+    const newPhone = phone10(form.phone)
+    if (newPhone.length === 10) {
+      const dup = Object.entries(staff || {}).find(([id, e]) => id !== (initial?.id || form.id) && phone10(e.phone) === newPhone)
+      if (dup) {
+        const dupName = `${dup[1].firstName || ''} ${dup[1].lastName || ''}`.trim() || dup[1].employeeCode || 'Existing employee'
+        if (!window.confirm(`An employee with this phone number already exists: ${dupName}. Do you want to continue anyway?`)) return
+      }
+    }
     setSaving(true)
     setError('')
     try {
@@ -198,9 +261,37 @@ function EmployeeForm({ staff, config, saveEmployee, initial, cancelEdit, onSave
       <label>Joining Date*<DatePicker required value={form.joiningDate} onChange={value => field('joiningDate', value)} /></label>
       <label>Salary<input type="number" min="0" value={form.salary} onChange={e => field('salary', e.target.value)} /></label>
       <label>Aadhaar Card<input value={form.aadhaar} onChange={e => field('aadhaar', e.target.value)} /></label>
+      <label>Status<select value={form.employeeStatus || 'active'} onChange={e => field('employeeStatus', e.target.value)}><option value="active">Active</option><option value="inactive">Inactive</option><option value="resigned">Resigned</option><option value="terminated">Terminated</option></select></label>
       <label className="employee-address">Address<textarea value={form.address} onChange={e => field('address', e.target.value)} /></label>
       <label className="employee-photo">Photo upload<input type="file" accept="image/jpeg,image/png,image/webp" onChange={choosePhoto} /><span>{photoPreview ? <img src={photoPreview} alt="Employee preview" /> : <Upload size={17} />}{form.photo?.name || (photoPreview ? 'Change employee photo' : 'Choose employee photo')}</span>{photoPreview && <button type="button" onClick={removePhoto}>Remove photo</button>}</label>
+      {isTeacherDept && <>
+        <label>Subject<input value={form.subject || ''} onChange={e => field('subject', e.target.value)} placeholder="e.g. Mathematics" /></label>
+        <div className="employee-allot-group">
+          <span className="employee-allot-label">Allot Classes</span>
+          <div className="employee-allot-chips">
+            {CLASS_OPTIONS.map(cls => {
+              const selected = splitCsv(form.assignedClasses).includes(cls)
+              return <button type="button" key={cls} className={`allot-chip${selected ? ' selected' : ''}`}
+                onClick={() => field('assignedClasses', toggleCsv(form.assignedClasses, cls))}>{cls}</button>
+            })}
+          </div>
+        </div>
+        <div className="employee-allot-group">
+          <span className="employee-allot-label">Allot Sections</span>
+          <div className="employee-allot-chips">
+            {SECTION_OPTIONS.map(sec => {
+              const selected = splitCsv(form.assignedSections).includes(sec)
+              return <button type="button" key={sec} className={`allot-chip${selected ? ' selected' : ''}`}
+                onClick={() => field('assignedSections', toggleCsv(form.assignedSections, sec))}>{sec}</button>
+            })}
+          </div>
+        </div>
+      </>}
     </div>
+    {isTeacherDept && <div className="teacher-login-section">
+      <button type="button" className="secondary-button" onClick={createTeacherLogin} disabled={teacherCreating}><Key size={14} /> {teacherCreating ? 'Creating...' : 'Create Teacher Login'}</button>
+      {teacherMsg && <small className={teacherMsg.startsWith('Error') ? 'photo-error' : 'compression-info'}>{teacherMsg}</small>}
+    </div>}
     {message && <div className="success-banner">{message}</div>}
     {error && <div className="form-error employee-save-error">{error}</div>}
     <div className="employee-submit">{initial && <button type="button" className="secondary-button" onClick={cancelEdit}>Cancel</button>}<button className="primary-button" disabled={saving}><UserPlus size={15} /> {saving ? 'Saving...' : initial ? 'Update Employee' : 'Submit Employee'}</button></div>
@@ -210,9 +301,16 @@ function EmployeeForm({ staff, config, saveEmployee, initial, cancelEdit, onSave
 function EmployeeRegister({ staff, config, deleteEmployee, openAdd, editEmployee }) {
   const [searchBy, setSearchBy] = useState('All')
   const [query, setQuery] = useState('')
+  const [statusFilter, setStatusFilter] = useState('active')
   const departmentName = id => config.departments?.[id]?.name || '—'
   const designationName = id => config.designations?.[id]?.name || '—'
+  const statusBadge = status => {
+    const label = { active: 'Active', inactive: 'Inactive', resigned: 'Resigned', terminated: 'Terminated' }[status] || 'Active'
+    const color = { active: '#2d6a4f', inactive: '#b8860b', resigned: '#c62828', terminated: '#c62828' }[status] || '#2d6a4f'
+    return <span style={{ fontSize: 11, fontWeight: 700, padding: '2px 8px', borderRadius: 99, background: `${color}18`, color }}>{label}</span>
+  }
   const rows = values(staff).filter(employee => {
+    if (statusFilter !== 'all' && (employee.employeeStatus || 'active') !== statusFilter) return false
     if (!query.trim()) return true
     const fields = searchBy === 'By Name' ? employeeName(employee) : searchBy === 'By Employee Code' ? employee.employeeCode : searchBy === 'By Email' ? employee.email : searchBy === 'By Mobile' ? employee.phone : searchBy === 'By Department' ? departmentName(employee.departmentId) : Object.values(employee).join(' ')
     return String(fields || '').toLowerCase().includes(query.trim().toLowerCase())
@@ -220,6 +318,7 @@ function EmployeeRegister({ staff, config, deleteEmployee, openAdd, editEmployee
   return <>
     <div className="panel employee-toolbar">
       <label>Search By<select value={searchBy} onChange={e => setSearchBy(e.target.value)}>{['All','By Name','By Employee Code','By Email','By Mobile','By Department'].map(item => <option key={item}>{item}</option>)}</select></label>
+      <label>Status<select value={statusFilter} onChange={e => setStatusFilter(e.target.value)}><option value="all">All</option><option value="active">Active</option><option value="inactive">Inactive</option><option value="resigned">Resigned</option><option value="terminated">Terminated</option></select></label>
       <div className="table-search"><Search size={15} /><input value={query} onChange={e => setQuery(e.target.value)} placeholder="Search employee" /></div>
       <button className="primary-button" onClick={openAdd}><Plus size={15} /> Add Employee</button>
     </div>
@@ -227,7 +326,7 @@ function EmployeeRegister({ staff, config, deleteEmployee, openAdd, editEmployee
       { key: 'name', label: 'Name', render: row => <div className="employee-name-cell">{row.photoUrl ? <img src={row.photoUrl} alt="" /> : <span>{employeeName(row).split(/\s+/).map(part => part[0]).slice(0, 2).join('')}</span>}<div><strong>{employeeName(row)}</strong><small>{row.email || row.phone}</small></div></div> },
       { key: 'employeeCode', label: 'Emp Code' }, { key: 'joiningDate', label: 'Joining Date' },
       { key: 'role', label: 'Employee Role', render: row => designationName(row.designationId) },
-      { key: 'classTeacher', label: 'Class Teacher', render: row => row.classTeacher || 'No' },
+      { key: 'employeeStatus', label: 'Status', render: row => statusBadge(row.employeeStatus) },
       { key: 'assignedClasses', label: 'Assigned Classes', render: row => row.assignedClasses || '—' },
     ]} rows={rows.map(row => ({ ...row, actions: <ActionButtons edit={() => editEmployee(row)} remove={() => window.confirm(`Delete ${employeeName(row)}?`) && deleteEmployee(row)} /> }))} empty="No employees found" />
   </>

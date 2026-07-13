@@ -1,8 +1,8 @@
 import React, { useEffect, useMemo, useState } from 'react'
 import {
   BarChart3, Bell, Building2, CalendarDays, CheckCircle2, ChevronRight,
-  CircleDollarSign, Download, Eye, IndianRupee, LayoutDashboard, LogOut,
-  Menu, Pencil, RefreshCw, Search, Settings, ShieldCheck, TriangleAlert,
+  CircleDollarSign, Download, Eye, Gift, IndianRupee, LayoutDashboard, LogOut,
+  Menu, Pencil, RefreshCw, Search, Settings, ShieldCheck, Tag, TriangleAlert,
   Users, WalletCards, X,
 } from 'lucide-react'
 import { onAuthStateChanged, signInWithEmailAndPassword, signOut } from 'firebase/auth'
@@ -41,14 +41,57 @@ const addMonths = (value, count) => {
 }
 const safePhone = value => String(value || '').replace(/\D/g, '').replace(/^0+/, '')
 const schoolName = school => school.profile?.schoolName || school.profile?.name || school.name || 'Unnamed School'
-const subscriptionFor = school => ({
-  plan: school.subscription?.plan || 'trial',
-  status: school.subscription?.status || 'trial',
-  amount: Number(school.subscription?.amount || 999),
-  startDate: school.subscription?.startDate || school.createdAt || school.profile?.createdAt,
-  nextDueDate: school.subscription?.nextDueDate || addMonths(school.createdAt || school.profile?.createdAt || Date.now(), 1),
-  lastPaidDate: school.subscription?.lastPaidDate || null,
-})
+
+const MIN_MONTHLY_FEE = 1500
+const PRICING_LABELS = { default: 'Default', fixed: 'Fixed', free: 'Free', 'custom-rate': 'Per-student' }
+const calculateDefaultSlab = count => {
+  let fee = 0
+  if (count <= 100) fee = count * 25
+  else if (count <= 300) fee = 100 * 25 + (count - 100) * 20
+  else if (count <= 500) fee = 100 * 25 + 200 * 20 + (count - 300) * 18
+  else if (count <= 1000) fee = 100 * 25 + 200 * 20 + 200 * 18 + (count - 500) * 15
+  else fee = 100 * 25 + 200 * 20 + 200 * 18 + 500 * 15 + (count - 1000) * 12
+  return { amount: Math.max(fee, MIN_MONTHLY_FEE), status: 'active' }
+}
+const calculateSchoolFee = (sub, count) => {
+  const isFree = sub.pricingType === 'free' || sub.isFree
+  if (isFree) {
+    const until = sub.freeUntil
+    if (until === null || until === undefined || Number(until) === 0) return { amount: 0, status: 'free' }
+    if (Date.now() < Number(until)) return { amount: 0, status: 'free' }
+    return calculateDefaultSlab(count)
+  }
+  if (sub.pricingType === 'fixed') return { amount: Number(sub.fixedAmount || 0), status: 'active' }
+  if (sub.pricingType === 'custom-rate') return { amount: count * Number(sub.customRate || 0), status: 'active' }
+  return calculateDefaultSlab(count)
+}
+const subscriptionFor = school => {
+  const sub = school.subscription || {}
+  const studentCount = Object.keys(school.students || {}).length
+  const pricingType = sub.pricingType || 'default'
+  const computed = calculateSchoolFee({ ...sub, pricingType }, studentCount)
+  const isFree = computed.status === 'free'
+  // If a "free until" window has lapsed, the stored type is still 'free' but the
+  // school is being charged again — surface it as 'default' so the badge matches the amount.
+  const effectiveType = isFree ? 'free' : (pricingType === 'free' ? 'default' : pricingType)
+  const status = isFree ? 'free' : (sub.status || 'trial')
+  return {
+    plan: sub.plan || 'trial',
+    status,
+    pricingType: effectiveType,
+    fixedAmount: Number(sub.fixedAmount || 0),
+    customRate: Number(sub.customRate || 0),
+    isFree,
+    freeUntil: sub.freeUntil ?? null,
+    freeReason: sub.freeReason || '',
+    studentCount,
+    amount: computed.amount,
+    startDate: sub.startDate || school.createdAt || school.profile?.createdAt,
+    nextDueDate: sub.nextDueDate || addMonths(school.createdAt || school.profile?.createdAt || Date.now(), 1),
+    lastPaidDate: sub.lastPaidDate || null,
+    pricingHistory: sub.pricingHistory || {},
+  }
+}
 
 function navigate(path, replace = false) {
   window.history[replace ? 'replaceState' : 'pushState']({}, '', path)
@@ -116,10 +159,11 @@ function DashboardHome({ rows, payments, setPage, openSchool }) {
   return <>
     <div className="sa-stat-grid">
       <StatCard label="Total Schools Registered" value={rows.length} icon={Building2} tone="blue" note="All Firebase workspaces" />
-      <StatCard label="Active Schools" value={stats.active} icon={CheckCircle2} tone="green" note="Paid subscriptions" />
+      <StatCard label="Paying Schools" value={stats.paying} icon={CheckCircle2} tone="green" note="Chargeable subscriptions" />
+      <StatCard label="Free Schools" value={stats.free} icon={Gift} tone="violet" note="No charge granted" />
       <StatCard label="Pending Payments" value={stats.due} icon={TriangleAlert} tone="red" note="Due and expired plans" />
       <StatCard label="Revenue This Month" value={money(stats.monthRevenue)} icon={IndianRupee} tone="cyan" note={`${stats.monthPayments} payments received`} />
-      <StatCard label="Revenue All Time" value={money(stats.totalRevenue)} icon={WalletCards} tone="violet" note="Recorded subscription revenue" />
+      <StatCard label="Revenue All Time" value={money(stats.totalRevenue)} icon={WalletCards} tone="violet" note="Excludes free schools" />
     </div>
     <div className="sa-dashboard-grid">
       <section className="sa-panel">
@@ -134,34 +178,43 @@ function DashboardHome({ rows, payments, setPage, openSchool }) {
   </>
 }
 
-function SchoolsPage({ rows, openSchool, editSchool, toggleSchool, exporting, exportExcel }) {
+function SchoolsPage({ rows, openSchool, editSchool, toggleSchool, exporting, exportExcel, bulkFree }) {
   const [query, setQuery] = useState('')
   const [status, setStatus] = useState('all')
   const [city, setCity] = useState('all')
   const [from, setFrom] = useState('')
   const [to, setTo] = useState('')
+  const [picked, setPicked] = useState({})
   const cities = [...new Set(rows.map(row => row.profile?.city).filter(Boolean))].sort()
   const filtered = rows.filter(row => {
     const haystack = `${schoolName(row)} ${row.profile?.phone || ''} ${row.profile?.email || ''}`.toLowerCase()
     const registered = Number(row.createdAt || row.profile?.createdAt || 0)
     return (!query || haystack.includes(query.toLowerCase()))
-      && (status === 'all' || row.subscription.status === status || (status === 'paid' && row.subscription.status === 'active'))
+      && (status === 'all' || row.subscription.status === status || (status === 'paid' && row.subscription.status === 'active') || (status === 'free' && row.subscription.isFree))
       && (city === 'all' || row.profile?.city === city)
       && (!from || registered >= new Date(from).getTime())
       && (!to || registered <= new Date(`${to}T23:59:59`).getTime())
   })
+  const pickedIds = Object.keys(picked).filter(id => picked[id])
+  const togglePick = id => setPicked(prev => ({ ...prev, [id]: !prev[id] }))
+  const grantSelected = async () => {
+    const chosen = filtered.filter(row => picked[row.id])
+    if (!chosen.length) return
+    await bulkFree(chosen)
+    setPicked({})
+  }
   return <section className="sa-panel sa-table-panel">
-    <header><div><h3>All Schools</h3><p>{filtered.length} of {rows.length} workspaces</p></div><button className="sa-secondary" onClick={exportExcel} disabled={exporting}><Download size={15} />{exporting ? 'Creating...' : 'Export Excel'}</button></header>
+    <header><div><h3>All Schools</h3><p>{filtered.length} of {rows.length} workspaces</p></div><div className="sa-header-actions">{pickedIds.length > 0 && <button className="sa-primary small" onClick={grantSelected}><Gift size={14} /> Grant Free Access ({pickedIds.length})</button>}<button className="sa-secondary" onClick={exportExcel} disabled={exporting}><Download size={15} />{exporting ? 'Creating...' : 'Export Excel'}</button></div></header>
     <div className="sa-filters">
       <label className="sa-search"><Search size={15} /><input value={query} onChange={event => setQuery(event.target.value)} placeholder="Search school name, phone or email" /></label>
-      <select value={status} onChange={event => setStatus(event.target.value)}><option value="all">All statuses</option><option value="paid">Paid</option><option value="due">Due</option><option value="trial">Trial</option><option value="suspended">Suspended</option></select>
+      <select value={status} onChange={event => setStatus(event.target.value)}><option value="all">All statuses</option><option value="paid">Paid</option><option value="due">Due</option><option value="trial">Trial</option><option value="free">Free</option><option value="suspended">Suspended</option></select>
       <select value={city} onChange={event => setCity(event.target.value)}><option value="all">All cities</option>{cities.map(value => <option key={value}>{value}</option>)}</select>
           <DatePicker value={from} onChange={setFrom} placeholder="Registration from" />
           <DatePicker min={from} value={to} onChange={setTo} placeholder="Registration to" />
     </div>
-    <div className="sa-table-scroll"><table><thead><tr><th>#</th><th>School</th><th>Principal</th><th>Phone</th><th>City</th><th>Registered</th><th>Plan</th><th>Status</th><th>Last Paid</th><th>Next Due</th><th>Actions</th></tr></thead><tbody>
-      {filtered.map((row, index) => <tr key={row.id}><td>{index + 1}</td><td><button className="sa-school-link" onClick={() => openSchool(row)}><strong>{schoolName(row)}</strong><small>{row.profile?.email || 'No email'}</small></button></td><td>{row.profile?.principalName || row.profile?.contactName || 'Not added'}</td><td>{row.profile?.phone || 'Not added'}</td><td>{row.profile?.city || 'Not added'}</td><td>{dateText(row.createdAt || row.profile?.createdAt)}</td><td>{capitalize(row.subscription.plan)}</td><td><StatusBadge value={row.subscription.status} /></td><td>{dateText(row.subscription.lastPaidDate)}</td><td>{dateText(row.subscription.nextDueDate)}</td><td><div className="sa-actions"><button title="View" onClick={() => openSchool(row)}><Eye size={14} /></button><button title="Edit" onClick={() => editSchool(row)}><Pencil size={14} /></button><button title={row.subscription.status === 'suspended' ? 'Activate' : 'Suspend'} onClick={() => toggleSchool(row)}><ShieldCheck size={14} /></button></div></td></tr>)}
-      {!filtered.length && <tr><td colSpan="11"><Empty text="No schools match these filters." /></td></tr>}
+    <div className="sa-table-scroll"><table><thead><tr><th><input type="checkbox" checked={filtered.length > 0 && filtered.every(row => picked[row.id])} onChange={e => setPicked(e.target.checked ? Object.fromEntries(filtered.map(row => [row.id, true])) : {})} /></th><th>#</th><th>School</th><th>Students</th><th>Pricing</th><th>Amount</th><th>Status</th><th>Next Due</th><th>Actions</th></tr></thead><tbody>
+      {filtered.map((row, index) => <tr key={row.id}><td><input type="checkbox" checked={!!picked[row.id]} onChange={() => togglePick(row.id)} /></td><td>{index + 1}</td><td><button className="sa-school-link" onClick={() => openSchool(row)}><strong>{schoolName(row)}</strong><small>{row.profile?.city || row.profile?.email || 'No city'}</small></button></td><td>{row.subscription.studentCount}</td><td><PricingBadge subscription={row.subscription} /></td><td><strong>{money(row.subscription.amount)}</strong></td><td><StatusBadge value={row.subscription.status} /></td><td>{dateText(row.subscription.nextDueDate)}</td><td><div className="sa-actions"><button title="View" onClick={() => openSchool(row)}><Eye size={14} /></button><button title="Edit" onClick={() => editSchool(row)}><Pencil size={14} /></button><button title={row.subscription.status === 'suspended' ? 'Activate' : 'Suspend'} onClick={() => toggleSchool(row)}><ShieldCheck size={14} /></button></div></td></tr>)}
+      {!filtered.length && <tr><td colSpan="9"><Empty text="No schools match these filters." /></td></tr>}
     </tbody></table></div>
   </section>
 }
@@ -222,7 +275,83 @@ function NotificationsPage({ rows, payments }) {
   return <section className="sa-panel"><header><div><h3>Notifications</h3><p>Automatic owner alerts from school and payment activity</p></div></header><div className="sa-notifications">{items.length ? items.map((item, index) => <article key={`${item.title}-${index}`}><span className={item.type}><Bell size={17} /></span><div><strong>{item.title}</strong><small>{dateText(item.time)}</small></div></article>) : <Empty text="No new notifications." />}</div></section>
 }
 
-function SchoolDetails({ row, close, edit, toggle, markPaid }) {
+function PricingControl({ row, onSave }) {
+  const sub = row.subscription
+  const count = sub.studentCount
+  const [type, setType] = useState(sub.pricingType || 'default')
+  const [fixedAmount, setFixedAmount] = useState(sub.fixedAmount || '')
+  const [customRate, setCustomRate] = useState(sub.customRate || '')
+  const [freeMode, setFreeMode] = useState(sub.freeUntil ? 'until' : 'permanent')
+  const [freeUntilDate, setFreeUntilDate] = useState(sub.freeUntil ? new Date(Number(sub.freeUntil)).toISOString().slice(0, 10) : '')
+  const [freeMonths, setFreeMonths] = useState(3)
+  const [freeReason, setFreeReason] = useState(sub.freeReason || '')
+  const [reason, setReason] = useState('')
+  const [busy, setBusy] = useState(false)
+
+  const previewAmount = useMemo(() => {
+    if (type === 'free') return 0
+    if (type === 'fixed') return Number(fixedAmount || 0)
+    if (type === 'custom-rate') return count * Number(customRate || 0)
+    return calculateDefaultSlab(count).amount
+  }, [type, fixedAmount, customRate, count])
+
+  const buildPayload = () => {
+    if (type === 'free') {
+      let freeUntil = null
+      if (freeMode === 'until' && freeUntilDate) freeUntil = new Date(`${freeUntilDate}T23:59:59`).getTime()
+      else if (freeMode === 'months') freeUntil = addMonths(Date.now(), Number(freeMonths || 0))
+      return { pricingType: 'free', isFree: true, freeUntil, freeReason: freeReason.trim(), fixedAmount: 0, customRate: 0 }
+    }
+    return {
+      pricingType: type, isFree: false, freeUntil: null, freeReason: '',
+      fixedAmount: type === 'fixed' ? Number(fixedAmount || 0) : 0,
+      customRate: type === 'custom-rate' ? Number(customRate || 0) : 0,
+    }
+  }
+
+  const submit = async () => {
+    if (type === 'fixed' && !Number(fixedAmount)) { window.alert('Enter a fixed monthly amount.'); return }
+    if (type === 'custom-rate' && !Number(customRate)) { window.alert('Enter a per-student rate.'); return }
+    const label = type === 'free' ? 'Free (No Charge)' : `${PRICING_LABELS[type]} — ${money(previewAmount)}/month`
+    if (!window.confirm(`Change pricing for ${schoolName(row)}?\n\nFrom: ${PRICING_LABELS[sub.pricingType]} (${money(sub.amount)}/month)\nTo: ${label}\n\nProceed?`)) return
+    setBusy(true)
+    try { await onSave(buildPayload(), reason.trim() || freeReason.trim()) }
+    finally { setBusy(false) }
+  }
+
+  return <div className="sa-drawer-section sa-pricing">
+    <div className="sa-drawer-title"><h3><Tag size={16} /> Pricing Control</h3><span className="sa-pricing-current">{money(sub.amount)}/mo</span></div>
+    <div className="sa-pricing-options">
+      {[['default', 'Default Slab Pricing'], ['fixed', 'Custom Fixed Price'], ['free', 'Free (No Charge)'], ['custom-rate', 'Custom Per-Student Rate']].map(([value, label]) =>
+        <label key={value} className={`sa-radio ${type === value ? 'on' : ''}`}><input type="radio" name="pricingType" checked={type === value} onChange={() => setType(value)} /><span>{label}</span></label>)}
+    </div>
+
+    {type === 'default' && <div className="sa-pricing-detail"><p>Auto slab: ₹25 (1-100), ₹20 (101-300), ₹18 (301-500), ₹15 (501-1000), ₹12 (1000+). Min {money(MIN_MONTHLY_FEE)}.</p><div className="sa-pricing-amount">{count} students → <strong>{money(previewAmount)}/month</strong></div></div>}
+    {type === 'fixed' && <div className="sa-pricing-detail"><label>Fixed Monthly Amount (₹)<input type="number" min="0" value={fixedAmount} onChange={e => setFixedAmount(e.target.value)} placeholder="e.g. 5000" /></label></div>}
+    {type === 'custom-rate' && <div className="sa-pricing-detail"><label>Rate per student (₹)<input type="number" min="0" value={customRate} onChange={e => setCustomRate(e.target.value)} placeholder="e.g. 10" /></label><div className="sa-pricing-amount">{count} × {money(Number(customRate || 0))} = <strong>{money(previewAmount)}/month</strong></div></div>}
+    {type === 'free' && <div className="sa-pricing-detail">
+      <div className="sa-pricing-options col">
+        <label className={`sa-radio ${freeMode === 'permanent' ? 'on' : ''}`}><input type="radio" name="freeMode" checked={freeMode === 'permanent'} onChange={() => setFreeMode('permanent')} /><span>Permanent Free</span></label>
+        <label className={`sa-radio ${freeMode === 'until' ? 'on' : ''}`}><input type="radio" name="freeMode" checked={freeMode === 'until'} onChange={() => setFreeMode('until')} /><span>Free until date</span></label>
+        {freeMode === 'until' && <DatePicker value={freeUntilDate} onChange={setFreeUntilDate} placeholder="Free until" />}
+        <label className={`sa-radio ${freeMode === 'months' ? 'on' : ''}`}><input type="radio" name="freeMode" checked={freeMode === 'months'} onChange={() => setFreeMode('months')} /><span>Free for X months</span></label>
+        {freeMode === 'months' && <input type="number" min="1" value={freeMonths} onChange={e => setFreeMonths(e.target.value)} placeholder="Months" />}
+      </div>
+      <label>Reason (Reference / Demo / Relative / Promotional)<input value={freeReason} onChange={e => setFreeReason(e.target.value)} placeholder="e.g. First reference school" /></label>
+    </div>}
+
+    <label className="sa-pricing-reason">Change note (logged in history)<input value={reason} onChange={e => setReason(e.target.value)} placeholder="Reason for this pricing change" /></label>
+    <button className="sa-primary" onClick={submit} disabled={busy}>{busy ? 'Saving...' : 'Save Pricing'}</button>
+
+    {Object.keys(sub.pricingHistory).length > 0 && <div className="sa-pricing-history">
+      <h4>Pricing History</h4>
+      {Object.entries(sub.pricingHistory).sort((a, b) => Number(b[1].changedAt || 0) - Number(a[1].changedAt || 0)).map(([key, entry]) =>
+        <div key={key} className="sa-history-row"><div><strong>{PRICING_LABELS[entry.type] || entry.type}</strong>{entry.reason ? ` — ${entry.reason}` : ''}<small>{dateText(entry.changedAt)} · was {money(entry.previousAmount)}</small></div></div>)}
+    </div>}
+  </div>
+}
+
+function SchoolDetails({ row, close, edit, toggle, markPaid, savePricing }) {
   const payments = Object.entries(row.payments || {}).map(([id, value]) => ({ id, ...value })).sort((a, b) => Number(b.date || 0) - Number(a.date || 0))
   const message = `Namaskar ${schoolName(row)} ji, NXT School ERP Team ki taraf se aapke school account ke sambandh mein sampark kar rahe hain.`
   return <div className="sa-drawer-backdrop" onClick={close}><aside className="sa-drawer" onClick={event => event.stopPropagation()}>
@@ -230,8 +359,9 @@ function SchoolDetails({ row, close, edit, toggle, markPaid }) {
     <div className="sa-school-hero">{row.profile?.logo ? <img src={row.profile.logo} alt="" /> : <span>{schoolName(row).slice(0, 2).toUpperCase()}</span>}<div><StatusBadge value={row.subscription.status} /><p>{row.profile?.address || 'Address not added'}</p></div></div>
     <div className="sa-detail-actions"><button className="sa-secondary" onClick={() => edit(row)}><Pencil size={14} />Edit</button><button className="sa-secondary" onClick={() => window.open(`https://wa.me/91${safePhone(row.profile?.phone)}?text=${encodeURIComponent(message)}`, '_blank', 'noopener,noreferrer')}>Send Message</button><button className="sa-primary" onClick={() => toggle(row)}>{row.subscription.status === 'suspended' ? 'Activate' : 'Suspend'}</button></div>
     <div className="sa-detail-grid">
-      {[['Email', row.profile?.email], ['Phone', row.profile?.phone], ['City', row.profile?.city], ['Registered', dateText(row.createdAt || row.profile?.createdAt)], ['Current Plan', capitalize(row.subscription.plan)], ['Next Due', dateText(row.subscription.nextDueDate)], ['Students', Object.keys(row.students || {}).length], ['Teachers', Object.keys(row.staff || row.teachers || {}).length], ['Last Login', dateText(row.lastLoginAt || row.profile?.lastLoginAt)]].map(([label, value]) => <div key={label}><span>{label}</span><strong>{value || 'Not provided'}</strong></div>)}
+      {[['Email', row.profile?.email], ['Phone', row.profile?.phone], ['City', row.profile?.city], ['Registered', dateText(row.createdAt || row.profile?.createdAt)], ['Pricing', row.subscription.isFree ? 'Free' : `${PRICING_LABELS[row.subscription.pricingType]} · ${money(row.subscription.amount)}/mo`], ['Next Due', dateText(row.subscription.nextDueDate)], ['Students', row.subscription.studentCount], ['Teachers', Object.keys(row.staff || row.teachers || {}).length], ['Last Login', dateText(row.lastLoginAt || row.profile?.lastLoginAt)]].map(([label, value]) => <div key={label}><span>{label}</span><strong>{value || 'Not provided'}</strong></div>)}
     </div>
+    <PricingControl row={row} onSave={(data, reason) => savePricing(row, data, reason)} />
     <div className="sa-drawer-section"><div className="sa-drawer-title"><h3>Payment History</h3>{row.subscription.status !== 'active' && <button className="sa-primary small" onClick={() => markPaid(row)}>Mark as Paid</button>}</div>
       {payments.length ? payments.map(payment => <div className="sa-payment-row" key={payment.id}><div><strong>{payment.receiptNo || payment.id}</strong><small>{dateText(payment.date)} · {payment.mode}</small></div><strong>{money(payment.amount)}</strong></div>) : <Empty text="No payments recorded for this school." />}
     </div>
@@ -268,10 +398,17 @@ const calculateStats = (rows, payments) => {
   return {
     active: rows.filter(row => row.subscription.status === 'active').length,
     due: rows.filter(row => ['due', 'suspended'].includes(row.subscription.status)).length,
+    free: rows.filter(row => row.subscription.isFree).length,
+    paying: rows.filter(row => !row.subscription.isFree).length,
     monthRevenue: monthPayments.reduce((sum, row) => sum + Number(row.amount || 0), 0),
     monthPayments: monthPayments.length,
     totalRevenue: payments.reduce((sum, row) => sum + Number(row.amount || 0), 0),
   }
+}
+
+function PricingBadge({ subscription }) {
+  if (subscription.isFree) return <span className="sa-badge free"><Gift size={12} /> Free</span>
+  return <span className={`sa-pricing-tag ${subscription.pricingType}`}>{PRICING_LABELS[subscription.pricingType] || 'Default'}</span>
 }
 
 export default function SuperAdminApp() {
@@ -385,6 +522,42 @@ export default function SuperAdminApp() {
     })
     setEditing(null)
   }
+  const savePricing = async (row, data, reason) => {
+    const now = Date.now()
+    const historyKey = `H${now}`
+    const changes = {
+      [`schools/${row.id}/subscription/pricingType`]: data.pricingType,
+      [`schools/${row.id}/subscription/isFree`]: data.isFree,
+      [`schools/${row.id}/subscription/freeUntil`]: data.freeUntil,
+      [`schools/${row.id}/subscription/freeReason`]: data.freeReason || '',
+      [`schools/${row.id}/subscription/fixedAmount`]: data.fixedAmount || 0,
+      [`schools/${row.id}/subscription/customRate`]: data.customRate || 0,
+      [`schools/${row.id}/subscription/status`]: data.isFree ? 'free' : (row.subscription.status === 'free' ? 'active' : row.subscription.status),
+      [`schools/${row.id}/subscription/updatedAt`]: now,
+      [`schools/${row.id}/subscription/pricingHistory/${historyKey}`]: {
+        type: data.pricingType, changedAt: now, changedBy: 'super-admin',
+        reason: reason || data.freeReason || '', previousAmount: row.subscription.amount, previousType: row.subscription.pricingType,
+      },
+    }
+    await patchRoot(changes)
+  }
+  const bulkFree = async chosen => {
+    const reason = window.prompt(`Grant permanent FREE access to ${chosen.length} school(s)?\nAdd a reason (logged in history):`, 'Reference / Demo school')
+    if (reason === null) return
+    const now = Date.now()
+    const changes = {}
+    chosen.forEach(row => {
+      const historyKey = `H${now}_${row.id.slice(0, 4)}`
+      changes[`schools/${row.id}/subscription/pricingType`] = 'free'
+      changes[`schools/${row.id}/subscription/isFree`] = true
+      changes[`schools/${row.id}/subscription/freeUntil`] = null
+      changes[`schools/${row.id}/subscription/freeReason`] = reason
+      changes[`schools/${row.id}/subscription/status`] = 'free'
+      changes[`schools/${row.id}/subscription/updatedAt`] = now
+      changes[`schools/${row.id}/subscription/pricingHistory/${historyKey}`] = { type: 'free', changedAt: now, changedBy: 'super-admin', reason, previousAmount: row.subscription.amount, previousType: row.subscription.pricingType }
+    })
+    await patchRoot(changes)
+  }
   const markPaid = async row => {
     const mode = window.prompt('Payment mode: Cash, UPI or Bank', 'UPI')
     if (!mode) return
@@ -439,7 +612,7 @@ export default function SuperAdminApp() {
   const openSchool = row => setSelected(row)
   const content = {
     dashboard: <DashboardHome rows={rows} payments={payments} setPage={setPage} openSchool={openSchool} />,
-    schools: <SchoolsPage rows={rows} openSchool={openSchool} editSchool={setEditing} toggleSchool={toggleSchool} exporting={exporting} exportExcel={exportExcel} />,
+    schools: <SchoolsPage rows={rows} openSchool={openSchool} editSchool={setEditing} toggleSchool={toggleSchool} exporting={exporting} exportExcel={exportExcel} bulkFree={bulkFree} />,
     payments: <PaymentsPage rows={rows} payments={payments} markPaid={markPaid} />,
     due: <PaymentsPage rows={rows} payments={payments} initialTab="due" markPaid={markPaid} />,
     analytics: <AnalyticsPage rows={rows} payments={payments} />,
@@ -458,7 +631,7 @@ export default function SuperAdminApp() {
       <header className="sa-topbar"><button className="sa-menu" onClick={() => setMenuOpen(true)}><Menu size={19} /></button><div><span>Owner Console</span><h1>{pageTitle}</h1></div><div className="sa-top-actions"><button title="Refresh data" onClick={() => loadSchools(user)}><RefreshCw size={17} /></button><button onClick={() => setPage('notifications')}><Bell size={17} /></button><span>SA</span></div></header>
       <div className="sa-content">{error && <div className="sa-error"><TriangleAlert size={16} />{error}</div>}{content[page]}</div>
     </main>
-    {selected && <SchoolDetails row={selected} close={() => setSelected(null)} edit={setEditing} toggle={toggleSchool} markPaid={markPaid} />}
+    {selected && <SchoolDetails row={selected} close={() => setSelected(null)} edit={setEditing} toggle={toggleSchool} markPaid={markPaid} savePricing={savePricing} />}
     {editing && <EditSchoolModal row={editing} close={() => setEditing(null)} save={saveSchool} />}
   </div>
 }

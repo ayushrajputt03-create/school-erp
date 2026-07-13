@@ -1,12 +1,13 @@
-const admin = require('firebase-admin')
+const { getApps, getApp, initializeApp, cert } = require('firebase-admin/app')
+const { getDatabase } = require('firebase-admin/database')
 const ExcelJS = require('exceljs')
 const { Resend } = require('resend')
 
 function getAdminApp() {
-  if (admin.apps.length) return admin.app()
+  if (getApps().length) return getApp()
   const credentials = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT_JSON || '{}')
-  return admin.initializeApp({
-    credential: admin.credential.cert(credentials),
+  return initializeApp({
+    credential: cert(credentials),
     databaseURL: process.env.FIREBASE_DATABASE_URL || process.env.VITE_FIREBASE_DATABASE_URL,
   })
 }
@@ -53,7 +54,7 @@ module.exports = async function handler(request, response) {
   if (missing.length) return response.status(503).json({ error: `Missing environment variables: ${missing.join(', ')}` })
 
   const app = getAdminApp()
-  const database = app.database()
+  const database = getDatabase(app)
   const resend = new Resend(process.env.RESEND_API_KEY)
   const schoolsSnap = await database.ref('schools').once('value')
   const schools = schoolsSnap.val() || {}

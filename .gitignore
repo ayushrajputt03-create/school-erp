@@ -11,3 +11,4 @@ vite.stdout.log
 *.log
 
 .vercel
+.env*

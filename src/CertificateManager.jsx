@@ -6,6 +6,7 @@ import {
   ShieldCheck, Trash2, X,
 } from 'lucide-react'
 import DatePicker from './DatePicker'
+import { classOptions } from './schoolOptions'
 import './CertificateManager.css'
 
 const certificateTypes = [
@@ -303,7 +304,7 @@ const recognitionOptions = [
   'Affiliated to UP Board (UPMSP)', 'Affiliated to Bihar Board (BSEB)', 'Affiliated to MP Board (MPBSE)', 'Affiliated to Rajasthan Board (RBSE)',
   'Affiliated to Haryana Board (HBSE)', 'Affiliated to Delhi Board', 'Write Custom Text...',
 ]
-const classHistoryClasses = ['Nursery', 'LKG', 'UKG', '1', '2', '3', '4', '5', '6', '7', '8', '9', '10', '11', '12']
+const classHistoryClasses = classOptions
 const sessions = Array.from({ length: 12 }, (_, index) => `${2015 + index}-${2016 + index}`)
 const occupations = ['BUSINESS', 'SERVICE/JOB', 'FARMER', 'LABOUR', 'TEACHER', 'DOCTOR', 'ENGINEER', 'LAWYER', 'GOVERNMENT EMPLOYEE', 'PRIVATE EMPLOYEE', 'SELF EMPLOYED', 'OTHER']
 const casteOptions = ['GENERAL', 'OBC', 'SC', 'ST', 'BRAHMIN', 'RAJPUT', 'YADAV', 'KAYASTHA', 'VAISHYA', 'OTHER']
@@ -418,6 +419,7 @@ function CharacterCertificate({ student, form, school, settings, certificateNumb
     footerLocation: form.characterFooterLocation || location,
   }
   return <article className="formal-certificate character-template">
+    {logo && <div className="cert-watermark" aria-hidden="true"><img src={logo} alt="" /></div>}
     {duplicate && <div className="duplicate-watermark">DUPLICATE</div>}
     <div className="character-top-serial">Serial No: {display.serial}</div>
     <header className="character-certificate-header">
@@ -478,6 +480,7 @@ function TransferCertificate({ student, form, school, settings, certificateNumbe
     ['Name Of Previous School', display.previousSchool],
   ]
   return <article className="formal-certificate tc-template">
+    {logo && <div className="cert-watermark" aria-hidden="true"><img src={logo} alt="" /></div>}
     {duplicate && <div className="duplicate-watermark">DUPLICATE</div>}
     <header className="tc-school-top">
       <h1>{schoolName}</h1>
@@ -501,13 +504,14 @@ function TransferCertificate({ student, form, school, settings, certificateNumbe
     </table>
     <section className="tc-certification"><p>{form.bottomText || settings.defaultBottomText || tcBottomText}</p></section>
     <div className="tc-signature-date"><strong>Date: {dashDate(form.issueDate)}</strong></div>
-    <div className="formal-signatures three tc-signatures"><div><span className="signature-line" /><strong>({form.sig1Label || settings.sig1Label || 'Prepared By'})</strong></div><div><span className="signature-line" /><strong>({form.sig2Label || settings.sig2Label || 'Checked By'})</strong></div><div className="principal-block"><span className="signature-line" /><strong>({form.sig3Label || settings.sig3Label || 'Principal'})</strong><small>{settings.principalName || 'Name'} · Seal / Stamp</small></div></div>
+    <div className="formal-signatures three tc-signatures"><div><span className="signature-line" /><strong>({form.sig1Label || settings.sig1Label || 'Prepared By'})</strong></div><div><span className="signature-line" /><strong>({form.sig2Label || settings.sig2Label || 'Checked By'})</strong></div><div className="principal-block">{school.principalSignatureURL && <img className="admit-sign" src={school.principalSignatureURL} alt="Signature" />}<span className="signature-line" /><strong>({form.sig3Label || settings.sig3Label || 'Principal'})</strong><small>{settings.principalName || 'Name'} · Seal / Stamp</small>{school.schoolSealURL && <img className="admit-seal" src={school.schoolSealURL} alt="Seal" />}</div></div>
   </article>
 }
 
 function SimpleCertificate({ type, student, form, school, settings, certificateNumber, photoUrl, duplicate }) {
   const p = pronouns(student)
   const { className, section } = classParts(student.className)
+  const logo = schoolLogo(school, settings)
   let paragraphs = []
   if (type === 'bonafide') paragraphs = [
     <>This is to certify that Mr./Ms. <strong>{student.name}</strong>, {p.relation} of <strong>{student.fatherName || student.guardian}</strong>, is a bonafide student of this school.</>,
@@ -524,12 +528,13 @@ function SimpleCertificate({ type, student, form, school, settings, certificateN
     <>We congratulate {p.object} for this achievement and wish {p.object} continued success.</>,
   ]
   return <article className={`formal-certificate simple-template ${type}-template`}>
+    {logo && <div className="cert-watermark" aria-hidden="true"><img src={logo} alt="" /></div>}
     {duplicate && <div className="duplicate-watermark">DUPLICATE</div>}
     <SchoolHeader school={school} settings={settings} student={student} photoUrl={photoUrl} />
     <FormalTitle title={type === 'sports' ? 'CERTIFICATE OF ACHIEVEMENT' : titles[type] || 'SCHOOL CERTIFICATE'} certificateNumber={certificateNumber} issueDate={form.issueDate} />
     {type !== 'sports' && <h3>To Whomsoever It May Concern</h3>}
     <div className="simple-certificate-body">{paragraphs.map((paragraph, index) => <p key={index}>{paragraph}</p>)}</div>
-    <div className="formal-signatures simple-footer"><div><strong>Date: {shortDate(form.issueDate)}</strong><small>Place: {settings.place || school.city || '-'}</small></div><div className="principal-block"><span className="signature-line" /><strong>{settings.principalName || school.principalName || 'Principal'}</strong><small>Principal · School Seal &amp; Sign</small></div></div>
+    <div className="formal-signatures simple-footer"><div><strong>Date: {shortDate(form.issueDate)}</strong><small>Place: {settings.place || school.city || '-'}</small></div><div className="principal-block">{school.principalSignatureURL && <img className="admit-sign" src={school.principalSignatureURL} alt="Signature" />}<span className="signature-line" /><strong>{settings.principalName || school.principalName || 'Principal'}</strong><small>Principal · School Seal &amp; Sign</small>{school.schoolSealURL && <img className="admit-seal" src={school.schoolSealURL} alt="Seal" />}</div></div>
   </article>
 }
 
@@ -700,7 +705,7 @@ function AdmitCardManager({ students, fees, school, settings, examData, onSaveEx
   }, [examData])
   const [tab, setTab] = useState('generate')
   const [examId, setExamId] = useState(exams[0]?.id || 'annual-2026')
-  const [searchBy, setSearchBy] = useState('Student Name')
+  const [searchBy, setSearchBy] = useState('Class/Section')
   const [className, setClassName] = useState('')
   const [section, setSection] = useState('')
   const [admissionQuery, setAdmissionQuery] = useState('')
@@ -710,6 +715,13 @@ function AdmitCardManager({ students, fees, school, settings, examData, onSaveEx
   const [searchMessage, setSearchMessage] = useState('')
   const [generatedIds, setGeneratedIds] = useState([])
   const [pendingPrint, setPendingPrint] = useState(false)
+  const [pickedStudent, setPickedStudent] = useState(null)
+  const [showSuggestions, setShowSuggestions] = useState(false)
+  const suggestions = useMemo(() => {
+    const q = admissionQuery.trim().toLowerCase()
+    if (!q || pickedStudent) return []
+    return students.filter(s => s.status !== 'dropout' && (`${admissionNo(s)} ${s.name} ${s.phone || ''}`.toLowerCase().includes(q))).slice(0, 10)
+  }, [admissionQuery, students, pickedStudent])
   const [sheetForm, setSheetForm] = useState({ examId: exams[0]?.id || 'annual-2026', target: 'single', className: '', section: '', subject: 'Mathematics', date: today(), fromTime: '10:00', toTime: '12:00' })
   const [sheetExamName, setSheetExamName] = useState('Annual Examination 2026-27')
   const [savingSheet, setSavingSheet] = useState(false)
@@ -735,48 +747,67 @@ function AdmitCardManager({ students, fees, school, settings, examData, onSaveEx
     setPendingPrint(false)
     setSearchMessage('Search filters changed. Click Search again.')
   }
+  const clearPicked = () => {
+    setPickedStudent(null)
+    setAdmissionQuery('')
+    setShowSuggestions(false)
+    clearSearch()
+  }
+  const pickStudent = student => {
+    setPickedStudent(student)
+    setAdmissionQuery(`${admissionNo(student)} - ${student.name}`)
+    setShowSuggestions(false)
+    setResults([student])
+    setSelected({ [student.id]: true })
+    setGeneratedIds([student.id])
+    setSearchMessage(`1 admit card generated for ${student.name}.`)
+  }
   const runSearch = (silent = false) => {
+    if (pickedStudent) {
+      setResults([pickedStudent])
+      setSelected({ [pickedStudent.id]: true })
+      setGeneratedIds([pickedStudent.id])
+      setSearchMessage(`1 admit card generated for ${pickedStudent.name}.`)
+      return
+    }
     const query = admissionQuery.trim().toLowerCase()
-    if (searchBy === 'Admission No' && !query) {
-      setResults([])
-      setSelected({})
-      setGeneratedIds([])
-      setSearchMessage('Admission number daalo, phir sirf wahi student generate hoga.')
+    if (query) {
+      const matches = students.filter(student => {
+        if (student.status === 'dropout') return false
+        const text = `${admissionNo(student)} ${student.name} ${student.phone || ''}`.toLowerCase()
+        return text.includes(query)
+      })
+      setResults(matches)
+      setSelected(Object.fromEntries(matches.map(student => [student.id, true])))
+      setGeneratedIds(matches.map(student => student.id))
+      setSearchMessage(matches.length ? `${matches.length} admit card auto-generated.` : 'No matching student found.')
       return
     }
-    if (searchBy === 'Student Name' && !query) {
-      setResults([])
-      setSelected({})
-      setGeneratedIds([])
-      setSearchMessage('Admission no, student name ya phone type karo. Card automatic generate hoga.')
-      return
-    }
-    if (searchBy === 'Class/Section' && !className) {
-      setResults([])
-      setSelected({})
-      setGeneratedIds([])
-      setSearchMessage('Class select karo. Empty search se all students generate nahi honge.')
+    if (!className) {
+      if (!query) {
+        setResults([])
+        setSelected({})
+        setGeneratedIds([])
+        setSearchMessage('Class select karo ya student ka naam/admission no. type karo.')
+      }
       return
     }
     const matches = students.filter(student => {
+      if (student.status === 'dropout') return false
       const parts = classParts(student.className)
-      const classOk = !className || String(parts.className) === String(className)
+      const classOk = String(parts.className) === String(className)
       const sectionOk = !section || String(parts.section) === String(section)
-      let queryOk = true
-      if (searchBy === 'Admission No') queryOk = String(admissionNo(student)).toLowerCase() === query
-      if (searchBy === 'Student Name') queryOk = `${admissionNo(student)} ${student.name} ${student.phone || ''}`.toLowerCase().includes(query)
-      if (searchBy === 'Class/Section') queryOk = !query || `${admissionNo(student)} ${student.name} ${student.phone || ''}`.toLowerCase().includes(query)
-      return classOk && sectionOk && queryOk
+      return classOk && sectionOk
     })
     setResults(matches)
     setSelected(Object.fromEntries(matches.map(student => [student.id, true])))
     setGeneratedIds(matches.map(student => student.id))
-    setSearchMessage(matches.length ? `${matches.length} admit card auto-generated from current search.` : 'No matching student found.')
+    setSearchMessage(matches.length ? `${matches.length} admit card auto-generated.` : 'No matching student found.')
   }
   useEffect(() => {
     const timer = setTimeout(() => runSearch(true), 250)
     return () => clearTimeout(timer)
-  }, [searchBy, className, section, admissionQuery, examId, showPendingFee, students])
+  }, [searchBy, className, section, admissionQuery, examId, showPendingFee, pickedStudent])
   const generatePreview = () => {
     setGeneratedIds(selectedStudents.map(student => student.id))
     setSearchMessage(selectedStudents.length ? `${selectedStudents.length} admit card preview generated from current search only.` : 'Pehle searched students select karo.')
@@ -852,7 +883,17 @@ function AdmitCardManager({ students, fees, school, settings, examData, onSaveEx
         <label>Search By<select value={searchBy} onChange={event => { setSearchBy(event.target.value); clearSearch() }}><option>Class/Section</option><option>Admission No</option><option>Student Name</option></select></label>
         <label>Select Class<select value={className} onChange={event => { setClassName(event.target.value); clearSearch() }}><option value="">All Classes</option>{classOptionsFromStudents(students).map(item => <option key={item}>{item}</option>)}</select></label>
         <label>Select Section<select value={section} onChange={event => { setSection(event.target.value); clearSearch() }}><option value="">All Sections</option>{sectionOptionsFromStudents(students).map(item => <option key={item}>{item}</option>)}</select></label>
-        <label>Adm No / Name<input value={admissionQuery} onChange={event => { setAdmissionQuery(event.target.value); clearSearch() }} placeholder="Admission no., student name or phone" /></label>
+        <label>Adm No / Name
+          <div style={{ position: 'relative' }}>
+            <div style={{ display: 'flex', gap: 0 }}>
+              <input value={admissionQuery} onChange={event => { setAdmissionQuery(event.target.value); setPickedStudent(null); setShowSuggestions(true) }} onFocus={() => { if (suggestions.length && !pickedStudent) setShowSuggestions(true) }} onBlur={() => setTimeout(() => setShowSuggestions(false), 200)} placeholder="Admission no. or student name..." style={{ flex: 1, borderRadius: pickedStudent ? '6px 0 0 6px' : undefined }} />
+              {pickedStudent && <button type="button" onClick={clearPicked} style={{ height: 36, width: 32, marginTop: 6, border: '1px solid #dce1e8', borderLeft: 0, borderRadius: '0 6px 6px 0', background: '#fee2e2', color: '#b91c1c', cursor: 'pointer', display: 'grid', placeItems: 'center', fontSize: 14, fontWeight: 700 }} title="Clear selection">&times;</button>}
+            </div>
+            {showSuggestions && suggestions.length > 0 && <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, background: '#fff', border: '1px solid #dfe3ea', borderRadius: '0 0 8px 8px', boxShadow: '0 4px 12px rgba(0,0,0,0.12)', zIndex: 100, maxHeight: 220, overflowY: 'auto', marginTop: -1 }}>
+              {suggestions.map(s => <div key={s.id} onMouseDown={() => pickStudent(s)} style={{ padding: '8px 12px', cursor: 'pointer', borderBottom: '1px solid #f0f2f5', display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 11 }}><strong style={{ color: '#1e293b' }}>{s.name}</strong><span style={{ color: '#6b7280', fontSize: 10 }}>{admissionNo(s)} · {s.className}</span></div>)}
+            </div>}
+          </div>
+        </label>
         <label>Pending Fee Show<select value={showPendingFee} onChange={event => { setShowPendingFee(event.target.value); clearSearch() }}><option>No</option><option>Yes</option></select></label>
       </div>
       <button className="secondary-button" onClick={() => runSearch()}><Search size={15} /> Search / Auto Generate</button>
@@ -886,7 +927,7 @@ function AdmitCardManager({ students, fees, school, settings, examData, onSaveEx
       <div className="table-scroll"><table><thead><tr><th>Subject</th><th>Exam</th><th>Class</th><th>Section</th><th>Date</th><th>From</th><th>To</th><th>Actions</th></tr></thead><tbody>{allDateRows.map(row => <tr key={row.id}><td>{row.subject}</td><td>{exams.find(exam => exam.id === row.examId)?.name || row.examId}</td><td>{row.className}</td><td>{row.section}</td><td>{shortDate(row.date)}</td><td>{row.fromTime}</td><td>{row.toTime}</td><td><button className="icon-button danger" onClick={() => onDeleteDateSheet(row.id)}><Trash2 size={14} /></button></td></tr>)}{!allDateRows.length && <tr><td colSpan="8"><div className="empty-state">No date sheet rows added yet.</div></td></tr>}</tbody></table></div>
     </section>}
     <section className="admit-print-grid">
-      {generatedStudents.map(student => <AdmitCardPaper key={student.id} student={student} exam={selectedExam} dateRows={matchingDateRows(student)} school={school} settings={settings} showPendingFee={showPendingFee === 'Yes'} pendingAmount={pendingFeeForStudent(student, fees)} />)}
+      {selectedStudents.map(student => <AdmitCardPaper key={student.id} student={student} exam={selectedExam} dateRows={matchingDateRows(student)} school={school} settings={settings} showPendingFee={showPendingFee === 'Yes'} pendingAmount={pendingFeeForStudent(student, fees)} />)}
     </section>
   </div>
 }

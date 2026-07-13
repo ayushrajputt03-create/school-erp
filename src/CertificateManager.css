@@ -1,8 +1,6 @@
 .certificate-module{display:grid;gap:18px}.certificate-menu{display:flex;gap:8px;overflow-x:auto;padding-bottom:4px}.certificate-menu button{display:flex;align-items:center;gap:8px;white-space:nowrap;border:1px solid var(--border);background:var(--panel);color:var(--muted);padding:10px 13px;border-radius:7px;font:inherit;cursor:pointer}.certificate-menu button.active{background:#052659;color:#fff;border-color:#052659}.certificate-type-grid{display:grid;grid-template-columns:repeat(3,minmax(210px,1fr));gap:14px}.certificate-type-card{display:grid;grid-template-columns:auto 1fr;gap:12px;align-items:start;background:var(--panel);border:1px solid var(--border);padding:18px;border-radius:8px;box-shadow:var(--shadow)}.certificate-type-card h3{margin:0 0 4px}.certificate-type-card p{margin:0;color:var(--muted);font-size:12px}.certificate-type-card>strong{grid-column:1/-1;color:var(--muted);font-size:12px}.certificate-type-card>button{grid-column:1/-1;justify-content:space-between}.certificate-type-icon{width:44px;height:44px;display:grid;place-items:center;border-radius:8px;background:#e9f3ff;color:#052659}.type-tc{background:#fee2e2;color:#b91c1c}.type-character{background:#fef3c7;color:#92400e}.type-sports{background:#dcfce7;color:#166534}.certificate-history{display:grid;gap:14px}.certificate-search{position:relative;display:grid;grid-template-columns:1fr;gap:12px}.certificate-search label,.certificate-register-filters label{display:grid;gap:7px;color:var(--muted);font-size:12px;font-weight:700}.certificate-search-input{display:flex;align-items:center;gap:8px;border:1px solid var(--border);background:var(--input);padding:0 11px;border-radius:7px}.certificate-search-input input{border:0!important;background:transparent!important;padding-left:0!important}.certificate-search-results{position:absolute;z-index:15;left:20px;top:82px;width:min(500px,calc(100% - 40px));background:var(--panel);border:1px solid var(--border);box-shadow:0 18px 44px #0003;border-radius:8px;overflow:hidden}.certificate-search-results button{width:100%;border:0;border-bottom:1px solid var(--border);background:transparent;color:var(--text);display:flex;gap:10px;align-items:center;text-align:left;padding:10px 12px;cursor:pointer}.certificate-search-results button div{display:grid}.certificate-search-results small,.certificate-selected small{color:var(--muted)}.certificate-selected{display:flex;align-items:center;gap:8px;color:#16a34a;font-weight:700}.certificate-selected small{margin-left:auto}.certificate-generator-heading{display:flex;gap:10px;align-items:center;overflow-x:auto;color:var(--muted);font-size:12px}.certificate-generator-heading span,.certificate-generator-heading button{white-space:nowrap}.duplicate-warning{display:flex;justify-content:space-between;align-items:center;gap:16px;padding:14px 18px;border:1px solid #f59e0b;background:#fffbeb;color:#92400e;border-radius:8px}.duplicate-warning>div{display:grid}.duplicate-warning label{display:flex;align-items:center;gap:8px;font-weight:700}.certificate-workspace{display:grid;grid-template-columns:minmax(390px,.85fr) minmax(520px,1.15fr);gap:18px;align-items:start}.certificate-form-panel{display:grid;gap:18px}.certificate-form-panel input[readonly]{opacity:.78}.certificate-actions{display:flex;gap:8px;flex-wrap:wrap}.certificate-inline-preview{position:sticky;top:90px;overflow:auto}.certificate-empty{min-height:250px}.formal-certificate{position:relative;isolation:isolate;box-sizing:border-box;width:100%;min-height:1050px;background:#fff;color:#10213b;border:2px solid #101827;padding:38px 42px;font-family:Georgia,'Times New Roman',serif;letter-spacing:0;box-shadow:0 16px 40px #0002;overflow:hidden}.duplicate-watermark{position:absolute;z-index:-1;inset:43% 0 auto;text-align:center;color:#dc2626;font:bold 68px/1 Arial;opacity:.12;transform:rotate(-28deg)}.formal-school-header{display:grid;grid-template-columns:86px 1fr 110px;gap:18px;align-items:center;text-align:center;padding-bottom:15px;border-bottom:1px solid #111827}.formal-school-header.centered-logo{grid-template-columns:1fr}.formal-school-header.centered-logo .formal-logo{margin:auto}.formal-school-header h1{margin:0;color:#052659;font-size:25px;text-transform:uppercase}.formal-school-header p{margin:6px 0 3px;font-size:13px}.formal-school-header small{font:12px Arial,sans-serif}.formal-school-header .recognition{display:block;margin-top:5px;font-size:11px;text-transform:uppercase}.red-school-name{color:#b91c1c!important}.formal-logo{width:78px;height:78px;border:1px solid #aeb8c7;border-radius:50%;display:grid;place-items:center;overflow:hidden;color:#052659}.formal-logo img{width:100%;height:100%;object-fit:contain}.formal-student-photo{width:100px;height:120px;border:1px solid #111827;display:grid;place-items:center;font:bold 11px Arial;color:#7b8798}.formal-student-photo img{width:100%;height:100%;object-fit:cover}.formal-title{margin:25px auto 10px;width:max-content;max-width:80%;padding:7px 34px;border-top:2px solid #052659;border-bottom:2px solid #052659;color:#052659;font:bold 20px/1.2 Arial;text-align:center;letter-spacing:1px}.formal-title.dark{background:#111827;color:#fff;border:0}.formal-meta{display:flex;justify-content:space-between;font:12px Arial;margin:14px 0 20px}.character-serial{text-align:center;margin:12px 0 0;font:bold 13px Arial}.certificate-session{text-align:center;font-weight:700}.character-body,.simple-certificate-body{display:grid;gap:20px;margin:42px 18px;font-size:16px;line-height:2;text-align:justify}.formal-signatures{display:grid;align-items:end;gap:38px;margin-top:64px;text-align:center;font:13px Arial}.formal-signatures.two{grid-template-columns:1fr 1fr}.formal-signatures.three{grid-template-columns:repeat(3,1fr)}.formal-signatures.simple-footer{grid-template-columns:1fr 1fr}.formal-signatures>div{display:grid;gap:7px}.signature-line{display:block;height:42px;border-bottom:1px solid #111827}.principal-block i{height:55px;border:1px dashed #8b98aa;border-radius:50%;display:grid;place-items:center;font-style:normal;color:#64748b}.tc-template{padding:28px 32px}.tc-template .formal-school-header{grid-template-columns:76px 1fr 94px}.tc-template .formal-logo{width:68px;height:68px}.tc-template .formal-student-photo{width:82px;height:98px}.tc-details{display:grid;grid-template-columns:1fr 1fr;border:1px solid #111827;font:10px Arial}.tc-details div{display:grid;grid-template-columns:145px 1fr;border-bottom:1px solid #c4cad3;padding:5px 7px}.tc-details div:nth-child(odd){border-right:1px solid #c4cad3}.academic-history-table{width:100%;border-collapse:collapse;margin-top:15px;font:8px Arial;text-align:center}.academic-history-table th,.academic-history-table td{border:1px solid #111827;padding:5px 3px}.tc-dues{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:12px;font:10px Arial}.tc-dues span{border:1px solid #c4cad3;padding:6px}.tc-certification{font:10px/1.5 Arial;margin:14px 0}.tc-template .formal-signatures{margin-top:25px}.simple-template .formal-school-header{border-bottom:0}.simple-template h3{text-align:center;margin:35px 0 0;font-size:16px}.simple-certificate-body{max-width:650px;margin:52px auto;font-size:17px}.sports-template{border:8px double #052659}.sports-template .formal-title{font-size:22px}.certificate-preview-overlay{position:fixed;z-index:1000;inset:0;background:#07101fe8;overflow:auto;padding:24px}.certificate-preview-shell{max-width:900px;margin:auto}.certificate-preview-toolbar{position:sticky;top:0;z-index:3;display:flex;justify-content:flex-end;align-items:center;gap:8px;background:#101b2f;color:#fff;padding:12px;margin-bottom:12px;border-radius:8px}.certificate-preview-toolbar>strong{margin-right:auto}.certificate-settings{display:grid;gap:20px}.certificate-register-filters{display:grid;grid-template-columns:220px minmax(260px,1fr);gap:12px;align-items:end}.duplicate-label{display:block;color:#dc2626;font-size:10px;font-weight:800;text-transform:uppercase}.action-cell{white-space:nowrap}
 @media(max-width:1150px){.certificate-type-grid{grid-template-columns:repeat(2,1fr)}.certificate-workspace{grid-template-columns:1fr}.certificate-inline-preview{position:static}.formal-certificate{max-width:820px;margin:auto}}
 @media(max-width:720px){.certificate-type-grid{grid-template-columns:1fr}.certificate-generator-heading{padding-bottom:4px}.duplicate-warning{align-items:flex-start;flex-direction:column}.certificate-register-filters{grid-template-columns:1fr}.certificate-actions button{flex:1}.certificate-inline-preview{overflow-x:auto}.formal-certificate{min-width:700px}.certificate-preview-overlay{padding:8px}.certificate-preview-shell{min-width:720px}}
-@page{size:A4 portrait;margin:0}
-@media print{body *{visibility:hidden!important}.formal-certificate,.formal-certificate *{visibility:visible!important}.formal-certificate{position:absolute;left:0;top:0;width:210mm!important;height:297mm!important;min-height:297mm!important;margin:0!important;padding:15mm!important;box-shadow:none!important}.certificate-preview-toolbar,.certificate-menu,.section-actions{display:none!important}}
 
 /* Certificate student search */
 .certificate-search{padding:18px;overflow:visible}
@@ -41,10 +39,13 @@
 .character-principal{justify-items:end;text-align:right;gap:7px}
 .character-principal .signature-line{width:170px;height:34px;border-bottom:0}
 .character-principal small{font-weight:800}
-@media print{.character-template{padding:12mm!important;min-height:270mm!important}.character-certificate-header{grid-template-columns:24mm minmax(0,1fr) 28mm!important;gap:6mm!important}.character-logo{width:22mm!important;height:22mm!important}.character-template .formal-student-photo{width:26mm!important;height:32mm!important}.character-school-block h1{font-size:25pt!important;line-height:1.04!important;overflow-wrap:anywhere!important}.character-school-block p{font-size:13.5pt!important}.character-school-block small{font-size:11.5pt!important}.character-template .character-body{font-size:18px;line-height:1.42}.character-footer{margin-top:58px}}
+@media print{.character-template{padding:10mm!important}.character-certificate-header{grid-template-columns:24mm minmax(0,1fr) 28mm!important;gap:6mm!important}.character-logo{width:22mm!important;height:22mm!important}.character-template .formal-student-photo{width:26mm!important;height:32mm!important}.character-school-block h1{font-size:22pt!important;line-height:1.04!important;overflow-wrap:anywhere!important}.character-school-block p{font-size:12pt!important}.character-school-block small{font-size:10pt!important}.character-template .character-body{font-size:16px!important;line-height:1.38!important;margin:20px 10px!important;gap:24px!important}.character-template .certificate-session{margin-bottom:40px!important}.character-footer{margin-top:40px!important}.character-title{margin:14px auto 18px!important}.simple-certificate-body{margin:30px auto!important;font-size:15px!important;line-height:1.7!important;gap:16px!important}.formal-signatures{margin-top:40px!important;gap:28px!important}}
 
 /* Exact Transfer Certificate layout */
 .tc-template{border:2px solid #000;color:#000;padding:22px 28px;font-family:Arial,sans-serif;min-height:1050px}
+.cert-watermark{position:absolute!important;top:50%!important;left:50%!important;transform:translate(-50%,-50%)!important;z-index:2!important;pointer-events:none!important;width:55%;max-width:400px}
+.cert-watermark img{width:100%;height:auto;opacity:.08;filter:grayscale(100%)}
+@media print{.cert-watermark{z-index:2!important;position:absolute!important;top:50%!important;left:50%!important;transform:translate(-50%,-50%)!important;width:55%!important;max-width:400px!important;pointer-events:none!important}.cert-watermark img{width:100%!important;height:auto!important;opacity:.09!important;filter:grayscale(100%)!important;-webkit-print-color-adjust:exact;print-color-adjust:exact}}
 .tc-school-top{text-align:center;margin-bottom:15px}
 .tc-school-top h1{margin:0;color:#8b0000;font:900 28px/1.05 Arial,sans-serif;text-transform:uppercase;letter-spacing:0}
 .tc-school-top strong{display:block;margin-top:4px;font:700 italic 12px/1.25 Arial,sans-serif;color:#111}
@@ -65,10 +66,10 @@
 .tc-serial-box span{font-weight:700;text-transform:uppercase}
 .tc-serial-box strong{font-size:28px;color:#111}
 .tc-serial-box small{text-align:left;font-size:10px;line-height:1.35}
-.tc-template .academic-history-table{margin-top:14px;width:100%;border-collapse:collapse;font:7.7px/1.18 Arial,sans-serif;text-align:center}
-.tc-template .academic-history-table th,.tc-template .academic-history-table td{border:1px solid #000;padding:4px 2px;vertical-align:middle;color:#000}
+.tc-template .academic-history-table{margin-top:14px;width:100%;table-layout:fixed;border-collapse:collapse;font:7.7px/1.18 Arial,sans-serif;text-align:center}
+.tc-template .academic-history-table th,.tc-template .academic-history-table td{border:1px solid #000;padding:4px 2px;vertical-align:middle;color:#000;word-wrap:break-word;overflow-wrap:break-word}
 .tc-template .academic-history-table th{background:#fff;font-weight:900}
-.tc-template .academic-history-table td:nth-child(5){text-align:left;min-width:105px}
+.tc-template .academic-history-table td:nth-child(5){text-align:left}
 .tc-template .tc-certification{margin:17px 4px 0;max-width:470px;font:11px/1.65 Arial,sans-serif;color:#111}
 .tc-template .tc-certification p{margin:0 0 8px}
 .tc-signature-date{margin:18px 4px 0;font:12px Arial,sans-serif}
@@ -80,7 +81,56 @@
 .tc-history-editor td,.tc-history-editor th{vertical-align:middle}
 .tc-history-editor select,.tc-history-editor input{min-width:92px}
 .tc-history-editor .date-field{min-width:120px}
-@media print{.tc-template{padding:10mm!important}.tc-template .academic-history-table{font-size:6.9px}.tc-student-section{grid-template-columns:1fr 42mm}.tc-left-details>div{min-height:20px}.tc-signatures{margin-top:18px}.tc-title-row{margin-bottom:8px}.tc-school-top h1{font-size:24px}}
+@media print{
+  .tc-template{padding:6mm!important;font-family:Arial,sans-serif!important}
+  .tc-school-top{margin-bottom:4px!important}
+  .tc-school-top h1{font-size:18pt!important;line-height:1.05!important;margin:0!important}
+  .tc-school-top strong{margin-top:1px!important;font-size:9px!important}
+  .tc-school-top p{margin:1px 0 0!important;font-size:8px!important}
+  .tc-school-top small{margin-top:1px!important;font-size:7px!important}
+  .tc-title-row{grid-template-columns:20mm 1fr 28mm!important;gap:5mm!important;margin:2mm 0 1.5mm!important}
+  .tc-template .formal-logo{width:18mm!important;height:18mm!important}
+  .tc-template .formal-student-photo{width:26mm!important;height:32mm!important}
+  .tc-title{padding:4px 16px!important;font-size:14px!important}
+  .tc-reg-row{margin:2px 2px 4px!important;font-size:9px!important}
+  .tc-student-section{grid-template-columns:1fr 28mm!important;gap:3mm!important}
+  .tc-left-details{font-size:7pt!important;gap:0.6mm!important}
+  .tc-left-details>div{grid-template-columns:36mm 1fr!important;min-height:3.8mm!important}
+  .tc-left-details span{padding:0.6mm 1mm!important}
+  .tc-serial-box{min-height:auto!important;padding:4px!important;gap:3px!important;font-size:7px!important}
+  .tc-serial-box strong{font-size:16px!important}
+  .tc-template .academic-history-table{
+    width:100%!important;max-width:100%!important;table-layout:fixed!important;margin-top:2mm!important;border-collapse:collapse!important;font:5.5pt/1.1 Arial,sans-serif!important
+  }
+  .tc-template .academic-history-table th,
+  .tc-template .academic-history-table td{
+    padding:1mm 0.5mm!important;white-space:normal!important;word-break:break-word!important;overflow-wrap:anywhere!important;min-width:0!important
+  }
+  .tc-template .academic-history-table th:nth-child(1),
+  .tc-template .academic-history-table td:nth-child(1){width:7%!important}
+  .tc-template .academic-history-table th:nth-child(2),
+  .tc-template .academic-history-table td:nth-child(2),
+  .tc-template .academic-history-table th:nth-child(3),
+  .tc-template .academic-history-table td:nth-child(3),
+  .tc-template .academic-history-table th:nth-child(4),
+  .tc-template .academic-history-table td:nth-child(4){width:11%!important}
+  .tc-template .academic-history-table th:nth-child(5),
+  .tc-template .academic-history-table td:nth-child(5){width:20%!important;text-align:left!important}
+  .tc-template .academic-history-table th:nth-child(6),
+  .tc-template .academic-history-table td:nth-child(6){width:11%!important}
+  .tc-template .academic-history-table th:nth-child(7),
+  .tc-template .academic-history-table td:nth-child(7){width:8%!important}
+  .tc-template .academic-history-table th:nth-child(8),
+  .tc-template .academic-history-table td:nth-child(8){width:8%!important}
+  .tc-template .academic-history-table th:nth-child(9),
+  .tc-template .academic-history-table td:nth-child(9){width:7%!important}
+  .tc-template .tc-certification{max-width:none!important;margin-top:2mm!important;font:7.5pt/1.3 Arial,sans-serif!important}
+  .tc-template .tc-certification p{margin:0 0 2px!important}
+  .tc-signature-date{margin-top:2mm!important;font-size:8.5pt!important}
+  .tc-signatures{margin-top:3mm!important;gap:8mm!important;font-size:8pt!important}
+  .tc-signatures .signature-line{height:24px!important}
+  .tc-signatures .principal-block i{width:60px!important;height:32px!important}
+}
 
 /* Professional Admit Card */
 .admit-module{display:grid;gap:16px}.admit-tabs{display:flex;gap:8px;overflow-x:auto}.admit-tabs button{border:1px solid var(--border);background:var(--panel);color:var(--muted);padding:10px 14px;border-radius:7px;font:inherit;font-weight:800;cursor:pointer}.admit-tabs button.active{background:#052659;color:#fff;border-color:#052659}.admit-filter-panel,.admit-date-sheet-form{display:grid;gap:14px}.admit-filter-panel>.secondary-button{justify-self:start}.admit-results{display:grid;gap:8px;padding-top:8px}.admit-result-row,.select-all{display:grid;grid-template-columns:auto auto minmax(120px,.5fr) 1fr;gap:10px;align-items:center;border:1px solid var(--border);background:var(--input);border-radius:8px;padding:10px 12px;color:var(--text);font-size:13px}.select-all{display:flex;font-weight:800;color:var(--muted)}.admit-result-row small{color:var(--muted)}.admit-print-grid{display:grid;gap:14px}.admit-card{width:min(100%,780px);margin:0 auto;background:#fff;color:#021024;border:2px solid #052659;border-radius:4px;overflow:hidden;font-family:Arial,sans-serif;letter-spacing:0;box-shadow:0 16px 38px #0002;page-break-inside:avoid;break-inside:avoid}.admit-school-header{display:grid;grid-template-columns:86px minmax(0,1fr);gap:16px;align-items:center;background:#052659;color:#fff;padding:14px 18px}.admit-school-logo{width:74px;height:74px;border:2px solid #fff;background:#fff;border-radius:8px;display:grid;place-items:center;overflow:hidden;color:#052659}.admit-school-logo img{width:100%;height:100%;object-fit:contain}.admit-school-logo span{display:grid;text-align:center;font-size:18px;line-height:1}.admit-school-logo small{font-size:9px;letter-spacing:1px}.admit-school-copy{min-width:0}.admit-school-copy h1{margin:0 0 5px;font-size:clamp(20px,3.2vw,30px);line-height:1.06;text-transform:uppercase;overflow-wrap:anywhere;word-break:normal;letter-spacing:.2px}.admit-school-copy p{margin:0 0 3px;font-size:12px;line-height:1.25;overflow-wrap:anywhere}.admit-school-copy small{display:block;font-size:11px;line-height:1.2;opacity:.94;overflow-wrap:anywhere}.admit-title-band{display:grid;grid-template-columns:1fr 3.5cm;gap:16px;align-items:center;border-top:4px solid #7da0ca;border-bottom:2px solid #052659;padding:12px 18px;background:#eff6ff}.admit-title-band h2{margin:0;color:#052659;font-size:28px;letter-spacing:2px}.admit-title-band strong{display:block;margin-top:4px;color:#021024}.admit-student-photo{width:3.5cm;height:4.5cm;justify-self:end;border:1px solid #052659;background:#fff;display:grid;place-items:center;color:#64748b;font:700 11px/1.25 Arial;text-align:center}.admit-student-photo img{width:100%;height:100%;object-fit:cover}.admit-student-photo span{border:1px dashed #94a3b8;width:calc(100% - 12px);height:calc(100% - 12px);display:grid;place-items:center;padding:8px}.admit-student-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px 18px;padding:16px 18px 10px}.admit-student-grid div{display:grid;grid-template-columns:120px 1fr;gap:8px;align-items:baseline;border-bottom:1px dotted #b8c6d9;padding-bottom:5px;font-size:13px}.admit-student-grid .full{grid-column:1/-1}.admit-student-grid strong{color:#052659}.admit-date-table{width:calc(100% - 36px);margin:8px 18px 14px;border-collapse:collapse;font-size:13px}.admit-date-table th{background:#5483b3;color:#fff;text-align:left;padding:8px 10px;border:1px solid #052659}.admit-date-table td{padding:8px 10px;border:1px solid #b9c8dc}.admit-date-table tbody tr:nth-child(even){background:#eff6ff}.admit-instructions{margin:0 18px 14px;padding:12px 14px;background:#f0f7ff;border:1px solid #b9d2f0;border-radius:6px}.admit-instructions h3{margin:0 0 7px;color:#052659;font-size:13px}.admit-instructions ol{margin:0;padding-left:18px;font-size:11px;line-height:1.5}.admit-pending-fee{display:block;margin:0 18px 8px;color:#b91c1c;font-size:13px}.admit-signatures{display:grid;grid-template-columns:1.35fr 1fr 1fr;gap:20px;align-items:end;padding:10px 18px 18px;font-size:12px}.admit-signatures>strong{grid-column:1/-1}.admit-signatures div{display:grid;gap:5px;text-align:center}.admit-signatures i{height:34px;border-bottom:1px solid #021024}.admit-signatures .principal{grid-column:1/-1;justify-self:center;width:230px}.admit-date-sheet-form .table-scroll{margin-top:6px}
@@ -91,19 +141,7 @@
 @media(max-width:720px){.date-sheet-builder{grid-template-columns:1fr}.exam-preset-row button{flex:1}}
 @media(max-width:720px){.admit-result-row{grid-template-columns:auto auto 1fr}.admit-result-row small{grid-column:3}.admit-school-header{grid-template-columns:70px 1fr;padding:12px}.admit-school-logo{width:60px;height:60px}.admit-school-copy h1{font-size:18px}.admit-title-band{grid-template-columns:1fr 88px;padding:10px 12px}.admit-title-band h2{font-size:21px}.admit-student-photo{width:82px;height:106px}.admit-student-grid{grid-template-columns:1fr;padding:12px}.admit-student-grid div{grid-template-columns:108px 1fr}.admit-date-table{width:calc(100% - 24px);margin-inline:12px}.admit-instructions{margin-inline:12px}.admit-signatures{grid-template-columns:1fr 1fr;padding-inline:12px}.admit-signatures .principal{grid-column:1/-1;width:200px}}
 
-@media print{
-  html,body,#root{background:#fff!important;width:100%!important;height:auto!important;overflow:visible!important}
-  body *{visibility:hidden!important}
-  .app-shell,.main-area,.page-content,.certificate-module{display:block!important;overflow:visible!important;background:#fff!important}
-  .admit-print-grid,.admit-print-grid *,.admit-card,.admit-card *{visibility:visible!important}
-  .no-print,.certificate-menu,.section-actions,.certificate-preview-toolbar,.admit-tabs,.admit-filter-panel,.admit-date-sheet-form{display:none!important}
-  .admit-print-grid{position:static!important;inset:auto!important;display:block!important;width:100%!important;min-height:1px!important;margin:0!important;padding:0!important;background:#fff!important}
-  .admit-card{display:block!important;width:190mm!important;min-height:132mm!important;max-height:140mm!important;margin:4mm auto!important;box-shadow:none!important;border-radius:0!important;page-break-inside:avoid!important;break-inside:avoid!important}
-  .certificate-preview-shell .admit-card{position:static!important;left:auto!important;top:auto!important;transform:none!important}
-  .admit-card:nth-child(2n-1){border-bottom-style:dotted!important}
-  .admit-card:nth-child(2n){page-break-after:always!important}
-  .admit-school-header{padding:5mm!important}.admit-title-band{padding:3mm 5mm!important}.admit-student-grid{padding:4mm 5mm 2mm!important}.admit-date-table{width:calc(100% - 10mm)!important;margin:2mm 5mm 3mm!important}.admit-instructions{margin:0 5mm 3mm!important;padding:3mm!important}.admit-signatures{padding:1mm 5mm 4mm!important}.admit-instructions ol{font-size:8.6pt!important;line-height:1.35!important}
-}
+/* admit card compact print (2-per-page) rules merged into main @media print block above */
 
 .formal-certificate,.admit-card{position:relative;box-sizing:border-box;border:2px solid #000!important;background:#fff!important}
 .formal-certificate::after,.admit-card::after{content:"";position:absolute;inset:8px;border:1px solid #000;pointer-events:none;z-index:5}
@@ -116,24 +154,29 @@
 
 @page{size:A4;margin:10mm}
 @media print{
-  html,body,#root{width:100%!important;min-height:100%!important;height:auto!important;margin:0!important;padding:0!important;background:#fff!important;overflow:visible!important}
+  html,body,#root{width:210mm!important;height:auto!important;margin:0!important;padding:0!important;background:#fff!important;overflow:visible!important}
   body *{visibility:hidden!important}
   .formal-certificate,.formal-certificate *,
   .admit-print-grid,.admit-print-grid *,
   .admit-card,.admit-card *{visibility:visible!important}
   nav,aside,.sidebar,.topbar,.app-sidebar,.app-topbar,
   .certificate-menu,.section-actions,.certificate-preview-toolbar,
-  .no-print,.admit-tabs,.admit-filter-panel,.admit-date-sheet-form,
-  button,.icon-button,.primary-button,.secondary-button{display:none!important}
+  .certificate-form-panel,.certificate-generator-heading,.duplicate-warning,
+  .certificate-search,.certificate-type-grid,.certificate-history,.certificate-settings,
+  .no-print,.admit-tabs,.admit-filter-panel,.admit-date-sheet-form{display:none!important}
   .app-shell,.main-area,.page-content,.certificate-module,
+  .certificate-workspace,.certificate-inline-preview,
   .certificate-preview-overlay,.certificate-preview-shell,
-  .certificate-inline-preview,.admit-module,.admit-print-grid{
-    display:block!important;position:static!important;inset:auto!important;width:100%!important;max-width:none!important;min-width:0!important;height:auto!important;min-height:0!important;margin:0!important;padding:0!important;background:#fff!important;box-shadow:none!important;overflow:visible!important;transform:none!important
+  .admit-module,.admit-print-grid{
+    display:block!important;position:static!important;width:auto!important;height:auto!important;min-height:0!important;margin:0!important;padding:0!important;background:transparent!important;box-shadow:none!important;overflow:visible!important;border:0!important
   }
-  .formal-certificate,.admit-card{
-    display:block!important;position:relative!important;left:auto!important;top:auto!important;transform:none!important;width:190mm!important;min-width:190mm!important;max-width:190mm!important;min-height:277mm!important;height:auto!important;max-height:none!important;margin:0 auto!important;padding:12mm!important;background:#fff!important;color:#000!important;border:2px solid #000!important;border-radius:0!important;box-shadow:none!important;overflow:hidden!important;page-break-after:always!important;page-break-inside:avoid!important;break-inside:avoid!important
+  .formal-certificate{
+    display:block!important;position:fixed!important;left:0!important;top:0!important;width:190mm!important;min-width:190mm!important;max-width:190mm!important;height:277mm!important;min-height:277mm!important;max-height:277mm!important;margin:0!important;padding:12mm!important;background:#fff!important;color:#000!important;border:2px solid #000!important;border-radius:0!important;box-shadow:none!important;overflow:hidden!important;page-break-after:always!important;page-break-inside:avoid!important;break-inside:avoid!important;z-index:99999!important
   }
-  .formal-certificate::after,.admit-card::after{content:"" !important;position:absolute!important;inset:8px!important;border:1px solid #000!important;display:block!important;visibility:visible!important;pointer-events:none!important}
+  .admit-card{
+    display:block!important;position:relative!important;width:190mm!important;min-width:190mm!important;max-width:190mm!important;min-height:277mm!important;height:auto!important;max-height:none!important;margin:0 auto!important;padding:12mm!important;background:#fff!important;color:#000!important;border:2px solid #000!important;border-radius:0!important;box-shadow:none!important;overflow:hidden!important;page-break-after:always!important;page-break-inside:avoid!important;break-inside:avoid!important
+  }
+  .formal-certificate::after,.admit-card::after{content:""!important;position:absolute!important;inset:8px!important;border:1px solid #000!important;display:block!important;visibility:visible!important;pointer-events:none!important}
   .formal-certificate>*,
   .admit-card>*{position:relative!important;z-index:6!important}
   .formal-school-header,.character-top,.tc-school-top,.admit-school-header{page-break-inside:avoid!important;break-inside:avoid!important}
@@ -155,13 +198,14 @@
   body.erp-printing *{visibility:hidden!important}
   body.erp-printing .print-target,
   body.erp-printing .print-target *{visibility:visible!important}
-  body.erp-printing .print-target{
-    display:block!important;position:static!important;inset:auto!important;width:100%!important;max-width:none!important;min-width:0!important;height:auto!important;margin:0!important;padding:0!important;background:#fff!important;box-shadow:none!important;overflow:visible!important;transform:none!important
-  }
   body.erp-printing .certificate-preview-overlay,
   body.erp-printing .certificate-preview-shell,
-  body.erp-printing .admit-print-grid{display:block!important;position:static!important;width:100%!important;margin:0!important;padding:0!important;background:#fff!important;overflow:visible!important}
-  body.erp-printing .print-target .formal-certificate,
+  body.erp-printing .admit-print-grid{
+    display:block!important;position:static!important;width:auto!important;height:auto!important;margin:0!important;padding:0!important;background:transparent!important;overflow:visible!important;border:0!important;inset:auto!important
+  }
+  body.erp-printing .print-target .formal-certificate{
+    display:block!important;visibility:visible!important;position:fixed!important;left:0!important;top:0!important;width:190mm!important;min-width:190mm!important;max-width:190mm!important;height:277mm!important;min-height:277mm!important;max-height:277mm!important;margin:0!important;padding:10mm!important;background:#fff!important;color:#000!important;border:2px solid #000!important;border-radius:0!important;box-shadow:none!important;overflow:hidden!important;page-break-after:always!important;page-break-inside:avoid!important;break-inside:avoid!important;z-index:99999!important
+  }
   body.erp-printing .print-target.admit-print-grid .admit-card,
   body.erp-printing .print-target .admit-card{
     display:block!important;visibility:visible!important;width:190mm!important;min-width:190mm!important;max-width:190mm!important;min-height:277mm!important;height:auto!important;margin:0 auto!important;padding:10mm!important;background:#fff!important;color:#000!important;border:2px solid #000!important;border-radius:0!important;box-shadow:none!important;overflow:hidden!important;page-break-after:always!important;page-break-inside:avoid!important;break-inside:avoid!important
@@ -184,26 +228,26 @@
     padding:1.2mm .6mm!important;white-space:normal!important;word-break:break-word!important;overflow-wrap:anywhere!important;min-width:0!important
   }
   body.erp-printing .print-target .academic-history-table th:nth-child(1),
-  body.erp-printing .print-target .academic-history-table td:nth-child(1){width:8%!important}
+  body.erp-printing .print-target .academic-history-table td:nth-child(1){width:7%!important}
   body.erp-printing .print-target .academic-history-table th:nth-child(2),
   body.erp-printing .print-target .academic-history-table td:nth-child(2),
   body.erp-printing .print-target .academic-history-table th:nth-child(3),
   body.erp-printing .print-target .academic-history-table td:nth-child(3),
   body.erp-printing .print-target .academic-history-table th:nth-child(4),
-  body.erp-printing .print-target .academic-history-table td:nth-child(4){width:12%!important}
+  body.erp-printing .print-target .academic-history-table td:nth-child(4){width:11%!important}
   body.erp-printing .print-target .academic-history-table th:nth-child(5),
-  body.erp-printing .print-target .academic-history-table td:nth-child(5){width:22%!important;text-align:left!important}
+  body.erp-printing .print-target .academic-history-table td:nth-child(5){width:20%!important;text-align:left!important}
   body.erp-printing .print-target .academic-history-table th:nth-child(6),
-  body.erp-printing .print-target .academic-history-table td:nth-child(6){width:12%!important}
+  body.erp-printing .print-target .academic-history-table td:nth-child(6){width:11%!important}
   body.erp-printing .print-target .academic-history-table th:nth-child(7),
-  body.erp-printing .print-target .academic-history-table td:nth-child(7),
+  body.erp-printing .print-target .academic-history-table td:nth-child(7){width:8%!important}
   body.erp-printing .print-target .academic-history-table th:nth-child(8),
-  body.erp-printing .print-target .academic-history-table td:nth-child(8),
+  body.erp-printing .print-target .academic-history-table td:nth-child(8){width:8%!important}
   body.erp-printing .print-target .academic-history-table th:nth-child(9),
-  body.erp-printing .print-target .academic-history-table td:nth-child(9){width:8%!important}
-  body.erp-printing .print-target .tc-certification{max-width:none!important;margin-top:4mm!important;font:8.3pt/1.45 Arial,sans-serif!important}
-  body.erp-printing .print-target .tc-signature-date{margin-top:4mm!important;font-size:9pt!important}
-  body.erp-printing .print-target .tc-signatures{margin-top:8mm!important;gap:12mm!important;font-size:8.5pt!important}
+  body.erp-printing .print-target .academic-history-table td:nth-child(9){width:7%!important}
+  body.erp-printing .print-target .tc-certification{max-width:none!important;margin-top:2mm!important;font:7.5pt/1.3 Arial,sans-serif!important}
+  body.erp-printing .print-target .tc-signature-date{margin-top:2mm!important;font-size:8.5pt!important}
+  body.erp-printing .print-target .tc-signatures{margin-top:3mm!important;gap:8mm!important;font-size:8pt!important}
   body.erp-printing .print-target .admit-card{font-family:Arial,sans-serif!important;padding:9mm!important}
   body.erp-printing .print-target .admit-school-header{background:#fff!important;color:#000!important;border-bottom:2px solid #000!important;padding:0 0 5mm!important;grid-template-columns:24mm 1fr!important;gap:6mm!important}
   body.erp-printing .print-target .admit-school-logo{width:22mm!important;height:22mm!important;border:1px solid #000!important;background:#fff!important;color:#000!important;border-radius:3px!important}

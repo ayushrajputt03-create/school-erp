@@ -36,12 +36,24 @@ import {
   formatAadhaar,
   generateSchoolCode,
   indianStates,
+  isSeniorClass,
   onlyDigits,
   recognitionOptions as schoolRecognitionOptions,
   sectionOptions,
+  STREAM_OPTIONS,
 } from './schoolOptions'
 
 const admissionClasses = classOptions.flatMap(cls => sectionOptions.slice(0, cls.match(/^(11|12)$/) ? 1 : 5).map(section => `${cls}-${section}`))
+
+// Student lifecycle status. Anything without a status is treated as active (legacy records).
+const STUDENT_STATUS_META = {
+  active: { key: 'active', label: 'Active', bg: '', color: '' },
+  dropout: { key: 'dropout', label: 'Drop Out', bg: '#fee2e2', color: '#b91c1c' },
+  transfer: { key: 'transfer', label: 'Transfer Out', bg: '#ffedd5', color: '#c2410c' },
+  passedout: { key: 'passedout', label: 'Passed Out', bg: '#e2e8f0', color: '#475569' },
+}
+const studentStatusKey = student => (student?.status && STUDENT_STATUS_META[student.status] ? student.status : 'active')
+const isActiveStudent = student => studentStatusKey(student) === 'active'
 
 import { onAuthStateChanged, signOut } from 'firebase/auth'
 import { deleteObject, getDownloadURL, ref as storageRef, uploadBytes } from 'firebase/storage'
@@ -371,6 +383,14 @@ const dateKey = date => {
 const today = () => dateKey(new Date())
 const money = value => new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 }).format(Number(value || 0))
 const readableDate = value => new Date(`${value}T00:00:00`).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })
+const roleLabel = value => {
+  const raw = String(value || '').trim().toLowerCase()
+  if (!raw) return 'Staff'
+  if (raw === 'owner') return 'Owner'
+  if (raw === 'admin' || raw === 'administrator') return 'Administrator'
+  if (raw === 'teacher' || raw === 'faculty') return 'Teacher'
+  return raw.split(/[\s_-]+/).map(part => part ? part[0].toUpperCase() + part.slice(1) : '').join(' ')
+}
 const normalizeAttendanceStatus = value => {
   const raw = String(value || '').trim().toLowerCase()
   if (raw === 'a' || raw === 'absent') return 'A'
@@ -894,6 +914,10 @@ function StudentModal({ close, addStudent, updateStudent, getNextAdmissionNumber
     address: student.address || '',
     admissionDate: student.admissionDate || '',
     admissionScheme: student.admissionScheme || 'General',
+    stream: student.stream || '',
+    status: student.status || 'active',
+    dropOutDate: student.dropOutDate || '',
+    dropOutReason: student.dropOutReason || '',
   } : {
     name: '',
     className: '1-A',
@@ -905,6 +929,10 @@ function StudentModal({ close, addStudent, updateStudent, getNextAdmissionNumber
     address: '',
     admissionDate: '',
     admissionScheme: 'General',
+    stream: '',
+    status: 'active',
+    dropOutDate: '',
+    dropOutReason: '',
   })
   const [saving, setSaving] = useState(false)
   const [admissionNumber, setAdmissionNumber] = useState(student ? student.roll : '')
@@ -960,23 +988,33 @@ function StudentModal({ close, addStudent, updateStudent, getNextAdmissionNumber
     }
   }
 
-  return <div className="modal-backdrop"><form className="modal" onSubmit={submit} style={{ maxHeight: '90vh', overflowY: 'auto' }}>
+  return <div className="modal-backdrop"><form className="modal student-modal" onSubmit={submit}>
     <div className="modal-header"><div><h3>{student ? 'Edit student details' : 'Add new student'}</h3><p>{student ? 'Modify student profile information.' : 'Create a student profile and admission record.'}</p></div><button type="button" className="icon-button" onClick={close}><X size={19} /></button></div>
-    <div className="form-grid">
-      <div className="full photo-form-row"><PhotoUploader photo={photo} onPhoto={setPhoto} onRemove={() => setPhoto(null)} /></div>
-      <label>Admission number<input readOnly className="readonly-input" value={admissionNumber || 'Auto generating...'} /></label>
-      <label>Date of Birth<DatePicker value={form.dob} onChange={value => setForm({...form, dob: value})} max={today()} /></label>
-      <label className="full">Student name<input required value={form.name} onChange={e => setForm({...form, name: e.target.value})} placeholder="Full name" /></label>
-      <label>Gender<select value={form.gender} onChange={e => setForm({...form, gender: e.target.value})}><option value="">Select gender</option><option>Male</option><option>Female</option><option>Other</option></select></label>
-      <label>Class & section<select value={form.className} onChange={e => setForm({...form, className: e.target.value})}>{admissionClasses.map(c => <option key={c}>{c}</option>)}</select></label>
-      <label>Guardian name<input required value={form.guardian} onChange={e => setForm({...form, guardian: e.target.value})} placeholder="Parent / guardian" /></label>
-      <label>Phone number<input required value={form.phone} onChange={e => setForm({...form, phone: e.target.value})} placeholder="10-digit mobile number" /></label>
-      <label>Email<input type="email" value={form.email} onChange={e => setForm({...form, email: e.target.value})} placeholder="Email address" /></label>
-      <label>Admission Date<DatePicker value={form.admissionDate} onChange={value => setForm({...form, admissionDate: value})} /></label>
-      <label>Admission Scheme<select value={form.admissionScheme} onChange={e => setForm({...form, admissionScheme: e.target.value})}>{['General','RTE','EWS','Staff Ward','Sibling','Scholarship'].map(s => <option key={s}>{s}</option>)}</select></label>
-      <label className="full">Address<input value={form.address} onChange={e => setForm({...form, address: e.target.value})} placeholder="Full address" /></label>
+    <div className="student-modal-body">
+      <div className="student-modal-top">
+        <PhotoUploader photo={photo} onPhoto={setPhoto} onRemove={() => setPhoto(null)} compact />
+        <div className="student-modal-top-fields">
+          <label>Student name<input required value={form.name} onChange={e => setForm({...form, name: e.target.value})} placeholder="Full name" /></label>
+          <label>Admission number<input readOnly className="readonly-input" value={admissionNumber || 'Auto generating...'} /></label>
+          <label>Class & section<select value={form.className} onChange={e => { const className = e.target.value; setForm(current => ({ ...current, className, stream: isSeniorClass(className.split('-')[0]) ? current.stream : '' })) }}>{admissionClasses.map(c => <option key={c}>{c}</option>)}</select></label>
+          {isSeniorClass(form.className.split('-')[0]) && <label>Stream<select value={form.stream} onChange={e => setForm({...form, stream: e.target.value})}><option value="">Select stream</option>{STREAM_OPTIONS.map(s => <option key={s}>{s}</option>)}</select></label>}
+        </div>
+      </div>
+      <div className="form-grid student-form-fields">
+        <label>Date of Birth<DatePicker value={form.dob} onChange={value => setForm({...form, dob: value})} max={today()} /></label>
+        <label>Gender<select value={form.gender} onChange={e => setForm({...form, gender: e.target.value})}><option value="">Select gender</option><option>Male</option><option>Female</option><option>Other</option></select></label>
+        <label>Guardian name<input required value={form.guardian} onChange={e => setForm({...form, guardian: e.target.value})} placeholder="Parent / guardian" /></label>
+        <label>Phone number<input required value={form.phone} onChange={e => setForm({...form, phone: e.target.value})} placeholder="10-digit mobile number" /></label>
+        <label>Email<input type="email" value={form.email} onChange={e => setForm({...form, email: e.target.value})} placeholder="Email address" /></label>
+        <label>Admission Date<DatePicker value={form.admissionDate} onChange={value => setForm({...form, admissionDate: value})} /></label>
+        <label>Admission Scheme<select value={form.admissionScheme} onChange={e => setForm({...form, admissionScheme: e.target.value})}>{['General','RTE','EWS','Staff Ward','Sibling','Scholarship'].map(s => <option key={s}>{s}</option>)}</select></label>
+        <label>Address<input value={form.address} onChange={e => setForm({...form, address: e.target.value})} placeholder="Full address" /></label>
+        <label>Student Status<select value={form.status} onChange={e => { const status = e.target.value; setForm(current => ({ ...current, status, dropOutDate: status === 'dropout' ? (current.dropOutDate || today()) : '', dropOutReason: status === 'active' ? '' : current.dropOutReason })) }}><option value="active">Active</option><option value="dropout">Drop Out</option><option value="transfer">Transfer Out (TC Given)</option><option value="passedout">Passed Out</option></select></label>
+        {form.status === 'dropout' && <label>Drop Out Date<DatePicker value={form.dropOutDate} onChange={value => setForm({...form, dropOutDate: value})} max={today()} /></label>}
+        {form.status !== 'active' && <label className="full">Reason / Remark<input value={form.dropOutReason} onChange={e => setForm({...form, dropOutReason: e.target.value})} placeholder="Optional note (e.g. shifted city, TC issued)" /></label>}
+      </div>
+      {error && <div className="form-error">{error}</div>}
     </div>
-    {error && <div className="form-error">{error}</div>}
     <div className="modal-actions"><button type="button" className="secondary-button" onClick={close} disabled={saving}>Cancel</button><button className="primary-button" disabled={saving || !admissionNumber}>{saving ? 'Saving...' : <>{student ? <Save size={16} /> : <Plus size={16} />}{student ? ' Update student' : ' Add student'}</>}</button></div>
   </form></div>
 }
@@ -1054,20 +1092,47 @@ function StudentProfile({ student, close, attendance, fees, feeManager, schoolPr
   </div>
 }
 
+function StudentStatusBadge({ student }) {
+  const meta = STUDENT_STATUS_META[studentStatusKey(student)]
+  if (!meta || meta.key === 'active') return null
+  return <span className="student-status-badge" style={{ background: meta.bg, color: meta.color }}>{meta.label}</span>
+}
+
 function Students({ students, onAddStudent, onUpdateStudent, onSelectStudent, getNextAdmissionNumber }) {
   const [search, setSearch] = useState('')
+  const [codeSearch, setCodeSearch] = useState('')
   const [filter, setFilter] = useState('All classes')
+  const [statusFilter, setStatusFilter] = useState('all')
+  const [streamFilter, setStreamFilter] = useState('')
   const [modal, setModal] = useState(null)
   const classes = [...new Set(students.map(student => student.className))].sort()
-  const filtered = students.filter(s => (filter === 'All classes' || s.className === filter) && `${s.name} ${s.roll} ${s.phone}`.toLowerCase().includes(search.trim().toLowerCase()))
+  const seniorFilter = isSeniorClass(String(filter).split('-')[0])
+  const filtered = students.filter(s => {
+    const okClass = filter === 'All classes' || s.className === filter
+    const okStatus = statusFilter === 'all' || studentStatusKey(s) === statusFilter
+    const okStream = !streamFilter || (s.stream || '') === streamFilter
+    const okSearch = !search.trim() || `${s.name} ${s.roll} ${s.phone}`.toLowerCase().includes(search.trim().toLowerCase())
+    const okCode = !codeSearch.trim() || String(s.roll || '').toLowerCase().includes(codeSearch.trim().toLowerCase())
+    return okClass && okStatus && okStream && okSearch && okCode
+  })
   const addStudent = student => onAddStudent(student)
+  const activeStudents = students.filter(isActiveStudent)
+  const dropoutCount = students.filter(s => studentStatusKey(s) === 'dropout').length
   return <>
     <div className="section-actions"><div><h2>Student directory</h2><p>Manage profiles, guardians, attendance and fee status.</p></div><button className="primary-button" onClick={() => setModal('add')}><Plus size={17} /> Add student</button></div>
-    <div className="mini-stats"><div><span>All students</span><strong>{students.length}</strong></div><div><span>New admissions</span><strong>{students.filter(s => s.createdAt && Date.now() - s.createdAt < 30 * 86400000).length}</strong></div><div><span>Avg. attendance</span><strong>{students.length ? Math.round(students.reduce((sum, s) => sum + s.attendance, 0) / students.length) : 0}%</strong></div><div><span>Fee defaulters</span><strong>{students.filter(s => s.fee !== 'Paid').length}</strong></div></div>
+    <div className="mini-stats"><div><span>All students</span><strong>{students.length}</strong></div><div><span>Active</span><strong>{activeStudents.length}</strong></div><div><span>Drop outs</span><strong>{dropoutCount}</strong></div><div><span>Fee defaulters</span><strong>{activeStudents.filter(s => s.fee !== 'Paid').length}</strong></div></div>
     <div className="panel table-panel">
-      <div className="table-toolbar"><div className="table-search"><Search size={16} /><input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search student, roll no. or phone" /></div><select value={filter} onChange={e => setFilter(e.target.value)}><option>All classes</option>{classes.map(c => <option key={c}>{c}</option>)}</select></div>
+      <div className="table-toolbar" style={{ flexWrap: 'wrap' }}>
+        <div className="table-search"><Search size={16} /><input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search student, roll no. or phone" /></div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+          <input value={codeSearch} onChange={e => setCodeSearch(e.target.value)} placeholder="Adm. No." style={{ width: '100px', height: '30px', padding: '0 8px', borderRadius: '6px', border: '1px solid #dfe3ea', fontSize: '10px', background: '#fff' }} />
+          <select value={filter} onChange={e => { setFilter(e.target.value); setStreamFilter('') }}><option>All classes</option>{classes.map(c => <option key={c}>{c}</option>)}</select>
+          {seniorFilter && <select value={streamFilter} onChange={e => setStreamFilter(e.target.value)}><option value="">All streams</option>{STREAM_OPTIONS.map(s => <option key={s}>{s}</option>)}</select>}
+          <select value={statusFilter} onChange={e => setStatusFilter(e.target.value)}><option value="all">All statuses</option><option value="active">Active</option><option value="dropout">Drop Out</option><option value="transfer">Transfer Out</option><option value="passedout">Passed Out</option></select>
+        </div>
+      </div>
       <div className="table-scroll"><table><thead><tr><th>Student</th><th>Class</th><th>Guardian</th><th>Attendance</th><th>Fee status</th><th /></tr></thead><tbody>
-        {filtered.map(s => <tr key={s.id} onClick={() => onSelectStudent(s)} className="clickable-row"><td><div className="student-cell"><StudentAvatar student={s} /><div><strong>{s.name}</strong><small>{s.roll}</small></div></div></td><td><span className="class-pill">{s.className}</span></td><td><strong className="regular">{s.guardian}</strong><small className="cell-sub">{s.phone}</small></td><td><div className="attendance-cell"><span>{s.attendance}%</span><div><i style={{width: `${s.attendance}%`}} /></div></div></td><td><span className={`status ${s.fee.toLowerCase()}`}>{s.fee}</span></td><td><div style={{ display: 'flex', gap: '4px', justifyContent: 'flex-end' }} onClick={e => e.stopPropagation()}><button type="button" className="icon-button" onClick={() => onSelectStudent(s)} title={`View ${s.name}`}><Eye size={16} /></button><button type="button" className="icon-button" onClick={() => setModal(s)} title={`Edit ${s.name}`}><Pencil size={16} /></button></div></td></tr>)}
+        {filtered.map(s => <tr key={s.id} onClick={() => onSelectStudent(s)} className="clickable-row"><td><div className="student-cell"><StudentAvatar student={s} /><div><strong>{s.name} <StudentStatusBadge student={s} /></strong><small>{s.roll}</small></div></div></td><td><span className="class-pill">{s.className}</span>{s.stream && <span className="stream-pill">{s.stream}</span>}</td><td><strong className="regular">{s.guardian}</strong><small className="cell-sub">{s.phone}</small></td><td><div className="attendance-cell"><span>{s.attendance}%</span><div><i style={{width: `${s.attendance}%`}} /></div></div></td><td><span className={`status ${s.fee.toLowerCase()}`}>{s.fee}</span></td><td><div style={{ display: 'flex', gap: '4px', justifyContent: 'flex-end' }} onClick={e => e.stopPropagation()}><button type="button" className="icon-button" onClick={() => onSelectStudent(s)} title={`View ${s.name}`}><Eye size={16} /></button><button type="button" className="icon-button" onClick={() => setModal(s)} title={`Edit ${s.name}`}><Pencil size={16} /></button></div></td></tr>)}
         {!filtered.length && <tr><td colSpan="6"><div className="empty-state">No students match this search.</div></td></tr>}
       </tbody></table></div>
     </div>
@@ -1095,7 +1160,7 @@ function AdmissionForm({ students, onAddStudent, onUpdateStudent, onOpenRegister
   const [success, setSuccess] = useState(null)
   const [submitError, setSubmitError] = useState('')
   const [form, setForm] = useState({
-    admissionType: 'new', className: 'Nursery-A', admissionScheme: 'General', roll: '',
+    admissionType: 'new', className: 'Nursery-A', stream: '', admissionScheme: 'General', roll: '',
     admissionDate: today(), academicSession: school.academicYear || '2026-27', rollNumber: '', feeGroup: 'Regular',
     name: '', fatherName: '', motherName: '', guardian: '', gender: '', dob: '', ageOn31March: '', phone: '', email: '',
     aadhaar: '', penId: '', apaarId: '', bloodGroup: "Don't Know", height: '', weight: '', motherTongue: 'Hindi', nationality: 'Indian',
@@ -1118,7 +1183,7 @@ function AdmissionForm({ students, onAddStudent, onUpdateStudent, onOpenRegister
     } finally { setNumberLoading(false) }
   }
   useEffect(() => { refreshNumber() }, [])
-  const update = (key, value) => setForm(current => ({ ...current, [key]: value, ...(key === 'dob' ? { ageOn31March: ageOnDate(value) } : {}) }))
+  const update = (key, value) => setForm(current => ({ ...current, [key]: value, ...(key === 'dob' ? { ageOn31March: ageOnDate(value) } : {}), ...(key === 'className' ? { stream: isSeniorClass(String(value).split('-')[0]) ? current.stream : '' } : {}) }))
   const toggleDisability = value => setForm(current => ({ ...current, disabilityType: current.disabilityType.includes(value) ? current.disabilityType.filter(item => item !== value) : [...current.disabilityType, value] }))
   const oldMatches = oldSearch.trim() ? students.filter(student => `${student.roll} ${student.name} ${student.phone}`.toLowerCase().includes(oldSearch.toLowerCase())).slice(0, 8) : []
   const selectOldStudent = student => {
@@ -1154,7 +1219,7 @@ function AdmissionForm({ students, onAddStudent, onUpdateStudent, onOpenRegister
       const summary = { admissionNo, schoolCode: school.schoolCode || 'Not set', phone: payload.parentLoginPhone, password: form.dob || 'DOB' }
       setSuccess(summary)
       alert(`Student saved successfully!\nAdmission Number: ${admissionNo}\nSchool Code: ${summary.schoolCode}`)
-      setForm(current => ({ ...current, roll: '', name: '', fatherName: '', motherName: '', guardian: '', gender: '', dob: '', phone: '', email: '', state: '', city: '', address: '', pincode: '', aadhaar: '', penId: '', apaarId: '', permanentAddress: '' }))
+      setForm(current => ({ ...current, roll: '', name: '', fatherName: '', motherName: '', guardian: '', gender: '', dob: '', phone: '', email: '', state: '', city: '', address: '', pincode: '', aadhaar: '', penId: '', apaarId: '', permanentAddress: '', stream: '' }))
       setPhoto(null)
       setSelectedOldStudent(null)
       await refreshNumber()
@@ -1164,17 +1229,53 @@ function AdmissionForm({ students, onAddStudent, onUpdateStudent, onOpenRegister
       alert(`Error: ${error.message}`)
     } finally { setSaving(false) }
   }
+  const printAdmissionForm = filled => {
+    const s = school || {}
+    const d = filled ? form : {}
+    const [cls = '', sec = ''] = String(d.className || '').split('-')
+    const logo = s.logo || s.logoURL || ''
+    const esc = v => String(v == null ? '' : v).replace(/[<>&]/g, c => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;' }[c]))
+    const fld = v => v ? `<b>${esc(v)}</b>` : '<span style="display:inline-block;min-width:150px;border-bottom:1px dotted #555">&nbsp;</span>'
+    const row = (a, av, b, bv) => `<tr><td class="lbl">${a}</td><td>${fld(av)}</td><td class="lbl">${b || ''}</td><td>${b ? fld(bv) : ''}</td></tr>`
+    const addr = [s.address, s.city, s.state, s.pincode].filter(Boolean).join(', ')
+    const html = `<!doctype html><html><head><meta charset="utf-8"><title>Admission Form</title>
+<style>@page{size:A4;margin:12mm}*{box-sizing:border-box}body{font-family:Arial,Helvetica,sans-serif;color:#111;font-size:13px;margin:0}
+.head{display:flex;align-items:center;gap:14px;border-bottom:2px solid #052659;padding-bottom:10px}
+.head img{width:64px;height:64px;object-fit:contain}
+.head .mark{width:64px;height:64px;border-radius:8px;background:#052659;color:#fff;display:flex;align-items:center;justify-content:center;font-size:22px;font-weight:bold}
+.head h1{margin:0;font-size:22px;color:#052659}.head p{margin:2px 0 0;font-size:12px;color:#444}
+.title{text-align:center;margin:14px 0 6px;font-size:16px;font-weight:bold;letter-spacing:2px;color:#052659}
+.meta{display:flex;justify-content:space-between;font-size:12px;color:#333;margin-bottom:10px}
+.photo{float:right;width:110px;height:130px;border:1px solid #333;display:flex;align-items:center;justify-content:center;font-size:10px;color:#888;margin:0 0 8px 10px}
+table{width:100%;border-collapse:collapse}td{padding:7px 6px;vertical-align:bottom;font-size:12.5px}
+td.lbl{color:#333;width:130px;font-weight:600}
+.sec{margin-top:14px;font-weight:bold;color:#052659;border-bottom:1px solid #cbd6e6;padding-bottom:3px;font-size:12px;letter-spacing:1px}
+.sign{display:flex;justify-content:space-between;margin-top:44px;font-size:12px}
+.sign div{border-top:1px solid #333;padding-top:4px;width:200px;text-align:center}
+.note{margin-top:14px;font-size:10px;color:#666}
+</style></head><body onload="window.focus();setTimeout(function(){window.print()},250)">
+<div class="head">${logo ? `<img src="${esc(logo)}">` : `<div class="mark">${esc((s.schoolName || 'S').slice(0, 1))}</div>`}
+<div><h1>${esc(s.schoolName || 'School')}</h1><p>${esc(addr || 'Address not set')}</p><p>${esc(s.schoolContactNo || s.phone || '')} ${s.schoolEmail || s.email ? '· ' + esc(s.schoolEmail || s.email) : ''}</p></div></div>
+<div class="title">ADMISSION FORM</div>
+<div class="meta"><span>Session: <b>${esc(d.academicSession || s.academicYear || '2026-27')}</b></span><span>School Code: <b>${esc(s.schoolCode || '')}</b></span></div>
+<div class="photo">Affix<br>Photo</div>
+<div class="sec">ADMISSION DETAILS</div>
+<table>${row('Admission No', d.roll || d.rollNumber, 'Date', d.admissionDate)}${row('Class', cls, 'Section', sec)}${row('Scheme', d.admissionScheme, 'Fee Group', d.feeGroup)}</table>
+<div class="sec">STUDENT DETAILS</div>
+<table>${row('Student Name', d.name, 'Gender', d.gender)}${row('Date of Birth', d.dob, 'Blood Group', d.bloodGroup === "Don't Know" ? '' : d.bloodGroup)}${row('Category', d.category, 'Religion', d.religion)}${row('Aadhaar No', d.aadhaar, 'PEN ID', d.penId)}</table>
+<div class="sec">PARENT / GUARDIAN</div>
+<table>${row('Father Name', d.fatherName, 'Mother Name', d.motherName)}${row('Guardian', d.guardian, 'Mobile', d.phone)}${row('Email', d.email, '', '')}${row('Address', d.address, '', '')}</table>
+<div class="sign"><div>Parent Signature</div><div>Principal Signature</div></div>
+<div class="note">This is a system-generated admission form from ${esc(s.schoolName || 'the school')} · Northstar School OS.</div>
+</body></html>`
+    const w = window.open('', '_blank')
+    if (!w) { alert('Please allow pop-ups for this site to print the admission form.'); return }
+    w.document.write(html); w.document.close()
+  }
   const section = (id, title, content) => <section className="panel admission-card"><button type="button" className="collapse-title" onClick={() => setExpanded(expanded === id ? '' : id)}><span>{title}</span><ChevronRight className={expanded === id ? 'rotated' : ''} size={18} /></button>{expanded === id && <div className="admission-fields">{content}</div>}</section>
   return <form className="admission-form admission-form-pro" onSubmit={submit}>
     <div className="admission-toolbar">
-      <button type="button" className="secondary-button" onClick={() => {
-        const content = `NXT OpenERP School\nADMISSION FORM\n\nAdmission No: __________  Date: __________\nStudent Name: ______________________________\nClass/Section: __________  Gender: __________\nFather: __________________  Mother: __________________\nMobile: __________________  DOB: __________________\nAddress: ____________________________________________`
-        const link = document.createElement('a')
-        link.href = URL.createObjectURL(new Blob([content], { type: 'text/plain' }))
-        link.download = 'admission-form.txt'
-        link.click()
-        URL.revokeObjectURL(link.href)
-      }}><Download size={16} /> Download Admission Form</button>
+      <button type="button" className="secondary-button" onClick={() => printAdmissionForm(true)}><Printer size={16} /> Print Admission Form</button>
       <label className="secondary-button file-button"><Upload size={16} /> Import Excel<input type="file" accept=".csv,text/csv,.xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" onChange={async event => {
         const file = event.target.files?.[0]
         if (!file) return
@@ -1314,6 +1415,7 @@ function AdmissionForm({ students, onAddStudent, onUpdateStudent, onOpenRegister
       <div className="admission-grid five">
         <label>Class*<select required value={form.className.split('-')[0]} onChange={e => update('className', `${e.target.value}-${form.className.split('-')[1] || 'A'}`)}>{classOptions.map(item => <option key={item}>{item}</option>)}</select></label>
         <label>Section*<select required value={form.className.split('-')[1] || 'A'} onChange={e => update('className', `${form.className.split('-')[0]}-${e.target.value}`)}>{sectionOptions.map(item => <option key={item}>{item}</option>)}</select></label>
+        {isSeniorClass(form.className.split('-')[0]) && <label>Stream*<select required value={form.stream} onChange={e => update('stream', e.target.value)}><option value="">Select stream</option>{STREAM_OPTIONS.map(s => <option key={s}>{s}</option>)}</select></label>}
         <label>Academic Session*<select required value={form.academicSession} onChange={e => update('academicSession', e.target.value)}>{academicYears.map(item => <option key={item}>{item}</option>)}</select></label>
         <label>Admission Number*<input required readOnly value={numberLoading ? 'Auto generating...' : form.roll} className="readonly-input" /></label>
         <label>Date of Admission*<DatePicker required value={form.admissionDate} onChange={value => update('admissionDate', value)} /></label>
@@ -1345,7 +1447,7 @@ function AdmissionForm({ students, onAddStudent, onUpdateStudent, onOpenRegister
     {section('transport', 'Section 8: Transport', <div className="admission-grid four"><label>Transport Required?<select value={form.transportRequired ? 'Yes' : 'No'} onChange={e => update('transportRequired', e.target.value === 'Yes')}><option>No</option><option>Yes</option></select></label>{form.transportRequired && <><label>Route<input value={form.routeName} onChange={e => update('routeName', e.target.value)} /></label><label>Stop<input value={form.stopName} onChange={e => update('stopName', e.target.value)} /></label><label>Pickup Time<input value={form.pickupTime} onChange={e => update('pickupTime', e.target.value)} /></label><label>Drop Time<input value={form.dropTime} onChange={e => update('dropTime', e.target.value)} /></label></>}</div>)}
     {section('documents', 'Section 9: Documents Upload', <div className="document-placeholder-grid">{['Birth Certificate','Aadhaar Card','Transfer Certificate','Caste Certificate','Category Certificate','Disability Certificate','Previous Marksheet','Parent ID Proof'].map(item => <div key={item}><FileText size={18} /><strong>{item}</strong><small>Upload support is available in Student Profile documents tab after saving.</small></div>)}</div>)}
     <div className="admission-options panel"><div className="sms-toggle"><button type="button" className={!form.smsEnabled ? 'active' : ''} onClick={() => update('smsEnabled', false)}>Don&apos;t Send SMS</button><button type="button" className={form.smsEnabled ? 'active' : ''} onClick={() => update('smsEnabled', true)}>Send SMS</button></div><label className="check-line"><input type="checkbox" checked={form.confirmDetails} onChange={e => update('confirmDetails', e.target.checked)} /> I confirm all details are correct</label></div>
-    {success && <div className="admission-success"><strong>Student Registered Successfully!</strong><span>Admission Number: {success.admissionNo}</span><span>School Code: {success.schoolCode}</span><span>Parent Login: {success.phone || 'Father phone'} / Password: {success.password}</span><button type="button" className="secondary-button" onClick={() => window.print()}><Printer size={15} /> Print Admission Form</button></div>}
+    {success && <div className="admission-success"><strong>Student Registered Successfully!</strong><span>Admission Number: {success.admissionNo}</span><span>School Code: {success.schoolCode}</span><span>Parent Login: {success.phone || 'Father phone'} / Password: {success.password}</span><button type="button" className="secondary-button" onClick={() => printAdmissionForm(true)}><Printer size={15} /> Print Admission Form</button></div>}
     {submitError && <div className="form-error">{submitError}</div>}
     <button className="primary-button admission-submit" disabled={saving || numberLoading}><Save size={16} /> {saving ? 'Saving...' : 'Submit'}</button>
   </form>
@@ -1432,6 +1534,7 @@ function Attendance({ students, attendance, onSaveAttendance }) {
   const classOptions = Array.from(new Set(students.map(student => splitClassSection(student.className).className).filter(Boolean))).sort()
   const sectionOptions = Array.from(new Set(students.filter(student => !className || splitClassSection(student.className).className === className).map(student => splitClassSection(student.className).section).filter(Boolean))).sort()
   const selectedStudents = students.filter(student => {
+    if (!isActiveStudent(student)) return false
     const parts = splitClassSection(student.className)
     return parts.className === className && parts.section === section
   })
@@ -1494,7 +1597,7 @@ function Attendance({ students, attendance, onSaveAttendance }) {
     <div className="panel attendance-filter-panel">
       <label>Class<select value={className} onChange={event => setClassName(event.target.value)}><option value="">Select class</option>{classOptions.map(item => <option key={item}>{item}</option>)}</select></label>
       <label>Section<select value={section} onChange={event => setSection(event.target.value)}><option value="">Select section</option>{sectionOptions.map(item => <option key={item}>{item}</option>)}</select></label>
-      <label>Date<DatePicker value={date} onChange={setDate} /></label>
+      <div className="attendance-date-field"><span>Date</span><DatePicker value={date} onChange={setDate} max={today()} /></div>
       <label className="attendance-search">Search student<div className="table-search"><Search size={15} /><input value={search} onChange={event => setSearch(event.target.value)} placeholder="Name, admission no. or phone" /></div></label>
     </div>
     <div className="attendance-note"><Check size={15} /> All unselected students will be marked Present automatically. Existing attendance for the same class, section and date loads here for editing.</div>
@@ -1508,11 +1611,40 @@ function Attendance({ students, attendance, onSaveAttendance }) {
         return <div className="attendance-row smart-row" key={s.id}><div className="student-cell"><span className={`avatar tone-${s.tone}`}>{s.initials}</span><div><strong>{s.name}</strong><small>Adm/Roll: {s.roll} · {s.className}</small></div></div><div className="mark-control">{['P','A','L'].map(mark => <button key={mark} className={selected === mark ? `selected ${mark}` : ''} onClick={() => updateOne(s.id, mark)}>{mark === 'P' ? 'Present' : mark === 'A' ? 'Absent' : 'Leave'}</button>)}</div></div>
       })}{!filteredStudents.length && <div className="empty-state">{className && section ? 'No students match this search.' : 'Select class and section to load students.'}</div>}</div>
     </div>
+    <AttendanceHistory attendance={attendance} students={students} onDateClick={setDate} />
   </>
 }
 
+function AttendanceHistory({ attendance, students, onDateClick }) {
+  const dates = Object.keys(attendance).filter(d => d && Object.keys(attendance[d] || {}).length).sort().reverse().slice(0, 30)
+  if (!dates.length) return null
+  return <div className="panel" style={{ marginTop: 14 }}>
+    <div className="table-toolbar"><div><strong>Past attendance records</strong><small>{dates.length} dates with saved attendance · click a date to edit</small></div></div>
+    <div className="table-scroll"><table><thead><tr><th>Date</th><th>Present</th><th>Absent</th><th>Leave</th><th>Total marked</th><th>Rate</th><th></th></tr></thead><tbody>
+      {dates.map(d => {
+        const records = attendance[d] || {}
+        const entries = Object.values(records)
+        const present = entries.filter(v => normalizeAttendanceStatus(v) === 'P').length
+        const absent = entries.filter(v => normalizeAttendanceStatus(v) === 'A').length
+        const leave = entries.filter(v => normalizeAttendanceStatus(v) === 'L').length
+        const total = entries.length
+        const pct = total ? Math.round((present / total) * 100) : 0
+        return <tr key={d}>
+          <td><strong>{readableDate(d)}</strong></td>
+          <td style={{ color: '#168357' }}>{present}</td>
+          <td style={{ color: '#d14343' }}>{absent}</td>
+          <td style={{ color: '#c17a20' }}>{leave}</td>
+          <td>{total}</td>
+          <td><span className={`status ${pct >= 75 ? 'paid' : 'overdue'}`}>{pct}%</span></td>
+          <td><button className="text-button" onClick={() => onDateClick(d)}>View / Edit</button></td>
+        </tr>
+      })}
+    </tbody></table></div>
+  </div>
+}
+
 function PaymentModal({ students, close, onRecordPayment }) {
-  const pending = students.filter(student => student.fee !== 'Paid')
+  const pending = students.filter(student => isActiveStudent(student) && student.fee !== 'Paid')
   const [form, setForm] = useState({ studentId: pending[0]?.id || '', amount: 18500, method: 'UPI' })
   const [saving, setSaving] = useState(false)
   const submit = async event => {
@@ -1621,16 +1753,19 @@ function Notices({ notices, onAddNotice }) {
 const tones = ['blue', 'violet', 'green', 'orange', 'cyan', 'pink']
 
 function studentFromRow(row, index) {
-  const initials = row.full_name.split(/\s+/).map(part => part[0]).slice(0, 2).join('').toUpperCase()
-  const classLabel = `${row.class_name}-${row.section}`
+  const fullName = row.full_name || row.name || row.fullName || ''
+  const className = row.class_name || row.class || row.className || ''
+  const section = row.section || 'A'
+  const initials = fullName ? fullName.split(/\s+/).map(part => part[0]).slice(0, 2).join('').toUpperCase() : '?'
+  const classLabel = `${className}-${section}`
   return {
     id: row.id,
-    name: row.full_name,
-    roll: row.admission_number || row.admissionNo,
-    admissionNo: row.admission_number || row.admissionNo,
+    name: fullName,
+    roll: row.admission_number || row.admissionNo || row.roll || '',
+    admissionNo: row.admission_number || row.admissionNo || row.roll || '',
     className: classLabel,
-    guardian: row.guardian_name || 'Not provided',
-    phone: row.guardian_phone || 'Not provided',
+    guardian: row.guardian_name || row.fatherName || row.father_name || 'Not provided',
+    phone: row.guardian_phone || row.fatherPhone || row.father_phone || row.phone || 'Not provided',
     attendance: row.attendance_rate || 100,
     fee: row.fee_status || 'Pending',
     createdAt: row.createdAt || 0,
@@ -1903,24 +2038,68 @@ function useSchoolWorkspace(session) {
   useEffect(() => {
     if (!session || !isFirebaseConfigured) return
     let active = true
+    const controller = new AbortController()
+
+    async function safeRequest(path, token, options) {
+      try {
+        return await databaseRequest(path, token, options)
+      } catch (err) {
+        if (!active) return undefined
+        return null
+      }
+    }
+
+    // The primary school fetch must NOT be treated as "school absent" when it
+    // merely fails (network blip, token expiry, permission race). Otherwise an
+    // already-registered school gets bounced to the setup screen. Retry once,
+    // and record a hard failure so we can show a reload prompt instead of setup.
+    let primaryFailed = false
+    async function fetchPrimarySchool(path, token) {
+      for (let attempt = 0; attempt < 2; attempt += 1) {
+        try {
+          return await databaseRequest(path, token)
+        } catch (err) {
+          if (!active) return undefined
+          if (attempt === 1) {
+            primaryFailed = true
+            return null
+          }
+        }
+      }
+      return null
+    }
 
     async function load() {
       setWorkspace(current => ({ ...current, loading: true, error: '' }))
       try {
         const token = await session.getIdToken()
-        const schoolId = session.uid
-        let school = await databaseRequest(`schools/${schoolId}`, token).catch(() => null)
+        const ownSchoolId = session.uid
+        let schoolId = ownSchoolId
+        let workspaceRole = 'Owner'
+        let canMaintainWorkspace = true
+        let school = await fetchPrimarySchool(`schools/${schoolId}`, token)
+        if (!active) return
         const pendingProfile = JSON.parse(localStorage.getItem('northstar-pending-school-profile') || 'null')
-        const legacyUser = await databaseRequest(`users/${session.uid}`, token).catch(() => null)
+        const legacyUser = await safeRequest(`users/${session.uid}`, token)
+        const teacherIndex = !school?.profile ? await safeRequest(`teachersIndex/${session.uid}`, token) : null
+        if (!active) return
 
-        if (!school?.profile && legacyUser?.schoolId && legacyUser.schoolId !== schoolId) {
-          const legacySchool = await databaseRequest(`schools/${legacyUser.schoolId}`, token).catch(() => null)
-          if (legacySchool?.createdBy === session.uid) {
+        const linkedSchoolId = legacyUser?.schoolId || teacherIndex?.schoolId || ''
+        if (!school?.profile && linkedSchoolId && linkedSchoolId !== schoolId) {
+          const legacySchool = await safeRequest(`schools/${linkedSchoolId}`, token)
+          if (!active) return
+          if (legacySchool?.profile) {
+            schoolId = linkedSchoolId
+            school = legacySchool
+            const linkedRole = legacyUser?.role || teacherIndex?.role || teacherIndex?.employeeRole || 'teacher'
+            workspaceRole = roleLabel(linkedRole)
+            canMaintainWorkspace = ['owner', 'admin', 'administrator'].includes(String(linkedRole || '').toLowerCase())
+          } else if (legacySchool?.createdBy === session.uid) {
             const [legacyStudents, legacyFees, legacyAttendance, legacyNotices] = await Promise.all([
-              databaseRequest(`students/${legacyUser.schoolId}`, token).catch(() => null),
-              databaseRequest(`fees/${legacyUser.schoolId}`, token).catch(() => null),
-              databaseRequest(`attendance/${legacyUser.schoolId}`, token).catch(() => null),
-              databaseRequest(`notices/${legacyUser.schoolId}`, token).catch(() => null),
+              databaseRequest(`students/${linkedSchoolId}`, token).catch(() => null),
+              databaseRequest(`fees/${linkedSchoolId}`, token).catch(() => null),
+              databaseRequest(`attendance/${linkedSchoolId}`, token).catch(() => null),
+              databaseRequest(`notices/${linkedSchoolId}`, token).catch(() => null),
             ])
             school = {
               ...legacySchool,
@@ -1952,15 +2131,22 @@ function useSchoolWorkspace(session) {
         if (!school?.profile && pendingProfile) {
           await createSchoolRecord(session, token, pendingProfile)
           localStorage.removeItem('northstar-pending-school-profile')
-          school = await databaseRequest(`schools/${schoolId}`, token)
+          school = await safeRequest(`schools/${schoolId}`, token)
+          if (!active) return
         }
 
+        if (school === undefined) return
+
         if (!school?.profile) {
+          if (primaryFailed) {
+            if (active) setWorkspace(current => ({ ...current, loading: false, schoolId, needsSetup: false, error: 'We could not reach your school workspace. Please check your connection and reload — your data is safe.' }))
+            return
+          }
           if (active) setWorkspace(current => ({ ...current, loading: false, schoolId, needsSetup: true, error: '' }))
           return
         }
 
-        if (!school.profile.schoolCode) {
+        if (canMaintainWorkspace && !school.profile.schoolCode) {
           const code = generateSchoolCode(school.profile.schoolName || school.name || 'School')
           await databaseRequest('', token, { method: 'PATCH', body: {
             [`schools/${schoolId}/profile/schoolCode`]: code,
@@ -1969,7 +2155,7 @@ function useSchoolWorkspace(session) {
           school = { ...school, profile: { ...school.profile, schoolCode: code } }
         }
 
-        if (school.admissionSequenceVersion !== 1) {
+        if (canMaintainWorkspace && school.admissionSequenceVersion !== 1) {
           const orderedStudents = Object.entries(school.students || {}).sort(([, a], [, b]) => (a.createdAt || 0) - (b.createdAt || 0))
           const normalizedStudents = { ...(school.students || {}) }
           const admissionChanges = {
@@ -1990,17 +2176,23 @@ function useSchoolWorkspace(session) {
           }
         }
 
+        const subStatus = String(school.subscription?.status || 'trial').toLowerCase()
+        if (subStatus === 'suspended') {
+          if (active) setWorkspace(current => ({ ...current, loading: false, schoolId, needsSetup: false, error: 'Your school account has been suspended. Please contact the administrator to reactivate your subscription.' }))
+          return
+        }
+
         localStorage.setItem('northstar-school-id', schoolId)
         await databaseRequest(`schools/${schoolId}/lastLoginAt`, token, { method: 'PUT', body: Date.now() }).catch(() => {})
-        await databaseRequest(`users/${session.uid}`, token, { method: 'PUT', body: {
+        await databaseRequest(`users/${session.uid}`, token, { method: 'PATCH', body: {
           uid: session.uid,
           schoolId,
-          fullName: session.displayName || session.email.split('@')[0],
+          fullName: session.displayName || session.email?.split('@')[0] || 'User',
           email: session.email || '',
           photoURL: session.photoURL || '',
-          role: 'owner',
+          role: legacyUser?.role || (schoolId === ownSchoolId ? 'owner' : 'teacher'),
           lastLoginAt: Date.now(),
-        } })
+        } }).catch(() => {})
 
         const studentData = school.students || {}
         const noticeData = school.notices || {}
@@ -2022,7 +2214,7 @@ function useSchoolWorkspace(session) {
         }, {})
         const nextFees = feeData || {}
         const nextActivities = [
-          ...studentRows.map(row => ({ id: `student-${row.id}`, title: 'Student admitted', detail: `${row.full_name} joined Class ${row.class_name}-${row.section}`, at: row.createdAt || 0, icon: '+' })),
+          ...studentRows.map(row => ({ id: `student-${row.id}`, title: 'Student admitted', detail: `${row.full_name || row.name || ''} joined Class ${row.class_name || row.class || ''}-${row.section || 'A'}`, at: row.createdAt || 0, icon: '+' })),
           ...Object.entries(nextFees).map(([id, row]) => ({ id: `fee-${id}`, title: 'Fee payment received', detail: `${money(row.amount)} via ${row.method || 'payment'}`, at: row.paidAt || row.updatedAt || 0, icon: 'â‚¹' })),
           ...noticeRows.map(row => ({ id: `notice-${row.id}`, title: 'Notice published', detail: row.title, at: row.publishAt || 0, icon: 'N' })),
           ...Object.entries(attendanceData || {}).map(([id, row]) => ({ id: `attendance-${id}`, title: 'Attendance updated', detail: `${row.date} attendance marked`, at: row.updatedAt || 0, icon: 'âœ“' })),
@@ -2072,7 +2264,7 @@ function useSchoolWorkspace(session) {
           schoolProfile: school.profile,
           staffCount: school?.staffCount || 1,
           needsSetup: false,
-          role: 'Owner',
+          role: workspaceRole,
           error: '',
         })
       } catch (error) {
@@ -2081,7 +2273,7 @@ function useSchoolWorkspace(session) {
     }
 
     load()
-    return () => { active = false }
+    return () => { active = false; controller.abort() }
   }, [session, setAttendance, setEnquiries, setFees, setNotices, setStudents, setTimetableData, workspaceVersion])
 
   const createSchoolWorkspace = async profile => {
@@ -2179,13 +2371,16 @@ function useSchoolWorkspace(session) {
     }
     if (!developmentDemo) {
       const token = await session.getIdToken()
+      await databaseRequest(`schools/${workspace.schoolId}/students/${studentId}`, token, { method: 'PUT', body: row })
       const parentPhone = parentIdOf(row.parent_login_phone || row.father_phone || row.guardian_phone)
-      const parentRow = parentPhone ? buildParentAccount(await databaseRequest(`schools/${workspace.schoolId}/parents/${parentPhone}`, token).catch(() => null) || {}, studentId, { ...updated, phone: parentPhone }, workspace.schoolProfile) : null
-      await databaseRequest('', token, { method: 'PATCH', body: {
-        [`schools/${workspace.schoolId}/students/${studentId}`]: row,
-        ...(parentRow ? { [`schools/${workspace.schoolId}/parents/${parentPhone}`]: parentRow } : {}),
-      } })
-      if (parentRow) setParents(current => ({ ...current, [parentPhone]: parentRow }))
+      if (parentPhone) {
+        try {
+          const existingParent = await databaseRequest(`schools/${workspace.schoolId}/parents/${parentPhone}`, token).catch(() => null)
+          const parentRow = buildParentAccount(existingParent || {}, studentId, { ...updated, phone: parentPhone }, workspace.schoolProfile)
+          await databaseRequest(`schools/${workspace.schoolId}/parents/${parentPhone}`, token, { method: 'PUT', body: parentRow })
+          setParents(current => ({ ...current, [parentPhone]: parentRow }))
+        } catch (_) {}
+      }
     }
     setStudents(current => current.map((item, index) => item.id === studentId ? studentFromRow({ id: studentId, ...row }, index) : item))
     setActivities(current => [{ id: `student-update-${studentId}-${Date.now()}`, title: 'Student updated', detail: `${updated.name} moved to Class ${updated.className}`, at: row.updatedAt, icon: 'U' }, ...current])
@@ -3492,20 +3687,38 @@ export default function App() {
 
   useEffect(() => {
     if (!isFirebaseConfigured) return
+    const IDLE_TIMEOUT = 30 * 60 * 1000
+    let idleTimer = null
+    const resetIdleTimer = () => {
+      clearTimeout(idleTimer)
+      idleTimer = setTimeout(() => {
+        if (auth.currentUser) {
+          localStorage.removeItem('northstar-school-id')
+          signOut(auth)
+        }
+      }, IDLE_TIMEOUT)
+    }
+    const events = ['mousedown', 'keydown', 'touchstart', 'scroll']
+    events.forEach(event => window.addEventListener(event, resetIdleTimer, { passive: true }))
+    resetIdleTimer()
     const unsubscribe = onAuthStateChanged(auth, user => {
       setSession(user)
       setAuthLoading(false)
       if (user) {
+        resetIdleTimer()
         if (sawLoggedOutState.current) {
           setLoginSplash(true)
         }
         return
       }
+      clearTimeout(idleTimer)
       sawLoggedOutState.current = true
       setLoginSplash(false)
     })
     return () => {
       unsubscribe()
+      clearTimeout(idleTimer)
+      events.forEach(event => window.removeEventListener(event, resetIdleTimer))
     }
   }, [])
 
@@ -3521,7 +3734,7 @@ export default function App() {
   if (data.workspace.needsSetup) return <SchoolSetup user={session} onSubmit={data.createSchoolWorkspace} />
   if (loginSplash) return <SplashScreen onComplete={() => { setLoginSplash(false); setPage('dashboard') }} />
   if (data.workspace.loading) return <SplashScreen persistent />
-  if (data.workspace.error) return <main className="setup-error"><ShieldCheck size={30} /><h1>Workspace unavailable</h1><p>{data.workspace.error}</p><button className="secondary-button" onClick={() => signOut(auth)}>Sign out</button></main>
+  if (data.workspace.error) return <main className="setup-error"><ShieldCheck size={30} /><h1>Workspace unavailable</h1><p>{data.workspace.error}</p><div style={{ display: 'flex', gap: 10 }}><button className="primary-button" onClick={() => window.location.reload()}>Reload</button><button className="secondary-button" onClick={() => signOut(auth)}>Sign out</button></div></main>
 
   const userName = session?.displayName || session?.email?.split('@')[0] || 'Demo Admin'
   const profile = {

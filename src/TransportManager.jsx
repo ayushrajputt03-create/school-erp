@@ -28,6 +28,20 @@ const fileToDataUrl = file => new Promise((resolve, reject) => {
   reader.onerror = () => reject(new Error('Could not read file.'))
   reader.readAsDataURL(file)
 })
+const compressPhoto = file => new Promise(resolve => {
+  const img = new Image()
+  img.onload = () => {
+    const max = 300
+    let w = img.width, h = img.height
+    if (w > max || h > max) { const r = Math.min(max / w, max / h); w = Math.round(w * r); h = Math.round(h * r) }
+    const c = document.createElement('canvas'); c.width = w; c.height = h
+    c.getContext('2d').drawImage(img, 0, 0, w, h)
+    c.toBlob(blob => resolve(blob || file), 'image/jpeg', 0.7)
+    URL.revokeObjectURL(img.src)
+  }
+  img.onerror = () => resolve(file)
+  img.src = URL.createObjectURL(file)
+})
 const routeNumber = routes => `RT-${String(Math.max(0, ...values(routes).map(item => Number(String(item.routeNumber || '').match(/(\d+)$/)?.[1] || 0))) + 1).padStart(3, '0')}`
 const expiringIn = date => {
   if (!date) return null
@@ -175,7 +189,7 @@ function DriversPage({ transport, saveItem, deleteItem }) {
   const [editing, setEditing] = useState(null)
   const [form, setForm] = useState({ name: '', phone: '', licenseNumber: '', licenseType: 'Heavy', licenseExpiry: today(), status: 'Active', vehicleId: '', routeId: '' })
   const rows = activeDrivers(transport).filter(item => (status === 'All' || item.status === status) && `${item.name} ${item.phone} ${item.licenseNumber}`.toLowerCase().includes(query.toLowerCase()))
-  const onPhoto = async file => file && setForm({ ...form, photoURL: await fileToDataUrl(file) })
+  const onPhoto = async file => { if (!file) return; const compressed = await compressPhoto(file); setForm({ ...form, photoURL: await fileToDataUrl(compressed) }) }
   const submit = async event => {
     event.preventDefault()
     const vehicle = vehicleById(transport, form.vehicleId)
