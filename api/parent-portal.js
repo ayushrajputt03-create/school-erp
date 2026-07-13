@@ -249,11 +249,13 @@ module.exports = async function handler(request, response) {
       const ensured = await ensureParent(database, schoolId, school, phone)
       if (!ensured) {
         const studentCount = Object.keys(school.students || {}).length
-        const samplePhones = Object.entries(school.students || {}).slice(0, 5).map(([id, row]) => {
-          const ph = studentParentPhone(row)
-          return `${(row.full_name || row.name || '?').slice(0, 15)}:${ph || 'NONE'}`
-        })
-        throw new Error(`Phone number not registered. Contact school. [debug: ${studentCount} students, looking for ${phone}, samples: ${samplePhones.join(', ')}]`)
+        const target = phone
+        const matchByPhone = Object.entries(school.students || {}).filter(([, row]) => {
+          const allVals = Object.values(row).map(v => String(v || ''))
+          return allVals.some(v => v.includes(target))
+        }).map(([id, row]) => `${id}:${row.full_name || row.name || '?'}|plp=${row.parent_login_phone || ''}|fp=${row.father_phone || ''}|gp=${row.guardian_phone || ''}|ph=${row.phone || ''}`)
+        const kunal = Object.entries(school.students || {}).filter(([, row]) => String(row.full_name || row.name || '').toLowerCase().includes('kunal')).map(([id, row]) => `${id}:${JSON.stringify(Object.entries(row).filter(([k]) => k.toLowerCase().includes('phone')).reduce((o, [k, v]) => ({...o, [k]: v}), {}))}`)
+        throw new Error(`Phone not registered. [${studentCount} students, target=${target}, phoneMatch=${matchByPhone.length ? matchByPhone.join(';') : 'NONE'}, kunal=${kunal.length ? kunal.join(';') : 'NOT_FOUND'}]`)
       }
       const { parentId, parent } = ensured
       if (parent.status === 'inactive') throw new Error('Parent account is inactive. Contact school.')
