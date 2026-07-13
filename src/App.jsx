@@ -57,7 +57,7 @@ const isActiveStudent = student => studentStatusKey(student) === 'active'
 
 import { onAuthStateChanged, signOut } from 'firebase/auth'
 import { deleteObject, getDownloadURL, ref as storageRef, uploadBytes } from 'firebase/storage'
-import { auth, isFirebaseConfigured, storage } from './lib/firebase'
+import { auth, isFirebaseConfigured, storage, firebaseApp } from './lib/firebase'
 
 const databaseUrl = import.meta.env.VITE_FIREBASE_DATABASE_URL?.replace(/\/$/, '')
 const useFirebaseStorage = import.meta.env.VITE_USE_FIREBASE_STORAGE === 'true'
@@ -2138,7 +2138,8 @@ function useSchoolWorkspace(session) {
         if (school === undefined) return
 
         if (!school?.profile) {
-          if (primaryFailed) {
+          const hadSchoolBefore = localStorage.getItem('northstar-school-id')
+          if (primaryFailed || hadSchoolBefore) {
             if (active) setWorkspace(current => ({ ...current, loading: false, schoolId, needsSetup: false, error: 'We could not reach your school workspace. Please check your connection and reload — your data is safe.' }))
             return
           }
@@ -2275,6 +2276,107 @@ function useSchoolWorkspace(session) {
     load()
     return () => { active = false; controller.abort() }
   }, [session, setAttendance, setEnquiries, setFees, setNotices, setStudents, setTimetableData, workspaceVersion])
+
+  useEffect(() => {
+    if (!isFirebaseConfigured || !firebaseApp || !workspace.schoolId || workspace.needsSetup || workspace.loading) return
+    const schoolId = workspace.schoolId
+    let cancelled = false
+    const unsubs = []
+
+    import('firebase/database').then(({ ref: dbRef, onValue, off, getDatabase }) => {
+      if (cancelled) return
+      let rtdb
+      try { rtdb = getDatabase(firebaseApp) } catch { return }
+
+      function listen(path, handler) {
+        const r = dbRef(rtdb, path)
+        onValue(r, handler, { onlyOnce: false })
+        unsubs.push(() => off(r, 'value', handler))
+      }
+
+      listen(`schools/${schoolId}/students`, snap => {
+        const data = snap.val() || {}
+        const rows = Object.entries(data).map(([id, row]) => ({ id, ...row })).sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0))
+        setStudents(rows.map(studentFromRow))
+      })
+
+      listen(`schools/${schoolId}/attendance`, snap => {
+        const data = snap.val() || {}
+        const byDate = Object.values(data).reduce((dates, record) => {
+          const studentId = record.studentId || record.student_id
+          if (!studentId || !record.date) return dates
+          dates[record.date] ||= {}
+          dates[record.date][studentId] = normalizeAttendanceStatus(record.mark || record.status)
+          return dates
+        }, {})
+        setAttendance(byDate)
+      })
+
+      listen(`schools/${schoolId}/fees`, snap => {
+        setFees(snap.val() || {})
+      })
+
+      listen(`schools/${schoolId}/notices`, snap => {
+        const data = snap.val() || {}
+        const rows = Object.entries(data).map(([id, row]) => ({ id, ...row })).sort((a, b) => (b.publishAt || 0) - (a.publishAt || 0))
+        setNotices(rows.map(noticeFromRow))
+      })
+
+      listen(`schools/${schoolId}/staff`, snap => {
+        setStaff(snap.val() || {})
+      })
+
+      listen(`schools/${schoolId}/staffAttendance`, snap => {
+        setStaffAttendance(snap.val() || {})
+      })
+
+      listen(`schools/${schoolId}/leave`, snap => {
+        setLeave(snap.val() || {})
+      })
+
+      listen(`schools/${schoolId}/parents`, snap => {
+        setParents(snap.val() || {})
+      })
+
+      listen(`schools/${schoolId}/certificates`, snap => {
+        setCertificates(snap.val() || {})
+      })
+
+      listen(`schools/${schoolId}/certificateSettings`, snap => {
+        setCertificateSettings(snap.val() || {})
+      })
+
+      listen(`schools/${schoolId}/homework`, snap => {
+        setHomework(snap.val() || {})
+      })
+
+      listen(`schools/${schoolId}/transport`, snap => {
+        setTransport(snap.val() || { routes: {}, vehicles: {}, drivers: {}, allocations: {}, fees: {}, attendance: {}, settings: {} })
+      })
+
+      listen(`schools/${schoolId}/expenses`, snap => {
+        setExpenses(snap.val() || {})
+      })
+
+      listen(`schools/${schoolId}/feeManager`, snap => {
+        const data = snap.val() || {}
+        setFeeManager({
+          groups: data.groups || {},
+          structures: data.structures || {},
+          fines: data.fines || {},
+          settings: data.settings || {},
+          deleted: data.deleted || {},
+        })
+      })
+
+      listen(`schools/${schoolId}/profile`, snap => {
+        const profile = snap.val()
+        if (profile) setWorkspace(current => ({ ...current, schoolProfile: profile, schoolName: profile.schoolName || current.schoolName }))
+      })
+    }).catch(() => {})
+
+    return () => { cancelled = true; unsubs.forEach(fn => fn()) }
+  }, [workspace.schoolId, workspace.needsSetup, workspace.loading])
 
   const createSchoolWorkspace = async profile => {
     const token = await session.getIdToken()
@@ -3731,10 +3833,9 @@ export default function App() {
   if (authLoading) return <SplashScreen persistent />
   if (isFirebaseConfigured && !session) return <AuthScreen />
 
-  if (data.workspace.needsSetup) return <SchoolSetup user={session} onSubmit={data.createSchoolWorkspace} />
-  if (loginSplash) return <SplashScreen onComplete={() => { setLoginSplash(false); setPage('dashboard') }} />
-  if (data.workspace.loading) return <SplashScreen persistent />
+  if (data.workspace.loading || loginSplash) return <SplashScreen persistent={data.workspace.loading} onComplete={loginSplash ? () => { setLoginSplash(false); setPage('dashboard') } : undefined} />
   if (data.workspace.error) return <main className="setup-error"><ShieldCheck size={30} /><h1>Workspace unavailable</h1><p>{data.workspace.error}</p><div style={{ display: 'flex', gap: 10 }}><button className="primary-button" onClick={() => window.location.reload()}>Reload</button><button className="secondary-button" onClick={() => signOut(auth)}>Sign out</button></div></main>
+  if (data.workspace.needsSetup) return <SchoolSetup user={session} onSubmit={data.createSchoolWorkspace} />
 
   const userName = session?.displayName || session?.email?.split('@')[0] || 'Demo Admin'
   const profile = {

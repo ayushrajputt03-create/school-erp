@@ -77,11 +77,13 @@ async function findSchool(database, schoolCode) {
 }
 
 function studentParentPhone(row) {
-  return digits(row.parent_login_phone || row.parentLoginPhone || row.father_phone || row.fatherPhone || row.guardian_phone || row.phone || row.mother_phone)
+  const raw = digits(row.parent_login_phone || row.parentLoginPhone || row.father_phone || row.fatherPhone || row.guardian_phone || row.guardianPhone || row.phone || row.mobile || row.contactNumber || row.mother_phone || row.motherPhone)
+  return raw.length > 10 ? raw.slice(-10) : raw
 }
 
 async function ensureParent(database, schoolId, school, phone) {
-  const parentId = digits(phone)
+  const rawDigits = digits(phone)
+  const parentId = rawDigits.length > 10 ? rawDigits.slice(-10) : rawDigits
   const parentRef = database.ref(`schools/${schoolId}/parents/${parentId}`)
   const parentSnap = await parentRef.once('value')
   let parent = parentSnap.val()

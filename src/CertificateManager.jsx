@@ -7,6 +7,7 @@ import {
 } from 'lucide-react'
 import DatePicker from './DatePicker'
 import { classOptions } from './schoolOptions'
+import { safePrint as sharedSafePrint } from './print-utils'
 import './CertificateManager.css'
 
 const certificateTypes = [
@@ -81,38 +82,8 @@ const schoolPhone = (school = {}, settings = {}) => settings.phone || settings.s
 const schoolEmail = (school = {}, settings = {}) => settings.email || settings.schoolEmail || school.schoolEmail || school.email || ''
 const admitTime = (from, to) => [from, to].filter(Boolean).join(' - ') || ''
 const defaultDateSheetRows = ['Mathematics', 'Science', 'English', 'Hindi'].map(subject => ({ subject, date: '', fromTime: '', toTime: '' }))
-const waitFrame = () => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))
-const waitForPrintableAssets = async (selector = '.formal-certificate, .admit-card') => {
-  await waitFrame()
-  await new Promise(resolve => setTimeout(resolve, 250))
-  const root = document.querySelector(selector)
-  const images = Array.from(root?.querySelectorAll('img') || [])
-  await Promise.all(images.map(image => {
-    if (image.complete) return Promise.resolve()
-    return new Promise(resolve => {
-      const done = () => resolve()
-      image.addEventListener('load', done, { once: true })
-      image.addEventListener('error', done, { once: true })
-      setTimeout(done, 1200)
-    })
-  }))
-  await waitFrame()
-}
-const safePrint = async (selector = '.certificate-preview-shell') => {
-  document.body.classList.add('erp-printing')
-  document.querySelectorAll('.print-target').forEach(node => node.classList.remove('print-target'))
-  const target = document.querySelector(selector)
-  target?.classList.add('print-target')
-  const cleanup = () => {
-    document.body.classList.remove('erp-printing')
-    target?.classList.remove('print-target')
-    window.removeEventListener('afterprint', cleanup)
-  }
-  window.addEventListener('afterprint', cleanup, { once: true })
-  await waitForPrintableAssets(selector)
-  window.print()
-  setTimeout(cleanup, 2500)
-}
+const safePrint = (selector = '.certificate-preview-shell') =>
+  sharedSafePrint(selector, { pageSize: 'A4', pageMargin: '10mm' })
 const admitPrintCss = `
   @page { size: A4 portrait; margin: 10mm; }
   * { box-sizing: border-box; }
@@ -419,7 +390,6 @@ function CharacterCertificate({ student, form, school, settings, certificateNumb
     footerLocation: form.characterFooterLocation || location,
   }
   return <article className="formal-certificate character-template">
-    {logo && <div className="cert-watermark" aria-hidden="true"><img src={logo} alt="" /></div>}
     {duplicate && <div className="duplicate-watermark">DUPLICATE</div>}
     <div className="character-top-serial">Serial No: {display.serial}</div>
     <header className="character-certificate-header">
@@ -480,7 +450,6 @@ function TransferCertificate({ student, form, school, settings, certificateNumbe
     ['Name Of Previous School', display.previousSchool],
   ]
   return <article className="formal-certificate tc-template">
-    {logo && <div className="cert-watermark" aria-hidden="true"><img src={logo} alt="" /></div>}
     {duplicate && <div className="duplicate-watermark">DUPLICATE</div>}
     <header className="tc-school-top">
       <h1>{schoolName}</h1>
@@ -528,7 +497,6 @@ function SimpleCertificate({ type, student, form, school, settings, certificateN
     <>We congratulate {p.object} for this achievement and wish {p.object} continued success.</>,
   ]
   return <article className={`formal-certificate simple-template ${type}-template`}>
-    {logo && <div className="cert-watermark" aria-hidden="true"><img src={logo} alt="" /></div>}
     {duplicate && <div className="duplicate-watermark">DUPLICATE</div>}
     <SchoolHeader school={school} settings={settings} student={student} photoUrl={photoUrl} />
     <FormalTitle title={type === 'sports' ? 'CERTIFICATE OF ACHIEVEMENT' : titles[type] || 'SCHOOL CERTIFICATE'} certificateNumber={certificateNumber} issueDate={form.issueDate} />

@@ -1,6 +1,7 @@
 import React from 'react'
 import { createPortal } from 'react-dom'
 import { Printer, X } from 'lucide-react'
+import { safePrint } from './print-utils'
 import './FeeReceipt.css'
 
 const money = value => new Intl.NumberFormat('en-IN', {
@@ -79,7 +80,7 @@ export default function FeeReceipt({ receipt, student, school, settings = {}, on
         </div>
         <div>
           <button className="secondary-button" type="button" onClick={onClose}><X size={16} /> Close</button>
-          <button className="primary-button" type="button" onClick={() => window.print()}><Printer size={16} /> Print Receipt</button>
+          <button className="primary-button" type="button" onClick={() => safePrint('#printable-fee-receipt', { pageSize: 'A5', pageMargin: '8mm' })}><Printer size={16} /> Print Receipt</button>
         </div>
       </div>
 

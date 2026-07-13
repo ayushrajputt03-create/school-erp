@@ -152,33 +152,25 @@
 .admit-signatures div{flex:1;min-width:0}
 .admit-signatures .principal{grid-column:auto!important;justify-self:auto!important;width:auto!important}
 
-@page{size:A4;margin:10mm}
+/* Ctrl+P fallback: hide certificate chrome, show document */
 @media print{
-  html,body,#root{width:210mm!important;height:auto!important;margin:0!important;padding:0!important;background:#fff!important;overflow:visible!important}
-  body *{visibility:hidden!important}
-  .formal-certificate,.formal-certificate *,
-  .admit-print-grid,.admit-print-grid *,
-  .admit-card,.admit-card *{visibility:visible!important}
-  nav,aside,.sidebar,.topbar,.app-sidebar,.app-topbar,
   .certificate-menu,.section-actions,.certificate-preview-toolbar,
   .certificate-form-panel,.certificate-generator-heading,.duplicate-warning,
   .certificate-search,.certificate-type-grid,.certificate-history,.certificate-settings,
-  .no-print,.admit-tabs,.admit-filter-panel,.admit-date-sheet-form{display:none!important}
-  .app-shell,.main-area,.page-content,.certificate-module,
-  .certificate-workspace,.certificate-inline-preview,
+  .admit-tabs,.admit-filter-panel,.admit-date-sheet-form{display:none!important}
+  .certificate-module,.certificate-workspace,.certificate-inline-preview,
   .certificate-preview-overlay,.certificate-preview-shell,
   .admit-module,.admit-print-grid{
     display:block!important;position:static!important;width:auto!important;height:auto!important;min-height:0!important;margin:0!important;padding:0!important;background:transparent!important;box-shadow:none!important;overflow:visible!important;border:0!important
   }
   .formal-certificate{
-    display:block!important;position:fixed!important;left:0!important;top:0!important;width:190mm!important;min-width:190mm!important;max-width:190mm!important;height:277mm!important;min-height:277mm!important;max-height:277mm!important;margin:0!important;padding:12mm!important;background:#fff!important;color:#000!important;border:2px solid #000!important;border-radius:0!important;box-shadow:none!important;overflow:hidden!important;page-break-after:always!important;page-break-inside:avoid!important;break-inside:avoid!important;z-index:99999!important
+    display:block!important;width:190mm!important;min-width:190mm!important;max-width:190mm!important;height:277mm!important;min-height:277mm!important;max-height:277mm!important;margin:0!important;padding:12mm!important;background:#fff!important;color:#000!important;border:2px solid #000!important;border-radius:0!important;box-shadow:none!important;overflow:hidden!important;page-break-after:always!important;page-break-inside:avoid!important;break-inside:avoid!important
   }
   .admit-card{
     display:block!important;position:relative!important;width:190mm!important;min-width:190mm!important;max-width:190mm!important;min-height:277mm!important;height:auto!important;max-height:none!important;margin:0 auto!important;padding:12mm!important;background:#fff!important;color:#000!important;border:2px solid #000!important;border-radius:0!important;box-shadow:none!important;overflow:hidden!important;page-break-after:always!important;page-break-inside:avoid!important;break-inside:avoid!important
   }
   .formal-certificate::after,.admit-card::after{content:""!important;position:absolute!important;inset:8px!important;border:1px solid #000!important;display:block!important;visibility:visible!important;pointer-events:none!important}
-  .formal-certificate>*,
-  .admit-card>*{position:relative!important;z-index:6!important}
+  .formal-certificate>*,.admit-card>*{position:relative!important;z-index:6!important}
   .formal-school-header,.character-top,.tc-school-top,.admit-school-header{page-break-inside:avoid!important;break-inside:avoid!important}
   .admit-school-header{padding:8mm 9mm!important;border:0!important}
   .admit-school-copy h1{font-size:22pt!important;line-height:1.05!important;white-space:normal!important;overflow-wrap:anywhere!important}
@@ -194,10 +186,8 @@
   .formal-signatures,.tc-signatures,.character-footer{page-break-inside:avoid!important;break-inside:avoid!important}
 }
 
+/* safePrint overrides (body.erp-printing + .print-target from print-shared.css) */
 @media print{
-  body.erp-printing *{visibility:hidden!important}
-  body.erp-printing .print-target,
-  body.erp-printing .print-target *{visibility:visible!important}
   body.erp-printing .certificate-preview-overlay,
   body.erp-printing .certificate-preview-shell,
   body.erp-printing .admit-print-grid{

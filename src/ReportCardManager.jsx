@@ -4,6 +4,7 @@ import {
   Printer, Save, Search, Trash2, Trophy, Unlock, Users,
 } from 'lucide-react'
 import DatePicker from './DatePicker'
+import { safePrint as sharedSafePrint } from './print-utils'
 import './ReportCardManager.css'
 
 const examPresets = [
@@ -36,20 +37,7 @@ function defaultExam(id = '') {
 }
 
 function safePrint(selector) {
-  document.body.classList.add('report-printing')
-  document.querySelectorAll('.report-print-target').forEach(node => node.classList.remove('report-print-target'))
-  const target = document.querySelector(selector)
-  target?.classList.add('report-print-target')
-  const cleanup = () => {
-    document.body.classList.remove('report-printing')
-    target?.classList.remove('report-print-target')
-    window.removeEventListener('afterprint', cleanup)
-  }
-  window.addEventListener('afterprint', cleanup, { once: true })
-  setTimeout(() => {
-    window.print()
-    setTimeout(cleanup, 2500)
-  }, 450)
+  sharedSafePrint(selector, { pageSize: 'A4', pageMargin: '10mm', delay: 450 })
 }
 
 async function downloadReportPdf(filename = 'report-card.pdf') {
