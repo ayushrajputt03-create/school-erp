@@ -2460,6 +2460,11 @@ function useSchoolWorkspace(session) {
     const existing = students.find(item => item.id === studentId)
     if (!existing) throw new Error('Student not found.')
     const updated = { ...existing, ...updates, roll: existing.roll, admissionNo: existing.admissionNo || existing.roll }
+    const newPhone = updates.fatherPhone || updates.phone || ''
+    if (newPhone) {
+      updated.parentLoginPhone = newPhone
+      if (!updates.fatherPhone) updated.fatherPhone = newPhone
+    }
     const row = studentToRow(updated)
     row.admission_number = String(existing.roll)
     row.updatedAt = Date.now()
