@@ -168,9 +168,10 @@
   }
   body.erp-printing .print-target .tc-template{padding:8mm!important;font-family:Arial,sans-serif!important}
   body.erp-printing .print-target .tc-school-top h1{font-size:20pt!important;line-height:1.05!important;margin:0!important}
-  body.erp-printing .print-target .tc-title-row{grid-template-columns:26mm 1fr 31mm!important;gap:8mm!important;margin:4mm 0 3mm!important}
-  body.erp-printing .print-target .tc-template .formal-logo{width:22mm!important;height:22mm!important}
+  body.erp-printing .print-target .tc-title-row{grid-template-columns:32mm 1fr 32mm!important;gap:6mm!important;margin:4mm 0 3mm!important}
+  body.erp-printing .print-target .tc-template .formal-logo{width:28mm!important;height:28mm!important}
   body.erp-printing .print-target .tc-template .formal-student-photo{width:28mm!important;height:34mm!important}
+  body.erp-printing .print-target .tc-title{font-size:18pt!important;padding:8px 24px!important;line-height:1.2!important}
   body.erp-printing .print-target .tc-student-section{grid-template-columns:1fr 30mm!important;gap:5mm!important}
   body.erp-printing .print-target .tc-left-details{font-size:7.8pt!important;gap:1.1mm!important}
   body.erp-printing .print-target .tc-left-details>div{grid-template-columns:39mm 1fr!important;min-height:4.6mm!important}
