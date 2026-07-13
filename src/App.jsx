@@ -611,7 +611,7 @@ function SchoolProfile({ profile, students, staff, save }) {
     <section className="panel school-profile-details">
       {[['School Name', profile.schoolName], ['School Code', profile.schoolCode], ['Email', profile.email], ['Phone', profile.phone], ['Address', [profile.address, profile.city, profile.state, profile.pincode].filter(Boolean).join(', ')], ['Affiliated To', profile.affiliatedTo], ['Affiliation No', profile.affiliationNo], ['UDISE No', profile.udiseNo], ['Board', profile.board], ['Principal', profile.principalName], ['Academic Year', profile.academicYear]].map(([label, value]) => <div key={label}><span>{label}</span><strong>{value || 'Not provided'}</strong></div>)}
     </section>
-    {editing && <div className="modal-backdrop"><form className="modal" onSubmit={submit}>
+    {editing && <div className="modal-backdrop"><form className="modal profile-edit-modal" onSubmit={submit}>
       <div className="modal-header"><div><h3>Edit school profile</h3><p>Update the identity shown across your workspace.</p></div><button type="button" className="icon-button" onClick={() => setEditing(false)}><X size={18} /></button></div>
       <div className="form-grid">
         <label className="full">School Name<input required value={form.schoolName || ''} onChange={e => setForm({ ...form, schoolName: e.target.value })} /></label>
@@ -3137,13 +3137,16 @@ function useSchoolWorkspace(session) {
     // Prefer the row's own photo; fall back to bytes we already hold for a student whose photo
     // lives in studentPhotos, so an unrelated edit never blanks the image on screen.
     const localPhoto = inlinePhoto || photoCacheRef.current[studentId] || existing.photoUrl || ''
+    const rowIndex = students.findIndex(item => item.id === studentId)
+    const normalizedStudent = studentFromRow({ id: studentId, ...row }, rowIndex >= 0 ? rowIndex : 0)
+    const updatedStudent = normalizedStudent.photoUrl ? normalizedStudent : { ...normalizedStudent, photoUrl: localPhoto }
     setStudents(current => current.map((item, index) => {
       if (item.id !== studentId) return item
       const next = studentFromRow({ id: studentId, ...row }, index)
       return next.photoUrl ? next : { ...next, photoUrl: localPhoto }
     }))
     setActivities(current => [{ id: `student-update-${studentId}-${Date.now()}`, title: 'Student updated', detail: `${updated.name} moved to Class ${updated.className}`, at: row.updatedAt, icon: 'U' }, ...current])
-    return updated
+    return updatedStudent
   }
 
   // Soft-delete: archive each student's full record to deletedStudents/{id} (with who/when/why),
