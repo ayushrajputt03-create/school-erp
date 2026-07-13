@@ -27,8 +27,8 @@ const classOptions = students => [...new Set(students.map(student => classParts(
 const sectionOptions = students => [...new Set(students.map(student => classParts(student.className).section).filter(Boolean))].sort()
 const profilePhoto = student => student?.photoUrl || student?.photo || student?.photoURL || student?.imageUrl || ''
 const reportKey = (examId, studentId) => `${examId}_${studentId}`
-const gradeFor = percent => percent >= 90 ? 'A+' : percent >= 80 ? 'A' : percent >= 70 ? 'B+' : percent >= 60 ? 'B' : percent >= 50 ? 'C' : 'F'
-const percentTone = percent => percent >= 90 ? 'gold' : percent >= 75 ? 'green' : percent >= 60 ? 'blue' : percent >= 40 ? 'yellow' : 'red'
+const gradeFor = percent => percent >= 91 ? 'A1' : percent >= 81 ? 'A2' : percent >= 71 ? 'B1' : percent >= 61 ? 'B2' : percent >= 51 ? 'C1' : percent >= 41 ? 'C2' : percent >= 33 ? 'D' : 'E'
+const percentTone = percent => percent >= 91 ? 'gold' : percent >= 71 ? 'green' : percent >= 51 ? 'blue' : percent >= 33 ? 'yellow' : 'red'
 const resultStatus = (subjects, passingMarks) => subjects.every(row => Number(row.obtained || 0) >= Number(row.passingMarks || passingMarks || 33)) ? 'Pass' : 'Fail'
 
 function defaultExam(id = '') {

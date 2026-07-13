@@ -2176,6 +2176,12 @@ function useSchoolWorkspace(session) {
           }
         }
 
+        const subStatus = String(school.subscription?.status || 'trial').toLowerCase()
+        if (subStatus === 'suspended') {
+          if (active) setWorkspace(current => ({ ...current, loading: false, schoolId, needsSetup: false, error: 'Your school account has been suspended. Please contact the administrator to reactivate your subscription.' }))
+          return
+        }
+
         localStorage.setItem('northstar-school-id', schoolId)
         await databaseRequest(`schools/${schoolId}/lastLoginAt`, token, { method: 'PUT', body: Date.now() }).catch(() => {})
         await databaseRequest(`users/${session.uid}`, token, { method: 'PATCH', body: {
@@ -3681,20 +3687,38 @@ export default function App() {
 
   useEffect(() => {
     if (!isFirebaseConfigured) return
+    const IDLE_TIMEOUT = 30 * 60 * 1000
+    let idleTimer = null
+    const resetIdleTimer = () => {
+      clearTimeout(idleTimer)
+      idleTimer = setTimeout(() => {
+        if (auth.currentUser) {
+          localStorage.removeItem('northstar-school-id')
+          signOut(auth)
+        }
+      }, IDLE_TIMEOUT)
+    }
+    const events = ['mousedown', 'keydown', 'touchstart', 'scroll']
+    events.forEach(event => window.addEventListener(event, resetIdleTimer, { passive: true }))
+    resetIdleTimer()
     const unsubscribe = onAuthStateChanged(auth, user => {
       setSession(user)
       setAuthLoading(false)
       if (user) {
+        resetIdleTimer()
         if (sawLoggedOutState.current) {
           setLoginSplash(true)
         }
         return
       }
+      clearTimeout(idleTimer)
       sawLoggedOutState.current = true
       setLoginSplash(false)
     })
     return () => {
       unsubscribe()
+      clearTimeout(idleTimer)
+      events.forEach(event => window.removeEventListener(event, resetIdleTimer))
     }
   }, [])
 

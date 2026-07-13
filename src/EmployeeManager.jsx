@@ -141,7 +141,7 @@ function EmployeeForm({ staff, config, saveEmployee, initial, cancelEdit, onSave
   const [form, setForm] = useState(initial || {
     employeeCode: nextCode, firstName: '', lastName: '', fatherName: '', motherName: '',
     gender: '', dob: '', phone: '', email: '', departmentId: '', designationId: '',
-    joiningDate: today(), salary: '', address: '', aadhaar: '', photo: null,
+    joiningDate: today(), salary: '', address: '', aadhaar: '', photo: null, employeeStatus: 'active',
   })
   const [message, setMessage] = useState('')
   const [error, setError] = useState('')
@@ -261,6 +261,7 @@ function EmployeeForm({ staff, config, saveEmployee, initial, cancelEdit, onSave
       <label>Joining Date*<DatePicker required value={form.joiningDate} onChange={value => field('joiningDate', value)} /></label>
       <label>Salary<input type="number" min="0" value={form.salary} onChange={e => field('salary', e.target.value)} /></label>
       <label>Aadhaar Card<input value={form.aadhaar} onChange={e => field('aadhaar', e.target.value)} /></label>
+      <label>Status<select value={form.employeeStatus || 'active'} onChange={e => field('employeeStatus', e.target.value)}><option value="active">Active</option><option value="inactive">Inactive</option><option value="resigned">Resigned</option><option value="terminated">Terminated</option></select></label>
       <label className="employee-address">Address<textarea value={form.address} onChange={e => field('address', e.target.value)} /></label>
       <label className="employee-photo">Photo upload<input type="file" accept="image/jpeg,image/png,image/webp" onChange={choosePhoto} /><span>{photoPreview ? <img src={photoPreview} alt="Employee preview" /> : <Upload size={17} />}{form.photo?.name || (photoPreview ? 'Change employee photo' : 'Choose employee photo')}</span>{photoPreview && <button type="button" onClick={removePhoto}>Remove photo</button>}</label>
       {isTeacherDept && <>
@@ -300,9 +301,16 @@ function EmployeeForm({ staff, config, saveEmployee, initial, cancelEdit, onSave
 function EmployeeRegister({ staff, config, deleteEmployee, openAdd, editEmployee }) {
   const [searchBy, setSearchBy] = useState('All')
   const [query, setQuery] = useState('')
+  const [statusFilter, setStatusFilter] = useState('active')
   const departmentName = id => config.departments?.[id]?.name || '—'
   const designationName = id => config.designations?.[id]?.name || '—'
+  const statusBadge = status => {
+    const label = { active: 'Active', inactive: 'Inactive', resigned: 'Resigned', terminated: 'Terminated' }[status] || 'Active'
+    const color = { active: '#2d6a4f', inactive: '#b8860b', resigned: '#c62828', terminated: '#c62828' }[status] || '#2d6a4f'
+    return <span style={{ fontSize: 11, fontWeight: 700, padding: '2px 8px', borderRadius: 99, background: `${color}18`, color }}>{label}</span>
+  }
   const rows = values(staff).filter(employee => {
+    if (statusFilter !== 'all' && (employee.employeeStatus || 'active') !== statusFilter) return false
     if (!query.trim()) return true
     const fields = searchBy === 'By Name' ? employeeName(employee) : searchBy === 'By Employee Code' ? employee.employeeCode : searchBy === 'By Email' ? employee.email : searchBy === 'By Mobile' ? employee.phone : searchBy === 'By Department' ? departmentName(employee.departmentId) : Object.values(employee).join(' ')
     return String(fields || '').toLowerCase().includes(query.trim().toLowerCase())
@@ -310,6 +318,7 @@ function EmployeeRegister({ staff, config, deleteEmployee, openAdd, editEmployee
   return <>
     <div className="panel employee-toolbar">
       <label>Search By<select value={searchBy} onChange={e => setSearchBy(e.target.value)}>{['All','By Name','By Employee Code','By Email','By Mobile','By Department'].map(item => <option key={item}>{item}</option>)}</select></label>
+      <label>Status<select value={statusFilter} onChange={e => setStatusFilter(e.target.value)}><option value="all">All</option><option value="active">Active</option><option value="inactive">Inactive</option><option value="resigned">Resigned</option><option value="terminated">Terminated</option></select></label>
       <div className="table-search"><Search size={15} /><input value={query} onChange={e => setQuery(e.target.value)} placeholder="Search employee" /></div>
       <button className="primary-button" onClick={openAdd}><Plus size={15} /> Add Employee</button>
     </div>
@@ -317,7 +326,7 @@ function EmployeeRegister({ staff, config, deleteEmployee, openAdd, editEmployee
       { key: 'name', label: 'Name', render: row => <div className="employee-name-cell">{row.photoUrl ? <img src={row.photoUrl} alt="" /> : <span>{employeeName(row).split(/\s+/).map(part => part[0]).slice(0, 2).join('')}</span>}<div><strong>{employeeName(row)}</strong><small>{row.email || row.phone}</small></div></div> },
       { key: 'employeeCode', label: 'Emp Code' }, { key: 'joiningDate', label: 'Joining Date' },
       { key: 'role', label: 'Employee Role', render: row => designationName(row.designationId) },
-      { key: 'classTeacher', label: 'Class Teacher', render: row => row.classTeacher || 'No' },
+      { key: 'employeeStatus', label: 'Status', render: row => statusBadge(row.employeeStatus) },
       { key: 'assignedClasses', label: 'Assigned Classes', render: row => row.assignedClasses || '—' },
     ]} rows={rows.map(row => ({ ...row, actions: <ActionButtons edit={() => editEmployee(row)} remove={() => window.confirm(`Delete ${employeeName(row)}?`) && deleteEmployee(row)} /> }))} empty="No employees found" />
   </>
