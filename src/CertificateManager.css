@@ -88,10 +88,10 @@
   .tc-school-top strong{margin-top:1px!important;font-size:9px!important}
   .tc-school-top p{margin:1px 0 0!important;font-size:8px!important}
   .tc-school-top small{margin-top:1px!important;font-size:7px!important}
-  .tc-title-row{grid-template-columns:20mm 1fr 28mm!important;gap:5mm!important;margin:2mm 0 1.5mm!important}
-  .tc-template .formal-logo{width:18mm!important;height:18mm!important}
-  .tc-template .formal-student-photo{width:26mm!important;height:32mm!important}
-  .tc-title{padding:4px 16px!important;font-size:14px!important}
+  .tc-title-row{grid-template-columns:32mm 1fr 32mm!important;gap:6mm!important;margin:4mm 0 3mm!important}
+  .tc-template .formal-logo{width:28mm!important;height:28mm!important}
+  .tc-template .formal-student-photo{width:28mm!important;height:34mm!important}
+  .tc-title{padding:8px 24px!important;font-size:18pt!important;line-height:1.2!important}
   .tc-reg-row{margin:2px 2px 4px!important;font-size:9px!important}
   .tc-student-section{grid-template-columns:1fr 28mm!important;gap:3mm!important}
   .tc-left-details{font-size:7pt!important;gap:0.6mm!important}
