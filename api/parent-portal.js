@@ -247,16 +247,7 @@ module.exports = async function handler(request, response) {
       if (!found) throw new Error('Invalid School Code')
       const { schoolId, school } = found
       const ensured = await ensureParent(database, schoolId, school, phone)
-      if (!ensured) {
-        const studentCount = Object.keys(school.students || {}).length
-        const target = phone
-        const matchByPhone = Object.entries(school.students || {}).filter(([, row]) => {
-          const allVals = Object.values(row).map(v => String(v || ''))
-          return allVals.some(v => v.includes(target))
-        }).map(([id, row]) => `${id}:${row.full_name || row.name || '?'}|plp=${row.parent_login_phone || ''}|fp=${row.father_phone || ''}|gp=${row.guardian_phone || ''}|ph=${row.phone || ''}`)
-        const kunal = Object.entries(school.students || {}).filter(([, row]) => String(row.full_name || row.name || '').toLowerCase().includes('kunal')).map(([id, row]) => `${id}:${JSON.stringify(Object.entries(row).filter(([k]) => k.toLowerCase().includes('phone')).reduce((o, [k, v]) => ({...o, [k]: v}), {}))}`)
-        throw new Error(`Phone not registered. [${studentCount} students, target=${target}, phoneMatch=${matchByPhone.length ? matchByPhone.join(';') : 'NONE'}, kunal=${kunal.length ? kunal.join(';') : 'NOT_FOUND'}]`)
-      }
+      if (!ensured) throw new Error('Phone number not registered. Contact school.')
       const { parentId, parent } = ensured
       if (parent.status === 'inactive') throw new Error('Parent account is inactive. Contact school.')
       const attemptsRef = database.ref(`schools/${schoolId}/parentLoginAttempts/${parentId}`)

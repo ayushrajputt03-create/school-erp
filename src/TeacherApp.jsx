@@ -56,6 +56,34 @@ function buildStaffProfile(id, e) {
   }
 }
 
+function parseAttendanceToTeacherFormat(raw, studentsData) {
+  const result = {}
+  Object.entries(raw || {}).forEach(([key, record]) => {
+    if (record && typeof record === 'object' && (record.studentId || record.student_id) && record.date) {
+      const studentId = record.studentId || record.student_id
+      const date = record.date
+      const status = record.mark || record.status || 'P'
+      const cls = record.class || ''
+      const sec = record.section || 'A'
+      const className = cls ? `${cls}-${sec}` : ''
+      if (!className || !studentId) return
+      result[date] = result[date] || {}
+      result[date][className] = result[date][className] || {}
+      result[date][className][studentId] = status
+    } else if (record && typeof record === 'object' && !record.studentId && !record.student_id) {
+      Object.entries(record).forEach(([cls, classData]) => {
+        if (typeof classData !== 'object') return
+        result[key] = result[key] || {}
+        result[key][cls] = result[key][cls] || {}
+        Object.entries(classData).forEach(([sid, val]) => {
+          if (typeof val === 'string' && sid !== 'markedBy' && sid !== 'className') result[key][cls][sid] = val
+        })
+      })
+    }
+  })
+  return result
+}
+
 async function loadTeacherSession(token, uid) {
   try {
     const index = await dbRequest(`teachersIndex/${uid}`, token)
@@ -78,7 +106,7 @@ async function loadTeacherSession(token, uid) {
       students: studentsData || {},
       homework: hw || {},
       notices: noticeData || {},
-      attendance: attData || {},
+      attendance: parseAttendanceToTeacherFormat(attData, studentsData),
     }
   } catch (error) {
     if (/Firebase 401|Firebase 403|teachersIndex|schools\//i.test(error.message || '')) {
@@ -283,10 +311,23 @@ function TeacherAttendance({ teacher, students, attendance, token, schoolId, onS
     setSaving(true)
     try {
       const tok = await auth.currentUser.getIdToken()
-      const payload = { ...marks, markedBy: teacher.uid, markedAt: Date.now(), className: selectedClass }
-      await dbRequest(`schools/${schoolId}/attendance/${date}/${selectedClass}`, tok, { method: 'PUT', body: payload })
+      const { className, section } = classParts(selectedClass)
+      const now = Date.now()
+      const changes = {}
+      Object.entries(marks).forEach(([studentId, status]) => {
+        const id = `${date}_${studentId}`
+        changes[`schools/${schoolId}/attendance/${id}`] = {
+          id, studentId, student_id: studentId,
+          class: className, section: section || 'A',
+          date, status, mark: status,
+          statusText: status === 'P' ? 'Present' : status === 'A' ? 'Absent' : status === 'L' ? 'Leave' : status,
+          markedBy: teacher.uid, marked_by: teacher.uid,
+          created_at: now, updated_at: now, updatedAt: now,
+        }
+      })
+      await dbRequest('', tok, { method: 'PATCH', body: changes })
       setSaved(true)
-      if (onSaved) onSaved(date, selectedClass, payload)
+      if (onSaved) onSaved(date, selectedClass, marks)
     } catch (err) {
       alert('Error saving attendance: ' + err.message)
     } finally { setSaving(false) }
