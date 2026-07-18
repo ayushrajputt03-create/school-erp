@@ -2228,7 +2228,11 @@ function useSchoolWorkspace(session) {
         if (school === undefined) return
 
         if (!school?.profile) {
-          const hadSchoolBefore = localStorage.getItem('northstar-school-id')
+          // A registered user must never be bounced to the setup screen just because the primary
+          // read came back empty (propagation blip, cleared localStorage after logout, etc.).
+          // localStorage is cleared on logout, so also trust durable server signals that this
+          // user has registered before: their users/{uid}.schoolId or a teachersIndex entry.
+          const hadSchoolBefore = localStorage.getItem('northstar-school-id') || legacyUser?.schoolId || teacherIndex?.schoolId
           if (primaryFailed || hadSchoolBefore) {
             if (active) setWorkspace(current => ({ ...current, loading: false, schoolId, needsSetup: false, error: 'We could not reach your school workspace. Please check your connection and reload — your data is safe.' }))
             return
