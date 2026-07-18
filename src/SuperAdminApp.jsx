@@ -431,17 +431,19 @@ export default function SuperAdminApp() {
     return () => window.removeEventListener('popstate', update)
   }, [])
 
-  const loadSchools = async currentUser => {
-    setLoading(true)
+  // `silent` refreshes (the 30s background poll) must not toggle the full-screen loading state,
+  // otherwise the whole panel flashes back to its loader every 30 seconds.
+  const loadSchools = async (currentUser, silent = false) => {
+    if (!silent) setLoading(true)
     setError('')
     try {
       const token = await currentUser.getIdToken()
       const data = await databaseRequest('schools', token)
       setSchools(data || {})
     } catch (loadError) {
-      setError(loadError.message)
+      if (!silent) setError(loadError.message)
     } finally {
-      setLoading(false)
+      if (!silent) setLoading(false)
     }
   }
 
@@ -481,7 +483,7 @@ export default function SuperAdminApp() {
 
   useEffect(() => {
     if (!user || denied) return
-    const timer = setInterval(() => loadSchools(user), 30000)
+    const timer = setInterval(() => loadSchools(user, true), 30000)
     return () => clearInterval(timer)
   }, [user, denied])
 
