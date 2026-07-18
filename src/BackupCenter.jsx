@@ -18,6 +18,9 @@ export default function BackupCenter({ students, fees, attendance, settings, cre
   const [message, setMessage] = useState('')
   const [emailSettings, setEmailSettings] = useState(settings)
   const admin = role === 'Owner' || role === 'Administrator'
+  // Live attendance state is bounded to the current month (see fix #2); count its marks for the
+  // stat card. Full history is still exported via createBackup() in exportExcel/exportJson.
+  const attendanceCount = Object.values(attendance || {}).reduce((sum, marks) => sum + Object.keys(marks || {}).length, 0)
 
   const exportJson = async () => {
     const payload = await createBackup()
@@ -115,7 +118,7 @@ export default function BackupCenter({ students, fees, attendance, settings, cre
     <section className="backup-stats">
       <div><span>Students</span><strong>{students.length}</strong></div>
       <div><span>Fee records</span><strong>{Object.keys(fees).length}</strong></div>
-      <div><span>Attendance records</span><strong>{attendanceRows.length}</strong></div>
+      <div><span>Attendance (this month)</span><strong>{attendanceCount}</strong></div>
       <div><span>Last email backup</span><strong>{settings.lastSentAt ? new Date(settings.lastSentAt).toLocaleDateString('en-IN') : 'Not sent'}</strong></div>
     </section>
 
