@@ -6,7 +6,8 @@ import {
   MoreHorizontal, Plus, Search, Settings, ShieldCheck, Sparkles, Users, X,
   Eye, Receipt, Save, ClipboardList, Download, Upload, Link2, Cake,
   UserCheck, Clock3, TrendingUp, WalletCards, Printer, FileText, Pencil, Trash2,
-  DatabaseBackup, BriefcaseBusiness, Moon, Sun, Camera, Badge, Umbrella, UserRound
+  DatabaseBackup, BriefcaseBusiness, Moon, Sun, Camera, Badge, Umbrella, UserRound,
+  RotateCcw, AlertTriangle, Archive
 } from 'lucide-react'
 import './app.css'
 import AuthScreen from './AuthScreen'
@@ -414,6 +415,7 @@ const nav = [
   { id: 'dashboard', label: 'Command Center', icon: LayoutDashboard },
   { id: 'admissions', label: 'Admissions', icon: ClipboardList },
   { id: 'students', label: 'Students', icon: Users },
+  { id: 'deleted-students', label: 'Deleted Students', icon: Archive },
   { id: 'employees', label: 'Employees', icon: BriefcaseBusiness },
   { id: 'leave', label: 'Leave', icon: Umbrella },
   { id: 'attendance', label: 'Attendance', icon: CalendarCheck },
@@ -1109,13 +1111,15 @@ function StudentStatusBadge({ student }) {
   return <span className="student-status-badge" style={{ background: meta.bg, color: meta.color }}>{meta.label}</span>
 }
 
-function Students({ students, onAddStudent, onUpdateStudent, onSelectStudent, getNextAdmissionNumber }) {
+function Students({ students, onAddStudent, onUpdateStudent, onSelectStudent, getNextAdmissionNumber, onDeleteStudents, schoolName }) {
   const [search, setSearch] = useState('')
   const [codeSearch, setCodeSearch] = useState('')
   const [filter, setFilter] = useState('All classes')
   const [statusFilter, setStatusFilter] = useState('all')
   const [streamFilter, setStreamFilter] = useState('')
   const [modal, setModal] = useState(null)
+  const [selected, setSelected] = useState(() => new Set())
+  const [deleteTarget, setDeleteTarget] = useState(null)
   const classes = [...new Set(students.map(student => student.className))].sort()
   const seniorFilter = isSeniorClass(String(filter).split('-')[0])
   const filtered = students.filter(s => {
@@ -1129,25 +1133,99 @@ function Students({ students, onAddStudent, onUpdateStudent, onSelectStudent, ge
   const addStudent = student => onAddStudent(student)
   const activeStudents = students.filter(isActiveStudent)
   const dropoutCount = students.filter(s => studentStatusKey(s) === 'dropout').length
+  const filteredIds = filtered.map(s => String(s.id))
+  const allVisibleSelected = filteredIds.length > 0 && filteredIds.every(id => selected.has(id))
+  const toggleOne = id => setSelected(prev => { const next = new Set(prev); const key = String(id); next.has(key) ? next.delete(key) : next.add(key); return next })
+  const toggleAllVisible = () => setSelected(prev => {
+    const next = new Set(prev)
+    if (allVisibleSelected) filteredIds.forEach(id => next.delete(id))
+    else filteredIds.forEach(id => next.add(id))
+    return next
+  })
+  const selectedStudents = students.filter(s => selected.has(String(s.id)))
+  const runDelete = async (ids, reason, isAll) => { await onDeleteStudents(ids, reason, isAll); setSelected(new Set()); setDeleteTarget(null) }
   return <>
-    <div className="section-actions"><div><h2>Student directory</h2><p>Manage profiles, guardians, attendance and fee status.</p></div><button className="primary-button" onClick={() => setModal('add')}><Plus size={17} /> Add student</button></div>
+    <div className="section-actions"><div><h2>Student directory</h2><p>Manage profiles, guardians, attendance and fee status.</p></div><div style={{ display: 'flex', gap: 8 }}><button className="primary-button" onClick={() => setModal('add')}><Plus size={17} /> Add student</button></div></div>
     <div className="mini-stats"><div><span>All students</span><strong>{students.length}</strong></div><div><span>Active</span><strong>{activeStudents.length}</strong></div><div><span>Drop outs</span><strong>{dropoutCount}</strong></div><div><span>Fee defaulters</span><strong>{activeStudents.filter(s => s.fee !== 'Paid').length}</strong></div></div>
     <div className="panel table-panel">
       <div className="table-toolbar" style={{ flexWrap: 'wrap' }}>
         <div className="table-search"><Search size={16} /><input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search student, roll no. or phone" /></div>
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+          {selected.size > 0 && <>
+            <button type="button" className="secondary-button" style={{ color: '#c0392b', borderColor: '#e2b6b1' }} onClick={() => setDeleteTarget({ mode: 'selected', students: selectedStudents })}><Trash2 size={15} /> Delete Selected ({selected.size})</button>
+            <button type="button" className="text-button" onClick={() => setSelected(new Set())}>Clear</button>
+          </>}
           <input value={codeSearch} onChange={e => setCodeSearch(e.target.value)} placeholder="Adm. No." style={{ width: '100px', height: '30px', padding: '0 8px', borderRadius: '6px', border: '1px solid #dfe3ea', fontSize: '10px', background: '#fff' }} />
           <select value={filter} onChange={e => { setFilter(e.target.value); setStreamFilter('') }}><option>All classes</option>{classes.map(c => <option key={c}>{c}</option>)}</select>
           {seniorFilter && <select value={streamFilter} onChange={e => setStreamFilter(e.target.value)}><option value="">All streams</option>{STREAM_OPTIONS.map(s => <option key={s}>{s}</option>)}</select>}
           <select value={statusFilter} onChange={e => setStatusFilter(e.target.value)}><option value="all">All statuses</option><option value="active">Active</option><option value="dropout">Drop Out</option><option value="transfer">Transfer Out</option><option value="passedout">Passed Out</option></select>
         </div>
       </div>
-      <div className="table-scroll"><table><thead><tr><th>Student</th><th>Class</th><th>Guardian</th><th>Attendance</th><th>Fee status</th><th /></tr></thead><tbody>
-        {filtered.map(s => <tr key={s.id} onClick={() => onSelectStudent(s)} className="clickable-row"><td><div className="student-cell"><StudentAvatar student={s} /><div><strong>{s.name} <StudentStatusBadge student={s} /></strong><small>{s.roll}</small></div></div></td><td><span className="class-pill">{s.className}</span>{s.stream && <span className="stream-pill">{s.stream}</span>}</td><td><strong className="regular">{s.guardian}</strong><small className="cell-sub">{s.phone}</small></td><td><div className="attendance-cell"><span>{s.attendance}%</span><div><i style={{width: `${s.attendance}%`}} /></div></div></td><td><span className={`status ${s.fee.toLowerCase()}`}>{s.fee}</span></td><td><div style={{ display: 'flex', gap: '4px', justifyContent: 'flex-end' }} onClick={e => e.stopPropagation()}><button type="button" className="icon-button" onClick={() => onSelectStudent(s)} title={`View ${s.name}`}><Eye size={16} /></button><button type="button" className="icon-button" onClick={() => setModal(s)} title={`Edit ${s.name}`}><Pencil size={16} /></button></div></td></tr>)}
-        {!filtered.length && <tr><td colSpan="6"><div className="empty-state">No students match this search.</div></td></tr>}
+      <div className="table-scroll"><table><thead><tr><th style={{ width: 34 }}><input type="checkbox" checked={allVisibleSelected} onChange={toggleAllVisible} title="Select all visible" style={{ cursor: 'pointer' }} /></th><th>Student</th><th>Class</th><th>Guardian</th><th>Attendance</th><th>Fee status</th><th /></tr></thead><tbody>
+        {filtered.map(s => <tr key={s.id} onClick={() => onSelectStudent(s)} className="clickable-row"><td onClick={e => e.stopPropagation()}><input type="checkbox" checked={selected.has(String(s.id))} onChange={() => toggleOne(s.id)} style={{ cursor: 'pointer' }} /></td><td><div className="student-cell"><StudentAvatar student={s} /><div><strong>{s.name} <StudentStatusBadge student={s} /></strong><small>{s.roll}</small></div></div></td><td><span className="class-pill">{s.className}</span>{s.stream && <span className="stream-pill">{s.stream}</span>}</td><td><strong className="regular">{s.guardian}</strong><small className="cell-sub">{s.phone}</small></td><td><div className="attendance-cell"><span>{s.attendance}%</span><div><i style={{width: `${s.attendance}%`}} /></div></div></td><td><span className={`status ${s.fee.toLowerCase()}`}>{s.fee}</span></td><td><div style={{ display: 'flex', gap: '4px', justifyContent: 'flex-end' }} onClick={e => e.stopPropagation()}><button type="button" className="icon-button" onClick={() => onSelectStudent(s)} title={`View ${s.name}`}><Eye size={16} /></button><button type="button" className="icon-button" onClick={() => setModal(s)} title={`Edit ${s.name}`}><Pencil size={16} /></button><button type="button" className="icon-button danger" onClick={() => setDeleteTarget({ mode: 'selected', students: [s] })} title={`Delete ${s.name}`}><Trash2 size={16} /></button></div></td></tr>)}
+        {!filtered.length && <tr><td colSpan="7"><div className="empty-state">No students match this search.</div></td></tr>}
       </tbody></table></div>
     </div>
+    <div className="danger-zone">
+      <div><strong><AlertTriangle size={15} /> Danger zone</strong><small>Deletes every student in this school. Records are archived to Deleted Students and can be restored.</small></div>
+      <button type="button" className="primary-button" style={{ background: '#c0392b', borderColor: '#a93226' }} disabled={!students.length} onClick={() => setDeleteTarget({ mode: 'all', students })}><Trash2 size={16} /> Delete All Students</button>
+    </div>
     {modal && <StudentModal close={() => setModal(null)} student={modal !== 'add' ? modal : undefined} addStudent={addStudent} updateStudent={onUpdateStudent} getNextAdmissionNumber={getNextAdmissionNumber} />}
+    {deleteTarget && <StudentDeleteModal target={deleteTarget} schoolName={schoolName} onCancel={() => setDeleteTarget(null)} onConfirm={runDelete} />}
+  </>
+}
+
+function StudentDeleteModal({ target, schoolName, onCancel, onConfirm }) {
+  const isAll = target.mode === 'all'
+  const list = target.students || []
+  const [reason, setReason] = useState('')
+  const [typed, setTyped] = useState('')
+  const [busy, setBusy] = useState(false)
+  const nameGateOk = !isAll || (Boolean(schoolName) && typed.trim() === String(schoolName).trim())
+  const submit = async () => {
+    if (!nameGateOk || busy || !list.length) return
+    setBusy(true)
+    try { await onConfirm(list.map(s => s.id), reason.trim(), isAll) }
+    catch (error) { alert(error.message || 'Delete failed'); setBusy(false) }
+  }
+  return <div className="modal-backdrop"><div className="modal" style={{ maxWidth: 520 }}>
+    <div className="modal-header"><div><h3 style={{ color: '#c0392b', display: 'flex', alignItems: 'center', gap: 8 }}><AlertTriangle size={18} /> {isAll ? 'Delete ALL students' : `Delete ${list.length} student${list.length > 1 ? 's' : ''}`}</h3><p>Records are archived to Deleted Students (recoverable). Attendance & fee history stay intact.</p></div><button className="icon-button" onClick={onCancel}><X size={18} /></button></div>
+    <div style={{ padding: '16px 20px', maxHeight: '42vh', overflowY: 'auto' }}>
+      <p style={{ fontSize: 11, color: '#536073', marginBottom: 8 }}><strong>{list.length}</strong> student{list.length > 1 ? 's' : ''} will be moved to the archive:</p>
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 14 }}>{list.slice(0, 60).map(s => <span key={s.id} className="class-pill">{s.name} ({s.roll})</span>)}{list.length > 60 && <span className="class-pill">+{list.length - 60} more</span>}</div>
+      <label style={{ fontSize: 9, fontWeight: 600, color: '#4a5567' }}>Reason (optional)<input value={reason} onChange={e => setReason(e.target.value)} placeholder="e.g. Left school, duplicate record" style={{ width: '100%', height: 34, marginTop: 5, border: '1px solid #dce1e8', borderRadius: 6, padding: '0 10px', fontSize: 10 }} /></label>
+      {isAll && <label style={{ display: 'block', marginTop: 14, fontSize: 9, fontWeight: 600, color: '#c0392b' }}>Type the school name <strong>{schoolName || '(unknown)'}</strong> to confirm<input value={typed} onChange={e => setTyped(e.target.value)} placeholder={schoolName} style={{ width: '100%', height: 36, marginTop: 5, border: '1px solid #e0a0a0', borderRadius: 6, padding: '0 10px', fontSize: 11 }} /></label>}
+    </div>
+    <div className="modal-actions"><button className="secondary-button" onClick={onCancel} disabled={busy}>Cancel</button><button className="primary-button" style={{ background: nameGateOk ? '#c0392b' : '#d9a7a1', borderColor: '#a93226' }} onClick={submit} disabled={!nameGateOk || busy || !list.length}>{busy ? 'Deleting…' : `Confirm Delete${isAll ? ' All' : ''}`}</button></div>
+  </div></div>
+}
+
+function DeletedStudents({ deletedStudents, onRestore, onPermanentDelete }) {
+  const [search, setSearch] = useState('')
+  const [permTarget, setPermTarget] = useState(null)
+  const [typed, setTyped] = useState('')
+  const [busy, setBusy] = useState('')
+  const rows = Object.entries(deletedStudents || {}).map(([id, row]) => ({ id, ...row })).sort((a, b) => (b.deletedAt || 0) - (a.deletedAt || 0))
+  const query = search.trim().toLowerCase()
+  const filtered = query ? rows.filter(r => `${r.full_name || r.name || ''} ${r.admission_number || r.id}`.toLowerCase().includes(query)) : rows
+  const fmt = ts => ts ? new Date(ts).toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' }) : '—'
+  const restore = async id => { setBusy(id); try { await onRestore(id) } catch (e) { alert(e.message || 'Restore failed') } finally { setBusy('') } }
+  const permDelete = async () => { if (!permTarget) return; setBusy(permTarget.id); try { await onPermanentDelete(permTarget.id); setPermTarget(null); setTyped('') } catch (e) { alert(e.message || 'Delete failed') } finally { setBusy('') } }
+  return <>
+    <div className="section-actions"><div><h2>Deleted Students</h2><p>Archived records — restore them or permanently remove. Attendance & fee history is preserved either way.</p></div></div>
+    <div className="mini-stats"><div><span>Archived students</span><strong>{rows.length}</strong></div></div>
+    <div className="panel table-panel">
+      <div className="table-toolbar"><div className="table-search"><Search size={16} /><input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search archived student" /></div></div>
+      <div className="table-scroll"><table><thead><tr><th>Student</th><th>Class</th><th>Deleted at</th><th>Deleted by</th><th>Reason</th><th /></tr></thead><tbody>
+        {filtered.map(r => <tr key={r.id}><td><div className="student-cell"><div><strong>{r.full_name || r.name || '—'}</strong><small>{r.admission_number || r.id}</small></div></div></td><td><span className="class-pill">{`${r.class_name || r.class || ''}${r.section ? '-' + r.section : ''}` || '—'}</span></td><td><small className="cell-sub">{fmt(r.deletedAt)}</small></td><td><small className="cell-sub">{r.deletedByName || '—'}</small></td><td><small className="cell-sub">{r.deletedReason || '—'}</small></td><td><div style={{ display: 'flex', gap: 4, justifyContent: 'flex-end' }}><button type="button" className="secondary-button" disabled={busy === r.id} onClick={() => restore(r.id)}><RotateCcw size={14} /> Restore</button><button type="button" className="icon-button danger" title="Permanently delete" onClick={() => { setPermTarget(r); setTyped('') }}><Trash2 size={16} /></button></div></td></tr>)}
+        {!filtered.length && <tr><td colSpan="6"><div className="empty-state">No archived students.</div></td></tr>}
+      </tbody></table></div>
+    </div>
+    {permTarget && <div className="modal-backdrop"><div className="modal" style={{ maxWidth: 460 }}>
+      <div className="modal-header"><div><h3 style={{ color: '#c0392b', display: 'flex', alignItems: 'center', gap: 8 }}><AlertTriangle size={18} /> Permanently delete</h3><p>This cannot be undone. The archived record for <strong>{permTarget.full_name || permTarget.name || 'this student'}</strong> will be gone forever.</p></div><button className="icon-button" onClick={() => setPermTarget(null)}><X size={18} /></button></div>
+      <div style={{ padding: '16px 20px' }}><label style={{ fontSize: 9, fontWeight: 600, color: '#c0392b' }}>Type <strong>CONFIRM</strong> to permanently delete<input value={typed} onChange={e => setTyped(e.target.value)} placeholder="CONFIRM" style={{ width: '100%', height: 36, marginTop: 5, border: '1px solid #e0a0a0', borderRadius: 6, padding: '0 10px', fontSize: 11 }} /></label></div>
+      <div className="modal-actions"><button className="secondary-button" onClick={() => setPermTarget(null)}>Cancel</button><button className="primary-button" style={{ background: typed.trim() === 'CONFIRM' ? '#c0392b' : '#d9a7a1', borderColor: '#a93226' }} disabled={typed.trim() !== 'CONFIRM' || busy === permTarget.id} onClick={permDelete}>Permanently Delete</button></div>
+    </div></div>}
   </>
 }
 
@@ -2026,6 +2104,7 @@ function useSchoolWorkspace(session) {
   const [academics, setAcademics] = useState({})
   const [documents, setDocuments] = useState({})
   const [certificates, setCertificates] = useState({})
+  const [deletedStudents, setDeletedStudents] = useState({})
   const [certificateSettings, setCertificateSettings] = useState({})
   const [examData, setExamData] = useState({ exams: {}, dateSheet: {}, admitCards: {} })
   const [reportData, setReportData] = useState({ exams: {}, marks: {}, reports: {} })
@@ -2322,6 +2401,10 @@ function useSchoolWorkspace(session) {
         setStudents(rows.map(studentFromRow))
       })
 
+      listen(`schools/${schoolId}/deletedStudents`, snap => {
+        setDeletedStudents(snap.val() || {})
+      })
+
       const monthStartDate = new Date()
       const monthStart = `${monthStartDate.getFullYear()}-${String(monthStartDate.getMonth() + 1).padStart(2, '0')}-01`
       listenFromDate(`schools/${schoolId}/attendance`, 'date', monthStart, snap => {
@@ -2516,6 +2599,76 @@ function useSchoolWorkspace(session) {
     setStudents(current => current.map((item, index) => item.id === studentId ? studentFromRow({ id: studentId, ...row }, index) : item))
     setActivities(current => [{ id: `student-update-${studentId}-${Date.now()}`, title: 'Student updated', detail: `${updated.name} moved to Class ${updated.className}`, at: row.updatedAt, icon: 'U' }, ...current])
     return updated
+  }
+
+  // Soft-delete: archive each student's full record to deletedStudents/{id} (with who/when/why),
+  // remove it from the active students node, and write one audit log entry. Historical
+  // attendance/fees/marks/certificates are deliberately left untouched so past reports and
+  // receipts stay valid — those surfaces already key off student IDs that simply no longer
+  // resolve in the active list. `isAll` distinguishes a "delete every student" action for audit.
+  const deleteStudents = async (studentIds = [], reason = '', isAll = false) => {
+    const ids = [...new Set((studentIds || []).map(String).filter(Boolean))]
+    if (!ids.length) return
+    const stamp = Date.now()
+    const performedBy = session?.uid || 'demo'
+    const performedByName = session?.displayName || session?.email || 'Admin'
+    const auditId = `audit_${stamp}_${Math.random().toString(36).slice(2, 8)}`
+    const action = isAll ? 'student_delete_all' : ids.length === 1 ? 'student_delete' : 'student_bulk_delete'
+    // Fetch raw rows once for exact-fidelity archival (falls back to in-memory row in demo mode).
+    let rawStudents = {}
+    if (!developmentDemo) {
+      const token = await session.getIdToken()
+      rawStudents = await databaseRequest(`schools/${workspace.schoolId}/students`, token).catch(() => ({})) || {}
+    }
+    const archived = {}
+    const changes = {}
+    ids.forEach(id => {
+      const raw = rawStudents[id] || studentToRow(students.find(item => String(item.id) === id) || { id })
+      const record = { ...raw, id, deletedAt: stamp, deletedBy: performedBy, deletedByName: performedByName, deletedReason: reason || '' }
+      archived[id] = record
+      changes[`schools/${workspace.schoolId}/deletedStudents/${id}`] = record
+      changes[`schools/${workspace.schoolId}/students/${id}`] = null
+    })
+    changes[`schools/${workspace.schoolId}/auditLogs/${auditId}`] = { action, studentIds: ids, performedBy, performedByName, timestamp: stamp, count: ids.length }
+    if (!developmentDemo) {
+      const token = await session.getIdToken()
+      await databaseRequest('', token, { method: 'PATCH', body: changes })
+    }
+    setStudents(current => current.filter(item => !ids.includes(String(item.id))))
+    setDeletedStudents(current => ({ ...current, ...archived }))
+    setActivities(current => [{ id: auditId, title: 'Students archived', detail: `${ids.length} student${ids.length > 1 ? 's' : ''} moved to Deleted Students`, at: stamp, icon: '🗑' }, ...current])
+  }
+
+  const deleteAllStudents = (reason = '') => deleteStudents(students.map(item => item.id), reason, true)
+
+  // Restore: move the archived record back to the active students node (stripping delete metadata)
+  // and remove it from deletedStudents. Reverses a soft-delete with the original data intact.
+  const restoreStudent = async studentId => {
+    const id = String(studentId)
+    const record = deletedStudents[id]
+    if (!record) return
+    const { deletedAt, deletedBy, deletedByName, deletedReason, ...raw } = record
+    raw.updatedAt = Date.now()
+    if (!developmentDemo) {
+      const token = await session.getIdToken()
+      await databaseRequest('', token, { method: 'PATCH', body: {
+        [`schools/${workspace.schoolId}/students/${id}`]: raw,
+        [`schools/${workspace.schoolId}/deletedStudents/${id}`]: null,
+      } })
+    }
+    setDeletedStudents(current => { const next = { ...current }; delete next[id]; return next })
+    setStudents(current => [studentFromRow({ ...raw, id }, current.length), ...current])
+    setActivities(current => [{ id: `restore-${id}-${Date.now()}`, title: 'Student restored', detail: `${raw.full_name || raw.name || 'Student'} moved back to active list`, at: Date.now(), icon: '↩' }, ...current])
+  }
+
+  // Permanent delete: the ONLY place a record leaves deletedStudents for good.
+  const permanentDeleteStudent = async studentId => {
+    const id = String(studentId)
+    if (!developmentDemo) {
+      const token = await session.getIdToken()
+      await databaseRequest(`schools/${workspace.schoolId}/deletedStudents/${id}`, token, { method: 'DELETE' })
+    }
+    setDeletedStudents(current => { const next = { ...current }; delete next[id]; return next })
   }
 
   const updateStudentPhoto = async (studentId, photoFile, previewUrl = '') => {
@@ -3843,7 +3996,7 @@ function useSchoolWorkspace(session) {
     return logo
   }
 
-  return { students, notices, fees, feeManager, attendance, timetableData, timetableRecords, homework, transport, library, accounts, leave, parents, parentMessages, parentNotifications, certificateRequests, enquiries, staff, staffAttendance, employeeConfig, approvals, expenses, academics, documents, certificates, certificateSettings, examData, reportData, idCards, idCardSettings, activities, backupSettings, workspace, createSchoolWorkspace, getNextAdmissionNumber, addStudent, updateStudent, updateStudentPhoto, recordPayment, submitFeeReceipt, saveFeeGroup, deleteFeeGroup, saveFeeStructure, deleteFeeStructure, deleteFeeReceipt, restoreFeeReceipt, decideFeeApproval, saveFeeManagerConfig, createBackupPayload, restoreBackup, saveBackupSettings, saveSchoolProfile, saveParentAccount, addNotice, saveAttendance, saveEmployeeConfig, deleteEmployeeConfig, saveEmployee, deleteEmployee, saveStaffAttendance, savePeriod, saveTimetableRecord, deleteTimetableRecord, saveHomework, deleteHomework, markHomeworkDone, markHomeworkSeen, saveTransportItem, deleteTransportItem, saveExpenseItem, deleteExpenseItem, saveLibraryItem, deleteLibraryItem, saveAccountsItem, deleteAccountsItem, saveLeaveItem, deleteLeaveItem, saveEnquiry, uploadStudentDocument, loadStudentAttendance, saveCertificate, saveCertificateSettings, saveExamRecord, saveDateSheetRow, deleteDateSheetRow, saveAdmitCards, deleteCertificate, updateCertificateStatus, saveReportExam, deleteReportExam, saveReportMarks, saveReportCard, updateReportCard, saveIdCardSettings, saveIdCard, deleteIdCard, uploadIdCardLogo, developmentDemo }
+  return { students, notices, fees, feeManager, attendance, timetableData, timetableRecords, homework, transport, library, accounts, leave, parents, parentMessages, parentNotifications, certificateRequests, enquiries, staff, staffAttendance, employeeConfig, approvals, expenses, academics, documents, certificates, certificateSettings, examData, reportData, idCards, idCardSettings, activities, backupSettings, workspace, createSchoolWorkspace, getNextAdmissionNumber, addStudent, updateStudent, updateStudentPhoto, deletedStudents, deleteStudents, deleteAllStudents, restoreStudent, permanentDeleteStudent, recordPayment, submitFeeReceipt, saveFeeGroup, deleteFeeGroup, saveFeeStructure, deleteFeeStructure, deleteFeeReceipt, restoreFeeReceipt, decideFeeApproval, saveFeeManagerConfig, createBackupPayload, restoreBackup, saveBackupSettings, saveSchoolProfile, saveParentAccount, addNotice, saveAttendance, saveEmployeeConfig, deleteEmployeeConfig, saveEmployee, deleteEmployee, saveStaffAttendance, savePeriod, saveTimetableRecord, deleteTimetableRecord, saveHomework, deleteHomework, markHomeworkDone, markHomeworkSeen, saveTransportItem, deleteTransportItem, saveExpenseItem, deleteExpenseItem, saveLibraryItem, deleteLibraryItem, saveAccountsItem, deleteAccountsItem, saveLeaveItem, deleteLeaveItem, saveEnquiry, uploadStudentDocument, loadStudentAttendance, saveCertificate, saveCertificateSettings, saveExamRecord, saveDateSheetRow, deleteDateSheetRow, saveAdmitCards, deleteCertificate, updateCertificateStatus, saveReportExam, deleteReportExam, saveReportMarks, saveReportCard, updateReportCard, saveIdCardSettings, saveIdCard, deleteIdCard, uploadIdCardLogo, developmentDemo }
 }
 
 export default function App() {
@@ -3923,7 +4076,8 @@ export default function App() {
   const screens = {
     dashboard: <Dashboard students={data.students} notices={data.notices} fees={data.fees} attendance={data.attendance} activities={data.activities} staff={data.staff} staffAttendance={data.staffAttendance} employeeConfig={data.employeeConfig} approvals={data.approvals} expenses={data.expenses} transport={data.transport} library={data.library} leaveData={data.leave} setPage={setPage} onSelectStudent={setSelectedStudent} />,
     admissions: <Admissions students={data.students} enquiries={data.enquiries} onAddStudent={data.addStudent} onUpdateStudent={data.updateStudent} onSaveEnquiry={data.saveEnquiry} getNextAdmissionNumber={data.getNextAdmissionNumber} school={data.workspace.schoolProfile} />,
-    students: <Students students={data.students} onAddStudent={data.addStudent} onUpdateStudent={data.updateStudent} onSelectStudent={setSelectedStudent} getNextAdmissionNumber={data.getNextAdmissionNumber} />,
+    students: <Students students={data.students} onAddStudent={data.addStudent} onUpdateStudent={data.updateStudent} onSelectStudent={setSelectedStudent} getNextAdmissionNumber={data.getNextAdmissionNumber} onDeleteStudents={data.deleteStudents} schoolName={data.workspace.schoolName} />,
+    'deleted-students': <DeletedStudents deletedStudents={data.deletedStudents} onRestore={data.restoreStudent} onPermanentDelete={data.permanentDeleteStudent} />,
     employees: <EmployeeManager staff={data.staff} attendance={data.staffAttendance} config={data.employeeConfig} saveConfig={data.saveEmployeeConfig} deleteConfig={data.deleteEmployeeConfig} saveEmployee={data.saveEmployee} deleteEmployee={data.deleteEmployee} saveAttendance={data.saveStaffAttendance} />,
     leave: <LeaveManager staff={data.staff} config={data.employeeConfig} leave={data.leave} saveLeaveItem={data.saveLeaveItem} deleteLeaveItem={data.deleteLeaveItem} saveStaffAttendance={data.saveStaffAttendance} />,
     attendance: <Attendance students={data.students} attendance={data.attendance} onSaveAttendance={data.saveAttendance} />,

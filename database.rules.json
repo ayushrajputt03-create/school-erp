@@ -143,7 +143,19 @@
         "reportCards": { ".indexOn": ["studentId"] },
         "certificateRequests": { ".indexOn": ["studentId"] },
         "parentMessages": { ".indexOn": ["parentId"] },
-        "parentNotifications": { ".indexOn": ["parentId"] }
+        "parentNotifications": { ".indexOn": ["parentId"] },
+        "deletedStudents": {
+          ".indexOn": ["deletedAt"],
+          "$studentId": {
+            ".validate": "!newData.exists() || newData.hasChildren(['deletedAt'])"
+          }
+        },
+        "auditLogs": {
+          ".indexOn": ["timestamp"],
+          "$logId": {
+            ".validate": "!newData.exists() || newData.hasChildren(['action', 'timestamp'])"
+          }
+        }
       }
     }
   }
