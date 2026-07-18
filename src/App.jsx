@@ -3622,9 +3622,13 @@ function useSchoolWorkspace(session) {
   }
 
   const deleteCertificate = async id => {
-    if (!window.confirm('Delete this certificate register entry?')) return
+    if (!window.confirm('Delete this certificate register entry? A copy will be archived for your records.')) return
+    const archived = certificates[id]
     if (!developmentDemo) {
       const token = await session.getIdToken()
+      if (archived) {
+        await databaseRequest(`schools/${workspace.schoolId}/certificatesDeleted/${id}`, token, { method: 'PUT', body: { ...archived, deletedAt: Date.now() } }).catch(() => {})
+      }
       await databaseRequest(`schools/${workspace.schoolId}/certificates/${id}`, token, { method: 'DELETE' })
     }
     setCertificates(current => {
