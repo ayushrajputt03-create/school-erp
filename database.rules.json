@@ -134,10 +134,16 @@
           }
         },
         "certificates": {
+          ".indexOn": ["studentId"],
           "$certificateId": {
             ".validate": "!newData.exists() || (newData.hasChildren(['certificateType', 'studentId', 'schoolId', 'certificateNumber', 'issueDate', 'data', 'status', 'createdBy', 'createdAt']) && newData.child('schoolId').val() === $schoolId && newData.child('certificateNumber').val().matches(/^(TC|BON|CHR|STD|SPT|ADM|FEE|CERT)-[0-9]{4}-[0-9]{3,}$/))"
           }
-        }
+        },
+        "fees": { ".indexOn": ["studentId"] },
+        "reportCards": { ".indexOn": ["studentId"] },
+        "certificateRequests": { ".indexOn": ["studentId"] },
+        "parentMessages": { ".indexOn": ["parentId"] },
+        "parentNotifications": { ".indexOn": ["parentId"] }
       }
     }
   }

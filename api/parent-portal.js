@@ -66,14 +66,15 @@ async function findSchool(database, schoolCode) {
   const codeSnap = await database.ref(`schoolCodes/${code}`).once('value')
   const mapping = codeSnap.val()
   if (mapping?.schoolId) {
-    const schoolSnap = await database.ref(`schools/${mapping.schoolId}`).once('value')
-    const school = schoolSnap.val()
-    if (school) return { schoolId: mapping.schoolId, school }
+    const existsSnap = await database.ref(`schools/${mapping.schoolId}/profile`).once('value')
+    if (existsSnap.exists()) return { schoolId: mapping.schoolId }
   }
+  // Legacy fallback only when the schoolCodes index is missing: scan school profiles by code.
+  // The common path uses the index above and never loads the full schools tree.
   const schoolsSnap = await database.ref('schools').once('value')
   const schools = schoolsSnap.val() || {}
   const found = Object.entries(schools).find(([, school]) => String(school?.profile?.schoolCode || '').toUpperCase() === code)
-  return found ? { schoolId: found[0], school: found[1] } : null
+  return found ? { schoolId: found[0] } : null
 }
 
 function studentParentPhone(row) {
@@ -81,13 +82,20 @@ function studentParentPhone(row) {
   return raw.length > 10 ? raw.slice(-10) : raw
 }
 
-async function ensureParent(database, schoolId, school, phone) {
+async function ensureParent(database, schoolId, phone, schoolCode = '') {
   const rawDigits = digits(phone)
   const parentId = rawDigits.length > 10 ? rawDigits.slice(-10) : rawDigits
   const parentRef = database.ref(`schools/${schoolId}/parents/${parentId}`)
-  const parentSnap = await parentRef.once('value')
+  // Load the parent record and the students node (bounded by enrollment, not time). The fuzzy
+  // phone match spans ~11 possible fields via studentParentPhone(), so it cannot be replaced by
+  // a single indexed query without regressing login — but we no longer pull the whole school
+  // (fees/attendance/etc.), which are the large, ever-growing nodes.
+  const [parentSnap, studentsSnap] = await Promise.all([
+    parentRef.once('value'),
+    database.ref(`schools/${schoolId}/students`).once('value'),
+  ])
   let parent = parentSnap.val()
-  const students = school.students || {}
+  const students = studentsSnap.val() || {}
   const linkedIds = Object.entries(students)
     .filter(([, row]) => studentParentPhone(row) === parentId)
     .map(([id]) => id)
@@ -102,7 +110,7 @@ async function ensureParent(database, schoolId, school, phone) {
       email: firstStudent.father_email || '',
       address: firstStudent.address || '',
       students: Object.fromEntries(linkedIds.map(id => [id, true])),
-      schoolCode: school.profile?.schoolCode || '',
+      schoolCode: schoolCode || '',
       mustChangePassword: true,
       language: 'english',
       status: 'active',
@@ -116,7 +124,7 @@ async function ensureParent(database, schoolId, school, phone) {
     parent = { ...parent, id: parentId, phone: parent.phone || parentId, students: Object.fromEntries(merged.map(id => [id, true])), updatedAt: now() }
     await parentRef.update({ students: parent.students, updatedAt: parent.updatedAt })
   }
-  return { parentId, parent }
+  return { parentId, parent, students }
 }
 
 function sanitizeStudent(id, row = {}) {
@@ -153,62 +161,90 @@ function filterNotices(notices, student) {
     .slice(0, 60)
 }
 
-function buildDataPayload(schoolId, school, parentId, parent, selectedStudentId = '') {
+// Build the parent dashboard payload using SCOPED reads instead of downloading the whole school.
+// Per-student data (fees, attendance, report cards, certificates) is fetched with indexed
+// orderByChild('studentId').equalTo() queries; per-parent data (messages, notifications) with
+// orderByChild('parentId'). Only genuinely school-wide data (notices, timetable, transport,
+// library, homework) is read as a whole node — none of which grows per-student like fees/
+// attendance do. `preloadedStudents` lets the login flow reuse the students node it already read.
+async function buildDataPayload(database, schoolId, parentId, parent, selectedStudentId = '', preloadedStudents = null) {
+  const base = database.ref(`schools/${schoolId}`)
   const studentIds = normalizeStudentsList(parent.students)
-  const students = studentIds.map(id => school.students?.[id] ? sanitizeStudent(id, school.students[id]) : null).filter(Boolean)
+
+  let studentRows = {}
+  if (preloadedStudents) {
+    studentIds.forEach(id => { if (preloadedStudents[id]) studentRows[id] = preloadedStudents[id] })
+  } else {
+    const snaps = await Promise.all(studentIds.map(id => base.child(`students/${id}`).once('value')))
+    snaps.forEach((snap, index) => { const val = snap.val(); if (val) studentRows[studentIds[index]] = val })
+  }
+  const students = Object.entries(studentRows).map(([id, row]) => sanitizeStudent(id, row))
   const selected = students.find(row => row.id === selectedStudentId) || students[0]
   if (!selected) throw new Error('No linked student found for this parent.')
 
-  const attendance = Object.entries(school.attendance || {}).map(([id, row]) => ({ id, ...row }))
-    .filter(row => (row.studentId || row.student_id) === selected.id)
-    .sort((a, b) => String(b.date || '').localeCompare(String(a.date || '')))
-  const fees = Object.entries(school.fees || {}).map(([id, row]) => ({ id, ...row }))
-    .filter(row => (row.studentId || row.student_id) === selected.id)
-    .sort((a, b) => (b.paidAt || b.updatedAt || 0) - (a.paidAt || a.updatedAt || 0))
-  const homework = Object.entries(school.homework || {}).map(([id, row]) => ({ id, ...row }))
+  const byStudent = node => base.child(node).orderByChild('studentId').equalTo(selected.id).once('value')
+  const byParent = node => base.child(node).orderByChild('parentId').equalTo(parentId).once('value')
+  const [profileSnap, feesSnap, attendanceSnap, reportSnap, certSnap, certReqSnap, msgSnap, notifSnap, homeworkSnap, noticesSnap, timetableSnap, transportSnap, librarySnap] = await Promise.all([
+    base.child('profile').once('value'),
+    byStudent('fees'),
+    byStudent('attendance'),
+    byStudent('reportCards'),
+    byStudent('certificates'),
+    byStudent('certificateRequests'),
+    byParent('parentMessages'),
+    byParent('parentNotifications'),
+    base.child('homework').once('value'),
+    base.child('notices').once('value'),
+    base.child('timetable').once('value'),
+    base.child('transport').once('value'),
+    base.child('library').once('value'),
+  ])
+
+  const rows = snap => Object.entries(snap.val() || {}).map(([id, row]) => ({ id, ...row }))
+  const profile = profileSnap.val() || {}
+
+  const attendance = rows(attendanceSnap).sort((a, b) => String(b.date || '').localeCompare(String(a.date || '')))
+  const fees = rows(feesSnap).sort((a, b) => (b.paidAt || b.updatedAt || 0) - (a.paidAt || a.updatedAt || 0))
+  const homework = rows(homeworkSnap)
     .filter(row => String(row.className || row.class || '') === String(selected.class || '') && String(row.section || '') === String(selected.section || ''))
     .sort((a, b) => String(a.dueDate || '').localeCompare(String(b.dueDate || '')))
-  const reportCards = Object.entries(school.reportCards || {}).map(([id, row]) => ({ id, ...row }))
-    .filter(row => (row.studentId || row.student_id) === selected.id && (row.status === 'published' || row.published || row.locked))
-  const certificates = Object.entries(school.certificates || {}).map(([id, row]) => ({ id, ...row }))
-    .filter(row => (row.studentId || row.student_id) === selected.id)
-    .sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0))
-  const certificateRequests = Object.entries(school.certificateRequests || {}).map(([id, row]) => ({ id, ...row }))
-    .filter(row => row.parentId === parentId && row.studentId === selected.id)
-  const messages = Object.entries(school.parentMessages || {}).map(([id, row]) => ({ id, ...row }))
-    .filter(row => row.parentId === parentId)
-    .sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0))
-  const notifications = Object.entries(school.parentNotifications || {}).map(([id, row]) => ({ id, ...row }))
-    .filter(row => row.parentId === parentId)
-    .sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0))
-  const transportAllocations = Object.entries(school.transport?.allocations || {}).map(([id, row]) => ({ id, ...row }))
+  const reportCards = rows(reportSnap).filter(row => row.status === 'published' || row.published || row.locked)
+  const certificates = rows(certSnap).sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0))
+  const certificateRequests = rows(certReqSnap).filter(row => row.parentId === parentId)
+  const messages = rows(msgSnap).sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0))
+  const notifications = rows(notifSnap).sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0))
+
+  const transport = transportSnap.val() || {}
+  const transportAllocations = Object.entries(transport.allocations || {}).map(([id, row]) => ({ id, ...row }))
   const allocation = transportAllocations.find(row => row.studentId === selected.id) || {}
-  const route = school.transport?.routes?.[allocation.routeId || selected.routeId] || {}
-  const vehicle = school.transport?.vehicles?.[allocation.vehicleId || route.vehicleId] || {}
-  const driver = school.transport?.drivers?.[allocation.driverId || vehicle.driverId || route.driverId] || {}
+  const route = transport.routes?.[allocation.routeId || selected.routeId] || {}
+  const vehicle = transport.vehicles?.[allocation.vehicleId || route.vehicleId] || {}
+  const driver = transport.drivers?.[allocation.driverId || vehicle.driverId || route.driverId] || {}
   const todayKey = new Date().toISOString().slice(0, 10)
-  const transportAttendance = Object.values(school.transport?.attendance || {}).filter(row => row.date === todayKey && (row.records || []).some(item => item.studentId === selected.id))
+  const transportAttendance = Object.values(transport.attendance || {}).filter(row => row.date === todayKey && (row.records || []).some(item => item.studentId === selected.id))
+
+  const library = librarySnap.val() || {}
 
   return {
     schoolId,
-    school: publicSchool(school),
+    school: publicSchool({ profile }),
     parent: { id: parentId, name: parent.name || 'Parent', phone: parent.phone, email: parent.email || '', address: parent.address || '', language: parent.language || 'english', mustChangePassword: Boolean(parent.mustChangePassword) },
     students,
     selectedStudent: selected,
     attendance,
     fees,
     homework,
-    notices: filterNotices(school.notices, selected),
+    notices: filterNotices(noticesSnap.val(), selected),
     reportCards,
     certificates,
     certificateRequests,
     messages,
     notifications,
-    timetable: school.timetable || {},
+    timetable: timetableSnap.val() || {},
     transport: { allocation, route, vehicle, driver, today: transportAttendance },
     library: {
-      fines: Object.entries(school.library?.fines || {}).map(([id, row]) => ({ id, ...row })).filter(row => row.studentId === selected.id),
-      issues: Object.entries(school.library?.issues || {}).map(([id, row]) => ({ id, ...row })).filter(row => row.studentId === selected.id),
+      fines: Object.entries(library.fines || {}).map(([id, row]) => ({ id, ...row })).filter(row => row.studentId === selected.id),
+      issues: Object.entries(library.issues || {}).map(([id, row]) => ({ id, ...row })).filter(row => row.studentId === selected.id),
     },
     fetchedAt: now(),
   }
@@ -220,13 +256,10 @@ async function requireSession(database, body) {
   const sessionSnap = await database.ref(`schools/${schoolId}/parentSessions/${parentId}/${sessionToken}`).once('value')
   const session = sessionSnap.val()
   if (!session || session.expiresAt < now()) throw new Error('Parent session expired. Please login again.')
-  const schoolSnap = await database.ref(`schools/${schoolId}`).once('value')
-  const school = schoolSnap.val()
-  if (!school) throw new Error('School not found.')
   const parentSnap = await database.ref(`schools/${schoolId}/parents/${parentId}`).once('value')
   const parent = parentSnap.val()
   if (!parent || parent.status === 'inactive') throw new Error('Parent account is inactive.')
-  return { schoolId, parentId, school, parent }
+  return { schoolId, parentId, parent }
 }
 
 module.exports = async function handler(request, response) {
@@ -245,17 +278,17 @@ module.exports = async function handler(request, response) {
       if (phone.length !== 10) throw new Error('Phone number must be 10 digits.')
       const found = await findSchool(database, schoolCode)
       if (!found) throw new Error('Invalid School Code')
-      const { schoolId, school } = found
-      const ensured = await ensureParent(database, schoolId, school, phone)
+      const { schoolId } = found
+      const ensured = await ensureParent(database, schoolId, phone, schoolCode)
       if (!ensured) throw new Error('Phone number not registered. Contact school.')
-      const { parentId, parent } = ensured
+      const { parentId, parent, students } = ensured
       if (parent.status === 'inactive') throw new Error('Parent account is inactive. Contact school.')
       const attemptsRef = database.ref(`schools/${schoolId}/parentLoginAttempts/${parentId}`)
       const attemptsSnap = await attemptsRef.once('value')
       const attempts = attemptsSnap.val() || {}
       if (attempts.lockUntil && attempts.lockUntil > now()) throw new Error('Too many wrong attempts. Try again after 15 minutes.')
       const linkedIds = normalizeStudentsList(parent.students)
-      const linkedStudents = linkedIds.map(id => school.students?.[id]).filter(Boolean)
+      const linkedStudents = linkedIds.map(id => students[id]).filter(Boolean)
       const rawDob = row => row.dob || row.date_of_birth || row.dateOfBirth || ''
       const eldest = linkedStudents.sort((a, b) => String(dateKey(rawDob(a))).localeCompare(String(dateKey(rawDob(b)))))[0] || {}
       const validCustom = parent.passwordHash && hashPassword(password) === parent.passwordHash
@@ -269,13 +302,13 @@ module.exports = async function handler(request, response) {
       const sessionToken = tokenFor()
       await database.ref(`schools/${schoolId}/parentSessions/${parentId}/${sessionToken}`).set({ createdAt: now(), expiresAt: now() + 30 * 60 * 1000 })
       await database.ref(`schools/${schoolId}/parents/${parentId}`).update({ lastLogin: now(), updatedAt: now() })
-      return response.status(200).json({ ok: true, sessionToken, schoolId, parentId, mustChangePassword: Boolean(parent.mustChangePassword), data: buildDataPayload(schoolId, school, parentId, parent) })
+      return response.status(200).json({ ok: true, sessionToken, schoolId, parentId, mustChangePassword: Boolean(parent.mustChangePassword), data: await buildDataPayload(database, schoolId, parentId, parent, '', students) })
     }
 
     if (action === 'data') {
       const context = await requireSession(database, body)
       await database.ref(`schools/${context.schoolId}/parentSessions/${context.parentId}/${body.sessionToken}/expiresAt`).set(now() + 30 * 60 * 1000)
-      return response.status(200).json({ ok: true, data: buildDataPayload(context.schoolId, context.school, context.parentId, context.parent, body.studentId) })
+      return response.status(200).json({ ok: true, data: await buildDataPayload(database, context.schoolId, context.parentId, context.parent, body.studentId) })
     }
 
     if (action === 'setPassword') {
@@ -283,7 +316,7 @@ module.exports = async function handler(request, response) {
       const password = String(body.password || '')
       if (!/[A-Z]/.test(password) || !/\d/.test(password) || password.length < 8) throw new Error('Password must be 8+ chars with 1 capital and 1 number.')
       const firstStudentId = normalizeStudentsList(context.parent.students)[0]
-      const firstRow = context.school.students?.[firstStudentId] || {}
+      const firstRow = firstStudentId ? (await database.ref(`schools/${context.schoolId}/students/${firstStudentId}`).once('value')).val() || {} : {}
       const dob = firstRow.dob || firstRow.date_of_birth || firstRow.dateOfBirth || ''
       if (verifyDobPassword(password, dob)) throw new Error('New password cannot be same as DOB.')
       await database.ref(`schools/${context.schoolId}/parents/${context.parentId}`).update({ passwordHash: hashPassword(password), mustChangePassword: false, passwordSetAt: now(), updatedAt: now() })
@@ -295,7 +328,7 @@ module.exports = async function handler(request, response) {
       const phone = digits(body.phone)
       const found = await findSchool(database, schoolCode)
       if (!found) throw new Error('Invalid School Code')
-      const ensured = await ensureParent(database, found.schoolId, found.school, phone)
+      const ensured = await ensureParent(database, found.schoolId, phone, schoolCode)
       if (!ensured) throw new Error('Phone number not registered. Contact school.')
       await database.ref(`schools/${found.schoolId}/parents/${ensured.parentId}`).update({ passwordHash: null, mustChangePassword: true, updatedAt: now() })
       return response.status(200).json({ ok: true, message: "Password reset to child's date of birth." })
@@ -319,7 +352,7 @@ module.exports = async function handler(request, response) {
 
     if (action === 'certificateRequest') {
       const context = await requireSession(database, body)
-      const student = context.school.students?.[body.studentId] || {}
+      const student = (await database.ref(`schools/${context.schoolId}/students/${body.studentId}`).once('value')).val() || {}
       const id = `cert_req_${now()}`
       await database.ref(`schools/${context.schoolId}/certificateRequests/${id}`).set({
         id,
