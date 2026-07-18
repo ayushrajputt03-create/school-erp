@@ -18,10 +18,9 @@ export default function BackupCenter({ students, fees, attendance, settings, cre
   const [message, setMessage] = useState('')
   const [emailSettings, setEmailSettings] = useState(settings)
   const admin = role === 'Owner' || role === 'Administrator'
-  const attendanceRows = Object.entries(attendance).flatMap(([date, marks]) => Object.entries(marks).map(([studentId, status]) => ({ date, studentId, status })))
 
-  const exportJson = () => {
-    const payload = createBackup()
+  const exportJson = async () => {
+    const payload = await createBackup()
     downloadBlob(new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' }), backupName('json'))
     setMessage('Full restore backup downloaded.')
   }
@@ -29,6 +28,9 @@ export default function BackupCenter({ students, fees, attendance, settings, cre
   const exportExcel = async () => {
     setBusy('excel')
     try {
+      // createBackup() fetches the full attendance history, so the workbook covers every month.
+      const payload = await createBackup()
+      const attendanceRows = Object.values(payload.data.attendance || {}).map(record => ({ date: record.date, studentId: record.studentId || record.student_id, status: record.status || record.mark }))
       const ExcelJS = (await import('exceljs')).default
       const workbook = new ExcelJS.Workbook()
       workbook.creator = 'Northstar School OS'
@@ -86,7 +88,7 @@ export default function BackupCenter({ students, fees, attendance, settings, cre
       if (payload?.format !== 'northstar-school-backup' || payload?.version !== 1 || !payload?.data || typeof payload.data !== 'object') throw new Error('Please select a valid NXT School ERP JSON backup file.')
       const confirmed = window.confirm(`Restore backup from ${new Date(payload.exportedAt).toLocaleString('en-IN')}?\n\nCurrent Students, Fees and Attendance will be replaced.`)
       if (!confirmed) return
-      exportJson()
+      await exportJson()
       await restoreBackup(payload)
       setMessage('Backup restored successfully. A safety copy of the previous data was downloaded first.')
     } catch (error) {

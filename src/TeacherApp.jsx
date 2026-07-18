@@ -5,7 +5,7 @@ import {
   Search, User, X, Eye, EyeOff, Check, Clock3, Users, Bell, Save, Camera
 } from 'lucide-react'
 import { onAuthStateChanged, signInWithCustomToken, signOut, updatePassword, EmailAuthProvider, reauthenticateWithCredential } from 'firebase/auth'
-import { ref, onValue } from 'firebase/database'
+import { ref, onValue, query, orderByChild, startAt } from 'firebase/database'
 import { auth, rtdb } from './lib/firebase'
 import DatePicker from './DatePicker'
 import './teacher-app.css'
@@ -15,7 +15,7 @@ const databaseUrl = import.meta.env.VITE_FIREBASE_DATABASE_URL?.replace(/\/$/, '
 async function dbRequest(path, token, options = {}) {
   const controller = new AbortController()
   const timeout = setTimeout(() => controller.abort(), 12000)
-  const url = `${databaseUrl}/${path}.json?auth=${encodeURIComponent(token)}`
+  const url = `${databaseUrl}/${path}.json?auth=${encodeURIComponent(token)}${options.query ? `&${options.query}` : ''}`
   try {
     const response = await fetch(url, {
       method: options.method || 'GET',
@@ -89,6 +89,11 @@ async function loadTeacherSession(token, uid) {
   try {
     const index = await dbRequest(`teachersIndex/${uid}`, token)
     if (!index || !index.schoolId) throw new Error('No staff account found. Contact your school admin.')
+    // Only pull the current month's attendance — the full history can be tens of thousands of
+    // records. Requires "attendance": { ".indexOn": ["date"] } in the database rules.
+    const md = new Date()
+    const monthStart = `${md.getFullYear()}-${String(md.getMonth() + 1).padStart(2, '0')}-01`
+    const attQuery = `orderBy=${encodeURIComponent('"date"')}&startAt=${encodeURIComponent(`"${monthStart}"`)}`
     const [staffData, teacherData, profile, studentsData, hw, noticeData, attData] = await Promise.all([
       dbRequest(`schools/${index.schoolId}/staff/${uid}`, token).catch(() => null),
       dbRequest(`schools/${index.schoolId}/teachers/${uid}`, token).catch(() => null),
@@ -96,7 +101,7 @@ async function loadTeacherSession(token, uid) {
       dbRequest(`schools/${index.schoolId}/students`, token),
       dbRequest(`schools/${index.schoolId}/homework`, token),
       dbRequest(`schools/${index.schoolId}/notices`, token),
-      dbRequest(`schools/${index.schoolId}/attendance`, token),
+      dbRequest(`schools/${index.schoolId}/attendance`, token, { query: attQuery }),
     ])
     const record = staffData || teacherData
     if (!record) throw new Error('Staff profile not found in school data.')
@@ -643,8 +648,13 @@ export default function TeacherApp() {
     sub('students', val => setStudents(val || {}))
     sub('homework', val => setHomework(val || {}))
     sub('notices', val => setNotices(val || {}))
-    sub('attendance', val => setAttendance(parseAttendanceToTeacherFormat(val)))
     sub(`staff/${session.uid}`, val => { if (val) setTeacher(buildStaffProfile(session.uid, val)) })
+    // Attendance listener is bounded to the current month so the live subscription never streams
+    // the whole year's history. Requires "attendance": { ".indexOn": ["date"] } in the rules.
+    const md = new Date()
+    const monthStart = `${md.getFullYear()}-${String(md.getMonth() + 1).padStart(2, '0')}-01`
+    const attQuery = query(ref(rtdb, `schools/${schoolId}/attendance`), orderByChild('date'), startAt(monthStart))
+    unsubs.push(onValue(attQuery, snap => { if (active) setAttendance(parseAttendanceToTeacherFormat(snap.val())) }, () => {}))
     return () => { active = false; unsubs.forEach(fn => fn()) }
   }, [session, schoolId])
 

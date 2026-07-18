@@ -65,7 +65,7 @@ const useFirebaseStorage = import.meta.env.VITE_USE_FIREBASE_STORAGE === 'true'
 async function databaseRequest(path, token, options = {}) {
   const controller = new AbortController()
   const timeout = setTimeout(() => controller.abort(), 12000)
-  const url = `${databaseUrl}/${path ? `${path}.json` : '.json'}?auth=${encodeURIComponent(token)}`
+  const url = `${databaseUrl}/${path ? `${path}.json` : '.json'}?auth=${encodeURIComponent(token)}${options.query ? `&${options.query}` : ''}`
 
   try {
     const response = await fetch(url, {
@@ -1019,13 +1019,24 @@ function StudentModal({ close, addStudent, updateStudent, getNextAdmissionNumber
   </form></div>
 }
 
-function StudentProfile({ student, close, attendance, fees, feeManager, schoolProfile, academics, documents, onRecordPayment, onUploadDocument, onUpdatePhoto, onEdit }) {
+function StudentProfile({ student, close, attendance, fees, feeManager, schoolProfile, academics, documents, onRecordPayment, onUploadDocument, onUpdatePhoto, onEdit, loadStudentAttendance }) {
   const [tab, setTab] = useState('personal')
   const [uploading, setUploading] = useState('')
   const [photoDraft, setPhotoDraft] = useState(null)
   const [photoSaving, setPhotoSaving] = useState(false)
+  // The live attendance state is bounded to the current month for cost reasons, but the profile
+  // shows the full month-wise summary and overall %. Fetch this student's complete history once
+  // on open and merge it under the live current-month data (live values win for freshness).
+  const [historyRecords, setHistoryRecords] = useState(null)
+  useEffect(() => {
+    let active = true
+    setHistoryRecords(null)
+    if (student && loadStudentAttendance) loadStudentAttendance(student.id).then(result => { if (active && result) setHistoryRecords(result) })
+    return () => { active = false }
+  }, [student?.id])
   if (!student) return null
-  const records = Object.entries(attendance).reduce((all, [date, marks]) => marks[student.id] ? { ...all, [date]: marks[student.id] } : all, {})
+  const liveRecords = Object.entries(attendance).reduce((all, [date, marks]) => marks[student.id] ? { ...all, [date]: marks[student.id] } : all, {})
+  const records = historyRecords ? { ...historyRecords, ...liveRecords } : liveRecords
   const now = new Date()
   const monthKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`
   const monthDays = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate()
@@ -2283,7 +2294,7 @@ function useSchoolWorkspace(session) {
     let cancelled = false
     const unsubs = []
 
-    import('firebase/database').then(({ ref: dbRef, onValue, off, getDatabase }) => {
+    import('firebase/database').then(({ ref: dbRef, onValue, off, getDatabase, query, orderByChild, startAt }) => {
       if (cancelled) return
       let rtdb
       try { rtdb = getDatabase(firebaseApp) } catch { return }
@@ -2294,13 +2305,26 @@ function useSchoolWorkspace(session) {
         unsubs.push(() => off(r, 'value', handler))
       }
 
+      // Attendance can grow to tens of thousands of records over a school year. The live
+      // dashboard only needs the current month, so subscribe to a date-bounded query instead
+      // of the whole node — this keeps the continuous listener payload small. Full history for
+      // student profiles and backups is fetched on demand elsewhere (see loadStudentAttendance
+      // and createBackupPayload). Requires "attendance": { ".indexOn": ["date"] } in the rules.
+      function listenFromDate(path, childKey, startValue, handler) {
+        const q = query(dbRef(rtdb, path), orderByChild(childKey), startAt(startValue))
+        onValue(q, handler, { onlyOnce: false })
+        unsubs.push(() => off(q, 'value', handler))
+      }
+
       listen(`schools/${schoolId}/students`, snap => {
         const data = snap.val() || {}
         const rows = Object.entries(data).map(([id, row]) => ({ id, ...row })).sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0))
         setStudents(rows.map(studentFromRow))
       })
 
-      listen(`schools/${schoolId}/attendance`, snap => {
+      const monthStartDate = new Date()
+      const monthStart = `${monthStartDate.getFullYear()}-${String(monthStartDate.getMonth() + 1).padStart(2, '0')}-01`
+      listenFromDate(`schools/${schoolId}/attendance`, 'date', monthStart, snap => {
         const data = snap.val() || {}
         const byDate = Object.values(data).reduce((dates, record) => {
           const studentId = record.studentId || record.student_id
@@ -2686,12 +2710,52 @@ function useSchoolWorkspace(session) {
     setFeeManager(current => ({ ...current, [section]: { ...(current[section] || {}), [id]: row } }))
   }
 
-  const createBackupPayload = () => {
+  // One-time fetch of a single student's full attendance history for the profile view (which
+  // shows the month-wise summary and overall %). Queries by the studentId index so only that
+  // student's records download, not the whole node. The live listener stays month-bounded.
+  const loadStudentAttendance = async studentId => {
+    if (developmentDemo || !studentId) {
+      const records = {}
+      Object.entries(attendance).forEach(([date, marks]) => { if (marks[studentId]) records[date] = marks[studentId] })
+      return records
+    }
+    try {
+      const token = await session.getIdToken()
+      const data = await databaseRequest(`schools/${workspace.schoolId}/attendance`, token, { query: `orderBy=${encodeURIComponent('"studentId"')}&equalTo=${encodeURIComponent(`"${studentId}"`)}` })
+      const records = {}
+      Object.values(data || {}).forEach(record => {
+        const sid = record.studentId || record.student_id
+        if (String(sid) !== String(studentId) || !record.date) return
+        records[record.date] = normalizeAttendanceStatus(record.mark || record.status)
+      })
+      return records
+    } catch {
+      return null
+    }
+  }
+
+  const createBackupPayload = async () => {
     const studentRows = Object.fromEntries(students.map(student => [student.id, studentToRow(student)]))
-    const attendanceRows = {}
-    Object.entries(attendance).forEach(([date, marks]) => Object.entries(marks).forEach(([studentId, status]) => {
-      attendanceRows[`${date}_${studentId}`] = { studentId, date, status, markedBy: session?.uid || 'backup', updatedAt: Date.now() }
-    }))
+    // Backups must contain the FULL attendance history, not just the current month the live
+    // listener now holds. Fetch the entire attendance node once at export time.
+    const attendanceFromState = () => {
+      const rows = {}
+      Object.entries(attendance).forEach(([date, marks]) => Object.entries(marks).forEach(([studentId, status]) => {
+        rows[`${date}_${studentId}`] = { studentId, date, status, markedBy: session?.uid || 'backup', updatedAt: Date.now() }
+      }))
+      return rows
+    }
+    let attendanceRows = {}
+    if (developmentDemo) {
+      attendanceRows = attendanceFromState()
+    } else {
+      try {
+        const token = await session.getIdToken()
+        const full = await databaseRequest(`schools/${workspace.schoolId}/attendance`, token)
+        if (full && typeof full === 'object') attendanceRows = full
+      } catch { /* network issue — fall through to in-memory current-month data */ }
+      if (!Object.keys(attendanceRows).length) attendanceRows = attendanceFromState()
+    }
     return {
       format: 'northstar-school-backup',
       version: 1,
@@ -3779,7 +3843,7 @@ function useSchoolWorkspace(session) {
     return logo
   }
 
-  return { students, notices, fees, feeManager, attendance, timetableData, timetableRecords, homework, transport, library, accounts, leave, parents, parentMessages, parentNotifications, certificateRequests, enquiries, staff, staffAttendance, employeeConfig, approvals, expenses, academics, documents, certificates, certificateSettings, examData, reportData, idCards, idCardSettings, activities, backupSettings, workspace, createSchoolWorkspace, getNextAdmissionNumber, addStudent, updateStudent, updateStudentPhoto, recordPayment, submitFeeReceipt, saveFeeGroup, deleteFeeGroup, saveFeeStructure, deleteFeeStructure, deleteFeeReceipt, restoreFeeReceipt, decideFeeApproval, saveFeeManagerConfig, createBackupPayload, restoreBackup, saveBackupSettings, saveSchoolProfile, saveParentAccount, addNotice, saveAttendance, saveEmployeeConfig, deleteEmployeeConfig, saveEmployee, deleteEmployee, saveStaffAttendance, savePeriod, saveTimetableRecord, deleteTimetableRecord, saveHomework, deleteHomework, markHomeworkDone, markHomeworkSeen, saveTransportItem, deleteTransportItem, saveExpenseItem, deleteExpenseItem, saveLibraryItem, deleteLibraryItem, saveAccountsItem, deleteAccountsItem, saveLeaveItem, deleteLeaveItem, saveEnquiry, uploadStudentDocument, saveCertificate, saveCertificateSettings, saveExamRecord, saveDateSheetRow, deleteDateSheetRow, saveAdmitCards, deleteCertificate, updateCertificateStatus, saveReportExam, deleteReportExam, saveReportMarks, saveReportCard, updateReportCard, saveIdCardSettings, saveIdCard, deleteIdCard, uploadIdCardLogo, developmentDemo }
+  return { students, notices, fees, feeManager, attendance, timetableData, timetableRecords, homework, transport, library, accounts, leave, parents, parentMessages, parentNotifications, certificateRequests, enquiries, staff, staffAttendance, employeeConfig, approvals, expenses, academics, documents, certificates, certificateSettings, examData, reportData, idCards, idCardSettings, activities, backupSettings, workspace, createSchoolWorkspace, getNextAdmissionNumber, addStudent, updateStudent, updateStudentPhoto, recordPayment, submitFeeReceipt, saveFeeGroup, deleteFeeGroup, saveFeeStructure, deleteFeeStructure, deleteFeeReceipt, restoreFeeReceipt, decideFeeApproval, saveFeeManagerConfig, createBackupPayload, restoreBackup, saveBackupSettings, saveSchoolProfile, saveParentAccount, addNotice, saveAttendance, saveEmployeeConfig, deleteEmployeeConfig, saveEmployee, deleteEmployee, saveStaffAttendance, savePeriod, saveTimetableRecord, deleteTimetableRecord, saveHomework, deleteHomework, markHomeworkDone, markHomeworkSeen, saveTransportItem, deleteTransportItem, saveExpenseItem, deleteExpenseItem, saveLibraryItem, deleteLibraryItem, saveAccountsItem, deleteAccountsItem, saveLeaveItem, deleteLeaveItem, saveEnquiry, uploadStudentDocument, loadStudentAttendance, saveCertificate, saveCertificateSettings, saveExamRecord, saveDateSheetRow, deleteDateSheetRow, saveAdmitCards, deleteCertificate, updateCertificateStatus, saveReportExam, deleteReportExam, saveReportMarks, saveReportCard, updateReportCard, saveIdCardSettings, saveIdCard, deleteIdCard, uploadIdCardLogo, developmentDemo }
 }
 
 export default function App() {
@@ -3884,5 +3948,5 @@ export default function App() {
     await signOut(auth)
     setPage('dashboard')
   }
-  return <div className={`app-shell ${darkMode ? 'theme-dark' : 'theme-light'}`}><Sidebar page={page} setPage={setPage} open={menuOpen} close={() => setMenuOpen(false)} schoolName={data.workspace.schoolName} schoolLogo={data.workspace.schoolProfile.logoURL || data.workspace.schoolProfile.logo} schoolCode={data.workspace.schoolProfile.schoolCode} cloudMode={!data.developmentDemo} profile={profile} /><main className="main-area"><Header title={current.label} subtitle={`${data.workspace.schoolName} · ${data.workspace.schoolProfile.academicYear || '2026-27'}`} schoolCode={data.workspace.schoolProfile.schoolCode} onMenu={() => setMenuOpen(true)} profile={profile} onSignOut={logout} students={data.students} onSelectStudent={setSelectedStudent} darkMode={darkMode} onToggleTheme={() => setDarkMode(current => !current)} /><div className="page-content page-enter" key={page}>{screens[page]}</div></main>{selectedStudent && <StudentProfile student={data.students.find(student => student.id === selectedStudent.id) || selectedStudent} close={() => setSelectedStudent(null)} attendance={data.attendance} fees={data.fees} feeManager={data.feeManager} schoolProfile={data.workspace.schoolProfile} academics={data.academics} documents={data.documents} onRecordPayment={data.recordPayment} onUploadDocument={data.uploadStudentDocument} onUpdatePhoto={data.updateStudentPhoto} onEdit={s => setEditingStudent(s)} />}{editingStudent && <StudentModal close={() => setEditingStudent(null)} student={editingStudent} updateStudent={async (id, updates) => { await data.updateStudent(id, updates); setEditingStudent(null) }} />}</div>
+  return <div className={`app-shell ${darkMode ? 'theme-dark' : 'theme-light'}`}><Sidebar page={page} setPage={setPage} open={menuOpen} close={() => setMenuOpen(false)} schoolName={data.workspace.schoolName} schoolLogo={data.workspace.schoolProfile.logoURL || data.workspace.schoolProfile.logo} schoolCode={data.workspace.schoolProfile.schoolCode} cloudMode={!data.developmentDemo} profile={profile} /><main className="main-area"><Header title={current.label} subtitle={`${data.workspace.schoolName} · ${data.workspace.schoolProfile.academicYear || '2026-27'}`} schoolCode={data.workspace.schoolProfile.schoolCode} onMenu={() => setMenuOpen(true)} profile={profile} onSignOut={logout} students={data.students} onSelectStudent={setSelectedStudent} darkMode={darkMode} onToggleTheme={() => setDarkMode(current => !current)} /><div className="page-content page-enter" key={page}>{screens[page]}</div></main>{selectedStudent && <StudentProfile student={data.students.find(student => student.id === selectedStudent.id) || selectedStudent} close={() => setSelectedStudent(null)} attendance={data.attendance} fees={data.fees} feeManager={data.feeManager} schoolProfile={data.workspace.schoolProfile} academics={data.academics} documents={data.documents} onRecordPayment={data.recordPayment} onUploadDocument={data.uploadStudentDocument} onUpdatePhoto={data.updateStudentPhoto} onEdit={s => setEditingStudent(s)} loadStudentAttendance={data.loadStudentAttendance} />}{editingStudent && <StudentModal close={() => setEditingStudent(null)} student={editingStudent} updateStudent={async (id, updates) => { await data.updateStudent(id, updates); setEditingStudent(null) }} />}</div>
 }

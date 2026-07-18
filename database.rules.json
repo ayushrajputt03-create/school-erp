@@ -118,6 +118,7 @@
         },
         "attendance": {
           ".write": "auth != null && (auth.uid === $schoolId || root.child('teachersIndex').child(auth.uid).child('schoolId').val() === $schoolId)",
+          ".indexOn": ["date", "studentId"],
           "$recordId": {
             ".validate": true
           }
