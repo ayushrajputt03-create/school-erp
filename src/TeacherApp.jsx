@@ -5,7 +5,8 @@ import {
   Search, User, X, Eye, EyeOff, Check, Clock3, Users, Bell, Save, Camera
 } from 'lucide-react'
 import { onAuthStateChanged, signInWithCustomToken, signOut, updatePassword, EmailAuthProvider, reauthenticateWithCredential } from 'firebase/auth'
-import { auth } from './lib/firebase'
+import { ref, onValue } from 'firebase/database'
+import { auth, rtdb } from './lib/firebase'
 import DatePicker from './DatePicker'
 import './teacher-app.css'
 
@@ -619,28 +620,33 @@ export default function TeacherApp() {
     return () => { active = false }
   }, [session])
 
-  // Near-real-time sync: silently refresh teacher data on an interval so admin/teacher
-  // changes (homework, notices, attendance) appear without a manual reload. Paused on the
-  // attendance page so a live refresh never clobbers marks the teacher is entering.
+  // Real-time sync via scoped RTDB listeners. Firebase pushes only changed data over a
+  // persistent connection, replacing the old 20s poll that re-downloaded the entire school
+  // (students + homework + notices + full attendance history) every tick — a major bandwidth
+  // cost fix. It also makes teacher-marked attendance appear in the admin panel and student
+  // profile instantly, since both sides now read the same schools/{id}/attendance node live
+  // instead of waiting for the next poll cycle.
+  //
+  // The attendance listener is safe to run on the attendance page: the marking UI keeps its
+  // in-progress marks in its own local state (seeded only when date/class/students change),
+  // so a live push never clobbers marks the teacher is entering.
   useEffect(() => {
-    if (!session || !schoolId || page === 'attendance') return undefined
+    if (!session || !schoolId || !rtdb) return undefined
     let active = true
-    const tick = async () => {
-      try {
-        const token = await session.getIdToken()
-        const bundle = await loadTeacherSession(token, session.uid)
-        if (!active) return
-        setTeacher(bundle.teacher)
-        setSchoolProfile(bundle.profile)
-        setStudents(bundle.students || {})
-        setHomework(bundle.homework || {})
-        setNotices(bundle.notices || {})
-        setAttendance(bundle.attendance || {})
-      } catch { /* ignore transient poll failures; next tick retries */ }
+    const unsubs = []
+    const sub = (path, handler) => {
+      const node = ref(rtdb, `schools/${schoolId}/${path}`)
+      const unsubscribe = onValue(node, snap => { if (active) handler(snap.val()) }, () => { /* permission/transient errors: keep initial snapshot */ })
+      unsubs.push(unsubscribe)
     }
-    const id = setInterval(tick, 20000)
-    return () => { active = false; clearInterval(id) }
-  }, [session, schoolId, page])
+    sub('profile', val => { if (val) setSchoolProfile(val) })
+    sub('students', val => setStudents(val || {}))
+    sub('homework', val => setHomework(val || {}))
+    sub('notices', val => setNotices(val || {}))
+    sub('attendance', val => setAttendance(parseAttendanceToTeacherFormat(val)))
+    sub(`staff/${session.uid}`, val => { if (val) setTeacher(buildStaffProfile(session.uid, val)) })
+    return () => { active = false; unsubs.forEach(fn => fn()) }
+  }, [session, schoolId])
 
   const doLogout = async () => { await signOut(auth); window.location.href = '/' }
 
