@@ -2876,11 +2876,16 @@ function useSchoolWorkspace(session) {
   async function getNextAdmissionNumber() {
     if (developmentDemo) return Math.max(0, ...students.map(student => admissionValue(student.roll))) + 1
     const token = await session.getIdToken()
-    const [fresh, counter] = await Promise.all([
-      databaseRequest(`schools/${workspace.schoolId}/students`, token),
-      databaseRequest(`schools/${workspace.schoolId}/admissionCounter`, token),
-    ])
-    return Math.max(Number(counter?.lastIssued || 0), ...Object.values(fresh || {}).map(row => admissionValue(row.admission_number))) + 1
+    // This only previews the next number in the Add Student form — reserveAdmissionNumber() is
+    // what atomically assigns it on save. admissionCounter is kept current by that reservation
+    // (and seeded by the bootstrap migration), so downloading the entire students node on every
+    // modal open just to recompute a number we already store was pure egress.
+    const counter = await databaseRequest(`schools/${workspace.schoolId}/admissionCounter`, token).catch(() => null)
+    const lastIssued = Number(counter?.lastIssued || 0)
+    if (lastIssued > 0) return lastIssued + 1
+    // Counter not seeded yet (fresh or legacy workspace) — fall back to a one-time scan.
+    const fresh = await databaseRequest(`schools/${workspace.schoolId}/students`, token).catch(() => null)
+    return Math.max(0, ...Object.values(fresh || {}).map(row => admissionValue(row.admission_number))) + 1
   }
 
   const recordPayment = async (studentId, amount = 0, method = 'UPI', billingMonth = today().slice(0, 7)) => {
