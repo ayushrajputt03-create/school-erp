@@ -1371,21 +1371,35 @@ td.lbl{color:#333;width:130px;font-weight:600}
         if (!file) return
         event.target.value = ''
 
-        // Flexible header aliases → internal field keys
+        // Flexible header aliases → internal field keys. Keys here are in the SAME compact form
+        // produced by normalizeHeader() below (lowercase, every non-alphanumeric stripped), so
+        // "Mobile No.", "mobile_no" and "Mobile  No" all collapse to "mobileno" and match once.
+        // Father and Guardian are deliberately kept as SEPARATE keys — mapping both onto one key
+        // made whichever column appeared last silently overwrite the other.
         const HEADER_MAP = {
-          name: 'name', fullname: 'name', studentname: 'name', 'student name': 'name', 'full name': 'name', 'student full name': 'name',
-          class: 'className', classname: 'className', 'class name': 'className', grade: 'className', standard: 'className', 'class/section': 'className',
+          name: 'name', fullname: 'name', studentname: 'name', studentfullname: 'name', nameofstudent: 'name',
+          class: 'className', classname: 'className', grade: 'className', standard: 'className', classsection: 'className',
           section: 'section',
-          guardian: 'guardian', guardianname: 'guardian', 'guardian name': 'guardian',
-          father: 'guardian', fathername: 'guardian', 'father name': 'guardian', 'fathers name': 'guardian',
+          rollnumber: 'rollNumber', rollno: 'rollNumber', roll: 'rollNumber',
+          admissionnumber: 'roll', admissionno: 'roll', admno: 'roll', admissionnu: 'roll',
+          guardian: 'guardian', guardianname: 'guardian', nameofguardian: 'guardian',
+          father: 'fatherName', fathername: 'fatherName', fathersname: 'fatherName', nameoffather: 'fatherName',
+          mother: 'motherName', mothername: 'motherName', mothersname: 'motherName', nameofmother: 'motherName',
           phone: 'phone', mobile: 'phone', contact: 'phone', mobileno: 'phone', phoneno: 'phone',
-          guardianphone: 'phone', 'guardian phone': 'phone', fatherphone: 'phone', 'father phone': 'phone',
-          admissiondate: 'admissionDate', 'admission date': 'admissionDate', dateofadmission: 'admissionDate',
-          dob: 'dob', dateofbirth: 'dob', 'date of birth': 'dob', birthdate: 'dob', 'birth date': 'dob',
+          mobilenumber: 'phone', phonenumber: 'phone', contactno: 'phone', contactnumber: 'phone',
+          guardianphone: 'guardianPhone', guardianmobile: 'guardianPhone', guardiancontact: 'guardianPhone',
+          fatherphone: 'fatherPhone', fathermobile: 'fatherPhone', fathercontact: 'fatherPhone',
+          motherphone: 'motherPhone', mothermobile: 'motherPhone',
+          admissiondate: 'admissionDate', dateofadmission: 'admissionDate', doa: 'admissionDate',
+          dob: 'dob', dateofbirth: 'dob', birthdate: 'dob', birthday: 'dob',
           gender: 'gender', sex: 'gender',
-          email: 'email', emailid: 'email', 'email id': 'email',
-          address: 'address',
-          admissionscheme: 'admissionScheme', 'admission scheme': 'admissionScheme', category: 'admissionScheme',
+          email: 'email', emailid: 'email', emailaddress: 'email',
+          address: 'address', fulladdress: 'address', residentialaddress: 'address',
+          city: 'city', state: 'state', district: 'district', pincode: 'pincode', pin: 'pincode',
+          aadhaar: 'aadhaar', aadhar: 'aadhaar', aadhaarno: 'aadhaar', aadharno: 'aadhaar',
+          bloodgroup: 'bloodGroup', religion: 'religion', caste: 'caste', nationality: 'nationality',
+          stream: 'stream',
+          admissionscheme: 'admissionScheme', category: 'admissionScheme',
         }
 
         // Convert Excel date serial (Windows epoch: Dec 30 1899) to YYYY-MM-DD
@@ -1398,7 +1412,31 @@ td.lbl{color:#333;width:130px;font-weight:600}
           return `${y}-${m}-${day}`
         }
 
-        const normalizeHeader = h => String(h || '').toLowerCase().replace(/[^a-z0-9 /]/g, '').trim()
+        // Strip EVERY non-alphanumeric character so spacing/punctuation variants of the same
+        // header ("Mobile No.", "mobile_no", "Mobile  No") all normalize to one lookup key.
+        const normalizeHeader = h => String(h || '').toLowerCase().replace(/[^a-z0-9]/g, '')
+
+        // RFC-4180 CSV reader. The old code did lines.split('\n') + line.split(','), which broke
+        // on any value containing a comma (addresses like "Delhi, India") — every column after it
+        // shifted by one, so names landed in the father column, father in mobile, and so on.
+        // This handles quoted fields, escaped "" quotes, and newlines inside quoted values.
+        const parseCsvText = text => {
+          const rows = []
+          let row = [], cur = '', inQuotes = false
+          for (let i = 0; i < text.length; i++) {
+            const ch = text[i]
+            if (inQuotes) {
+              if (ch === '"') {
+                if (text[i + 1] === '"') { cur += '"'; i++ } else inQuotes = false
+              } else cur += ch
+            } else if (ch === '"') inQuotes = true
+            else if (ch === ',') { row.push(cur); cur = '' }
+            else if (ch === '\n') { row.push(cur); rows.push(row); row = []; cur = '' }
+            else if (ch !== '\r') cur += ch
+          }
+          if (cur !== '' || row.length) { row.push(cur); rows.push(row) }
+          return rows.filter(r => r.some(c => String(c).trim()))
+        }
 
         let parsed = []
         try {
@@ -1416,6 +1454,7 @@ td.lbl{color:#333;width:130px;font-weight:600}
                 : cell.value
               headers[col] = normalizeHeader(raw)
             })
+            console.log('[Import] Excel headers', Object.entries(headers).map(([col, h]) => `col${col}:${h}->${HEADER_MAP[h] || 'IGNORED'}`))
             ws.eachRow((row, rowNum) => {
               if (rowNum === 1) return
               const obj = {}
@@ -1424,33 +1463,38 @@ td.lbl{color:#333;width:130px;font-weight:600}
                 const key = h ? HEADER_MAP[h] : undefined
                 if (!key) return
                 let val = cell.value
-                // Unwrap formula result / rich text
+                // Unwrap formula result / rich text / hyperlink
                 if (val && typeof val === 'object' && val.result !== undefined) val = val.result
                 if (val && typeof val === 'object' && val.richText !== undefined) val = val.richText.map(rt => rt.text).join('')
+                if (val && typeof val === 'object' && val.text !== undefined) val = val.text
+                let out
                 if (val instanceof Date) {
                   const y = val.getFullYear(), m = String(val.getMonth() + 1).padStart(2, '0'), d = String(val.getDate()).padStart(2, '0')
-                  obj[key] = `${y}-${m}-${d}`
+                  out = `${y}-${m}-${d}`
                 } else if ((key === 'admissionDate' || key === 'dob') && typeof val === 'number') {
-                  obj[key] = excelSerialToDate(val)
+                  out = excelSerialToDate(val)
                 } else {
-                  obj[key] = String(val ?? '').trim()
+                  out = String(val ?? '').trim()
                 }
+                // First non-empty column wins, so a later blank column can never wipe a real value.
+                if (out && !obj[key]) obj[key] = out
               })
               if (obj.name?.trim() || obj.className?.trim()) parsed.push(obj)
             })
           } else {
             // — CSV file path —
-            const text = await file.text()
-            const lines = text.split(/\r?\n/).filter(l => l.trim())
-            if (!lines.length) throw new Error('The CSV file is empty.')
-            const headers = lines[0].split(',').map(normalizeHeader)
-            for (let i = 1; i < lines.length; i++) {
-              const cols = lines[i].split(',').map(c => c.trim())
-              if (cols.every(c => !c)) continue
+            const table = parseCsvText(await file.text())
+            if (!table.length) throw new Error('The CSV file is empty.')
+            const headers = table[0].map(normalizeHeader)
+            console.log('[Import] CSV headers', headers.map((h, i) => `${i}:${h}->${HEADER_MAP[h] || 'IGNORED'}`))
+            for (let i = 1; i < table.length; i++) {
+              const cols = table[i]
               const obj = {}
               headers.forEach((h, idx) => {
                 const key = HEADER_MAP[h]
-                if (key && cols[idx] !== undefined) obj[key] = cols[idx]
+                const value = String(cols[idx] ?? '').trim()
+                // First non-empty column wins, so a later blank column can never wipe a real value.
+                if (key && value && !obj[key]) obj[key] = value
               })
               if (obj.name?.trim() || obj.className?.trim()) parsed.push(obj)
             }
@@ -1466,23 +1510,45 @@ td.lbl{color:#333;width:130px;font-weight:600}
           return
         }
 
+        console.log('[Import] First parsed row', parsed[0], `(${parsed.length} rows total)`)
+
         let success = 0, failed = 0
         for (const row of parsed) {
           try {
             const className = row.section ? `${row.className}-${row.section}` : row.className
-            await onAddStudent({
+            // Father and Guardian are one identity in this app (see studentToRow), so whichever
+            // column the sheet provided fills both. Same for the contact number.
+            const contactName = row.fatherName || row.guardian || ''
+            const contactPhone = row.phone || row.fatherPhone || row.guardianPhone || ''
+            const payload = {
               name: row.name || '',
               className: className || '',
-              guardian: row.guardian || '',
-              phone: row.phone || '',
+              guardian: contactName,
+              fatherName: contactName,
+              motherName: row.motherName || '',
+              phone: contactPhone,
+              fatherPhone: contactPhone,
+              motherPhone: row.motherPhone || '',
+              rollNumber: row.rollNumber || '',
               dob: row.dob || '',
               gender: row.gender || '',
               email: row.email || '',
               address: row.address || '',
+              city: row.city || '',
+              state: row.state || '',
+              district: row.district || '',
+              pincode: row.pincode || '',
+              aadhaar: row.aadhaar || '',
+              bloodGroup: row.bloodGroup || '',
+              religion: row.religion || '',
+              caste: row.caste || '',
+              stream: row.stream || '',
               admissionDate: row.admissionDate || today(),
               admissionScheme: row.admissionScheme || 'General',
               newAdmission: true,
-            })
+            }
+            if (success === 0 && failed === 0) console.log('[Import] First row mapped to form', payload)
+            await onAddStudent(payload)
             success++
           } catch (rowErr) {
             console.error('[Import] Row failed', row, rowErr)
