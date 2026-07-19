@@ -6,7 +6,13 @@
 *{box-sizing:border-box}
 html{scroll-behavior:smooth}
 .ls{font-family:'Manrope','Segoe UI',system-ui,-apple-system,sans-serif;color:var(--ls-text);background:#fff;overflow-x:hidden;-webkit-font-smoothing:antialiased}
-.ls a{text-decoration:none;color:inherit}
+.ls a{text-decoration:none}
+/* Reset the browser's default link colour without out-specifying component styles. `.ls a` is
+   (0,1,1), which beat single-class rules like .ls-btn-white (0,1,0) and forced every anchor to
+   inherit its section colour - the white CTA buttons rendered white-on-white and the navbar logo
+   rendered dark-on-dark. :where() carries zero specificity, so any component class wins while
+   unstyled anchors still inherit instead of falling back to UA blue. */
+:where(.ls a){color:inherit}
 
 /* Buttons */
 .ls-btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;border:0;cursor:pointer;font-weight:700;font-size:15px;padding:13px 24px;border-radius:12px;transition:transform .18s ease,box-shadow .18s ease,background .18s ease,opacity .18s;min-height:46px;font-family:inherit;white-space:nowrap}
