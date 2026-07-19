@@ -2673,7 +2673,14 @@ function useSchoolWorkspace(session) {
   // data URLs would be tens of megabytes and fail. Idempotent - once moved, no rows match.
   const migrateInlinePhotos = async (schoolId, data) => {
     if (developmentDemo || !session) return
-    const candidates = Object.entries(data || {}).filter(([, row]) => row && isInlinePhoto(row.photo_url))
+    const rows = Object.entries(data || {}).filter(([, row]) => row && typeof row === 'object')
+    const candidates = rows.filter(([, row]) => isInlinePhoto(row.photo_url))
+    // Always report, even when there is nothing to do. Returning silently made it impossible to
+    // tell "ran and found nothing" apart from "never ran", which is the first thing anyone asks.
+    const alreadyMoved = rows.filter(([, row]) => row.photo_inline === true).length
+    const onStorage = rows.filter(([, row]) => row.photo_url && !isInlinePhoto(row.photo_url)).length
+    const noPhoto = rows.length - candidates.length - alreadyMoved - onStorage
+    console.log(`[photo-migration] scanned ${rows.length} student(s): ${candidates.length} inline to move, ${alreadyMoved} already moved, ${onStorage} on storage URL, ${noPhoto} without a photo`)
     if (!candidates.length) return
     // Must match the .validate cap on studentPhotos/$schoolId/$studentId. A multi-path PATCH is
     // atomic, so a single oversized photo would reject its whole batch; drop those instead of
