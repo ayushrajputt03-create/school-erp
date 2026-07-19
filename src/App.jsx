@@ -2673,23 +2673,38 @@ function useSchoolWorkspace(session) {
   // data URLs would be tens of megabytes and fail. Idempotent - once moved, no rows match.
   const migrateInlinePhotos = async (schoolId, data) => {
     if (developmentDemo || !session) return
-    const moves = Object.entries(data || {}).filter(([, row]) => row && isInlinePhoto(row.photo_url))
-    if (!moves.length) return
-    try {
-      const token = await session.getIdToken()
-      for (let start = 0; start < moves.length; start += 15) {
-        const patch = {}
-        moves.slice(start, start + 15).forEach(([id, row]) => {
-          patch[`studentPhotos/${schoolId}/${id}`] = row.photo_url
-          patch[`schools/${schoolId}/students/${id}/photo_url`] = ''
-          patch[`schools/${schoolId}/students/${id}/photo_inline`] = true
-        })
+    const candidates = Object.entries(data || {}).filter(([, row]) => row && isInlinePhoto(row.photo_url))
+    if (!candidates.length) return
+    // Must match the .validate cap on studentPhotos/$schoolId/$studentId. A multi-path PATCH is
+    // atomic, so a single oversized photo would reject its whole batch; drop those instead of
+    // poisoning the batch. Normal photos are ~133KB of base64 (compressPhoto caps at 100KB).
+    const MAX_PHOTO_CHARS = 400000
+    const moves = candidates.filter(([, row]) => row.photo_url.length < MAX_PHOTO_CHARS)
+    const oversized = candidates.length - moves.length
+    if (oversized) console.warn(`[photo-migration] ${oversized} photo(s) exceed ${MAX_PHOTO_CHARS} chars and were left in place`)
+    let moved = 0
+    let failed = 0
+    const token = await session.getIdToken().catch(() => null)
+    if (!token) return
+    for (let start = 0; start < moves.length; start += 15) {
+      const batch = moves.slice(start, start + 15)
+      const patch = {}
+      batch.forEach(([id, row]) => {
+        patch[`studentPhotos/${schoolId}/${id}`] = row.photo_url
+        patch[`schools/${schoolId}/students/${id}/photo_url`] = ''
+        patch[`schools/${schoolId}/students/${id}/photo_inline`] = true
+      })
+      // Per-batch, so one rejected batch cannot abort the rest. Each PATCH writes the new copy
+      // and clears the old one together, so a failure leaves that student exactly as it was.
+      try {
         await databaseRequest('', token, { method: 'PATCH', body: patch })
+        moved += batch.length
+      } catch (error) {
+        failed += batch.length
+        console.warn(`[photo-migration] batch failed (${batch.length} photo(s)):`, error.message)
       }
-      console.log(`[photo-migration] moved ${moves.length} inline photo(s) out of the students node`)
-    } catch (error) {
-      console.warn('[photo-migration] skipped:', error.message)
     }
+    console.log(`[photo-migration] moved ${moved} inline photo(s) out of the students node${failed ? `, ${failed} failed` : ''}${oversized ? `, ${oversized} oversized skipped` : ''}`)
   }
 
   const addStudent = async student => {
