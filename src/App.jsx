@@ -1,4 +1,4 @@
-import React, { lazy, Suspense, useEffect, useRef, useState } from 'react'
+import React, { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react'
 import imageCompression from 'browser-image-compression'
 import {
   Bell, BookOpen, BusFront, CalendarCheck, Check, ChevronRight, IndianRupee,
@@ -2665,8 +2665,12 @@ function useSchoolWorkspace(session) {
   // students state as photoUrl. Every existing consumer (StudentAvatar, ID cards, certificates,
   // report cards) keeps reading student.photoUrl and needs no change - the value simply arrives
   // a moment later than the rest of the row.
+  // useCallback matters here, not as micro-optimisation: this function is the value of
+  // StudentPhotoContext and a dependency of useStudentPhotos. As a fresh reference each render it
+  // changed the context on every render (re-rendering every consumer) and re-fired the hook's
+  // effect every render. Only the photo cache stopped that from becoming a real request loop.
   const photoCacheRef = useRef({})
-  const ensureStudentPhotos = async (studentIds = []) => {
+  const ensureStudentPhotos = useCallback(async (studentIds = []) => {
     if (developmentDemo || !session || !workspace.schoolId) return
     const ids = [...new Set((studentIds || []).map(String).filter(Boolean))]
     const missing = ids.filter(id => photoCacheRef.current[id] === undefined)
@@ -2681,7 +2685,7 @@ function useSchoolWorkspace(session) {
     const found = Object.fromEntries(results.filter(([, value]) => value))
     if (!Object.keys(found).length) return
     setStudents(current => current.map(item => found[item.id] ? { ...item, photoUrl: found[item.id] } : item))
-  }
+  }, [developmentDemo, session, workspace.schoolId, setStudents])
 
   // One-time migration: lift base64 photos out of students/{id}/photo_url into
   // studentPhotos/{schoolId}/{id}. Batched, because a single PATCH carrying hundreds of ~133KB
