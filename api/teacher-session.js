@@ -41,6 +41,12 @@ module.exports = async (req, res) => {
     const schoolId = index.schoolId || user.schoolId
     if (!schoolId) return res.status(404).json({ error: 'No teacher account found. Contact your school admin.' })
 
+    // Attendance is the one node here that grows without bound - roughly students x school days,
+    // so a full year is orders of magnitude larger than every other node combined. The teacher
+    // app only renders the current month (its live listener is bounded the same way), so bound
+    // this initial payload too. Uses the existing attendance .indexOn ["date"].
+    const monthStartDate = new Date()
+    const monthStart = `${monthStartDate.getFullYear()}-${String(monthStartDate.getMonth() + 1).padStart(2, '0')}-01`
     const [staffSnap, teacherSnap, profileSnap, studentsSnap, homeworkSnap, noticesSnap, attendanceSnap] = await Promise.all([
       db.ref(`schools/${schoolId}/staff/${uid}`).once('value'),
       db.ref(`schools/${schoolId}/teachers/${uid}`).once('value'),
@@ -48,7 +54,7 @@ module.exports = async (req, res) => {
       db.ref(`schools/${schoolId}/students`).once('value'),
       db.ref(`schools/${schoolId}/homework`).once('value'),
       db.ref(`schools/${schoolId}/notices`).once('value'),
-      db.ref(`schools/${schoolId}/attendance`).once('value'),
+      db.ref(`schools/${schoolId}/attendance`).orderByChild('date').startAt(monthStart).once('value'),
     ])
 
     const splitCsv = v => Array.isArray(v) ? v.filter(Boolean) : String(v || '').split(',').map(s => s.trim()).filter(Boolean)

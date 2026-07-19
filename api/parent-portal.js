@@ -1,4 +1,4 @@
-const { getApps, getApp, initializeApp, cert } = require('firebase-admin/app')
+﻿const { getApps, getApp, initializeApp, cert } = require('firebase-admin/app')
 const { getDatabase } = require('firebase-admin/database')
 const crypto = require('crypto')
 
@@ -97,7 +97,7 @@ const publicSchool = school => {
   }
 }
 
-async function findSchool(database, schoolCode) {
+async function findSchool(database, schoolCode, app) {
   const code = String(schoolCode || '').trim().toUpperCase()
   const codeSnap = await database.ref(`schoolCodes/${code}`).once('value')
   const mapping = codeSnap.val()
@@ -105,12 +105,22 @@ async function findSchool(database, schoolCode) {
     const existsSnap = await database.ref(`schools/${mapping.schoolId}/profile`).once('value')
     if (existsSnap.exists()) return { schoolId: mapping.schoolId }
   }
-  // Legacy fallback only when the schoolCodes index is missing: scan school profiles by code.
-  // The common path uses the index above and never loads the full schools tree.
-  const schoolsSnap = await database.ref('schools').once('value')
-  const schools = schoolsSnap.val() || {}
-  const found = Object.entries(schools).find(([, school]) => String(school?.profile?.schoolCode || '').toUpperCase() === code)
-  return found ? { schoolId: found[0] } : null
+  // Fallback for a school whose schoolCodes entry is missing. Previously this read the entire
+  // schools tree - every school's students, fees and attendance - to compare one string each.
+  // List the ids shallowly instead and read only profile/schoolCode from each.
+  try {
+    const databaseUrl = process.env.FIREBASE_DATABASE_URL || process.env.VITE_FIREBASE_DATABASE_URL
+    const accessToken = await app.options.credential.getAccessToken()
+    const listed = await fetch(`${databaseUrl}/schools.json?shallow=true&access_token=${accessToken.access_token}`)
+    if (!listed.ok) throw new Error(`shallow list failed (${listed.status})`)
+    const ids = Object.keys(await listed.json() || {})
+    const codes = await Promise.all(ids.map(async id => [id, (await database.ref(`schools/${id}/profile/schoolCode`).once('value')).val()]))
+    const hit = codes.find(([, value]) => String(value || '').toUpperCase() === code)
+    return hit ? { schoolId: hit[0] } : null
+  } catch (error) {
+    console.warn('[parent-portal] school code lookup fallback failed:', error.message)
+    return null
+  }
 }
 
 function studentParentPhone(row) {
@@ -232,7 +242,7 @@ function filterNotices(notices, student) {
 // Per-student data (fees, attendance, report cards, certificates) is fetched with indexed
 // orderByChild('studentId').equalTo() queries; per-parent data (messages, notifications) with
 // orderByChild('parentId'). Only genuinely school-wide data (notices, timetable, transport,
-// library, homework) is read as a whole node — none of which grows per-student like fees/
+// library, homework) is read as a whole node â€” none of which grows per-student like fees/
 // attendance do. `preloadedStudents` lets the login flow reuse the students node it already read.
 async function buildDataPayload(database, schoolId, parentId, parent, selectedStudentId = '', preloadedStudents = null) {
   const base = database.ref(`schools/${schoolId}`)
@@ -343,7 +353,7 @@ module.exports = async function handler(request, response) {
       const password = String(body.password || '')
       if (schoolCode.length < 6) throw new Error('Invalid School Code')
       if (phone.length !== 10) throw new Error('Phone number must be 10 digits.')
-      const found = await findSchool(database, schoolCode)
+      const found = await findSchool(database, schoolCode, app)
       if (!found) throw new Error('Invalid School Code')
       const { schoolId } = found
       const ensured = await ensureParent(database, schoolId, phone, schoolCode)
@@ -398,7 +408,7 @@ module.exports = async function handler(request, response) {
     if (action === 'forgot') {
       const schoolCode = String(body.schoolCode || '').trim().toUpperCase()
       const phone = digits(body.phone)
-      const found = await findSchool(database, schoolCode)
+      const found = await findSchool(database, schoolCode, app)
       if (!found) throw new Error('Invalid School Code')
       const ensured = await ensureParent(database, found.schoolId, phone, schoolCode)
       if (!ensured) throw new Error('Phone number not registered. Contact school.')

@@ -42,19 +42,43 @@ const verifyDobPassword = (input, dob) => {
   return dobVariants(dob).some(variant => clean === digits(variant) || String(input || '') === variant)
 }
 
-async function findSchool(database, schoolCode) {
+// Only the staff and teachers collections are needed to authenticate a login. Reading
+// schools/{id} pulled every student, fee, attendance and certificate record along with them.
+async function loadStaffCollections(database, schoolId) {
+  const [staffSnap, teachersSnap] = await Promise.all([
+    database.ref(`schools/${schoolId}/staff`).once('value'),
+    database.ref(`schools/${schoolId}/teachers`).once('value'),
+  ])
+  if (!staffSnap.exists() && !teachersSnap.exists()) return null
+  return { staff: staffSnap.val() || {}, teachers: teachersSnap.val() || {} }
+}
+
+// Fallback for a school whose schoolCodes entry is missing. The old version downloaded the whole
+// schools tree - every school's entire dataset - to compare one string per school. This lists the
+// ids shallowly and then reads just profile/schoolCode from each.
+async function findSchoolIdByScan(app, database, code) {
+  const databaseUrl = process.env.FIREBASE_DATABASE_URL || process.env.VITE_FIREBASE_DATABASE_URL
+  const accessToken = await app.options.credential.getAccessToken()
+  const listed = await fetch(`${databaseUrl}/schools.json?shallow=true&access_token=${accessToken.access_token}`)
+  if (!listed.ok) throw new Error(`Could not list schools (${listed.status})`)
+  const ids = Object.keys(await listed.json() || {})
+  const codes = await Promise.all(ids.map(async id => [id, (await database.ref(`schools/${id}/profile/schoolCode`).once('value')).val()]))
+  const hit = codes.find(([, value]) => String(value || '').toUpperCase() === code)
+  return hit ? hit[0] : null
+}
+
+async function findSchool(database, schoolCode, app) {
   const code = String(schoolCode || '').trim().toUpperCase()
   const codeSnap = await database.ref(`schoolCodes/${code}`).once('value')
   const mapping = codeSnap.val()
   if (mapping?.schoolId) {
-    const schoolSnap = await database.ref(`schools/${mapping.schoolId}`).once('value')
-    const school = schoolSnap.val()
+    const school = await loadStaffCollections(database, mapping.schoolId)
     if (school) return { schoolId: mapping.schoolId, school }
   }
-  const schoolsSnap = await database.ref('schools').once('value')
-  const schools = schoolsSnap.val() || {}
-  const found = Object.entries(schools).find(([, school]) => String(school?.profile?.schoolCode || '').toUpperCase() === code)
-  return found ? { schoolId: found[0], school: found[1] } : null
+  const scannedId = await findSchoolIdByScan(app, database, code).catch(() => null)
+  if (!scannedId) return null
+  const school = await loadStaffCollections(database, scannedId)
+  return school ? { schoolId: scannedId, school } : null
 }
 
 function buildStaffProfile(id, e, schoolId) {
@@ -99,7 +123,7 @@ module.exports = async (req, res) => {
     if (phone.length !== 10) return res.status(400).json({ error: 'Mobile number must be 10 digits.' })
     if (!password) return res.status(400).json({ error: 'Enter your date of birth.' })
 
-    const found = await findSchool(database, schoolCode)
+    const found = await findSchool(database, schoolCode, app)
     if (!found) return res.status(404).json({ error: 'Invalid school code.' })
     const { schoolId, school } = found
 
