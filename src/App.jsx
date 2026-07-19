@@ -4440,6 +4440,30 @@ export default function App() {
     if (selectedStudent?.id) data.ensureStudentPhotos?.([selectedStudent.id])
   }, [selectedStudent?.id])
 
+  // Code splitting keeps the first paint small, but it also means the first visit to a module
+  // shows the Suspense spinner while its chunk downloads. Once the workspace is up and the
+  // browser is idle, warm every module chunk in the background so that first visit is instant
+  // too. requestIdleCallback means this never competes with work the user is waiting on, and it
+  // only runs for a signed-in workspace - the login screen still ships nothing extra.
+  useEffect(() => {
+    if (!session || data.workspace.loading || data.workspace.needsSetup) return undefined
+    const warm = () => {
+      Promise.all([
+        import('./FeeManager'), import('./CertificateManager'), import('./ReportCardManager'),
+        import('./IDCardManager'), import('./EmployeeManager'), import('./LeaveManager'),
+        import('./TimetableManager'), import('./HomeworkManager'), import('./TransportManager'),
+        import('./ExpenseManager'), import('./LibraryManager'), import('./AccountsManager'),
+        import('./BackupCenter'),
+      ]).catch(() => { /* a failed prefetch is harmless; the real import retries on navigation */ })
+    }
+    if ('requestIdleCallback' in window) {
+      const id = window.requestIdleCallback(warm, { timeout: 4000 })
+      return () => window.cancelIdleCallback(id)
+    }
+    const timer = setTimeout(warm, 2500)
+    return () => clearTimeout(timer)
+  }, [session, data.workspace.loading, data.workspace.needsSetup])
+
   if (window.location.pathname.startsWith('/parent')) return <ParentPortal />
   if (!isFirebaseConfigured && import.meta.env.VITE_APP_ENV === 'production') {
     return <main className="setup-error"><ShieldCheck size={30} /><h1>Secure setup required</h1><p>Firebase environment variables are missing. Configure the deployment before launch.</p></main>
