@@ -2572,6 +2572,11 @@ function useSchoolWorkspace(session) {
     const existing = students.find(item => item.id === studentId)
     if (!existing) throw new Error('Student not found.')
     const updated = { ...existing, ...updates, roll: existing.roll, admissionNo: existing.admissionNo || existing.roll }
+    // The edit modal exposes a single "Guardian name" field (-> guardian_name), but the profile/
+    // info screen shows "Father Name" (read from father_name first). Keep the two in sync so an
+    // edit shows up everywhere instead of the stale value winning.
+    if (updates.guardian !== undefined && updates.guardian !== '') updated.fatherName = updates.guardian
+    if (updates.fatherName !== undefined && updates.fatherName !== '') updated.guardian = updates.fatherName
     const newPhone = updates.fatherPhone || updates.phone || ''
     if (newPhone) {
       updated.parentLoginPhone = newPhone
