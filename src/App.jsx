@@ -2512,7 +2512,13 @@ function useSchoolWorkspace(session) {
         if (!nameMigrationRan) {
           nameMigrationRan = true
           reconcileStudentIdentity(schoolId, data)
-          migrateInlinePhotos(schoolId, data)
+          // Photo migration is deliberately OFF. It works, but moving photos out of the row means
+          // the student list (which does not fetch photos, by design) falls back to initials -
+          // a bad trade at this school's size. The measured egress problem was the super admin
+          // console polling the whole database every 30s, not photos. Turn this on together with
+          // list-level photo loading once there are enough photos for it to actually pay off.
+          const PHOTO_MIGRATION_ENABLED = false
+          if (PHOTO_MIGRATION_ENABLED) migrateInlinePhotos(schoolId, data)
         }
       })
 
