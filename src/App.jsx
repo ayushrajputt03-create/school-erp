@@ -1200,7 +1200,7 @@ function StudentDeleteModal({ target, schoolName, onCancel, onConfirm }) {
   </div></div>
 }
 
-function DeletedStudents({ deletedStudents, onRestore, onPermanentDelete }) {
+function DeletedStudents({ deletedStudents, onRestore, onRestoreAll, onPermanentDelete }) {
   const [search, setSearch] = useState('')
   const [permTarget, setPermTarget] = useState(null)
   const [typed, setTyped] = useState('')
@@ -1210,9 +1210,10 @@ function DeletedStudents({ deletedStudents, onRestore, onPermanentDelete }) {
   const filtered = query ? rows.filter(r => `${r.full_name || r.name || ''} ${r.admission_number || r.id}`.toLowerCase().includes(query)) : rows
   const fmt = ts => ts ? new Date(ts).toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' }) : '—'
   const restore = async id => { setBusy(id); try { await onRestore(id) } catch (e) { alert(e.message || 'Restore failed') } finally { setBusy('') } }
+  const restoreAll = async () => { if (!rows.length || !window.confirm(`Restore all ${rows.length} archived students back to the active list?`)) return; setBusy('all'); try { await onRestoreAll() } catch (e) { alert(e.message || 'Restore failed') } finally { setBusy('') } }
   const permDelete = async () => { if (!permTarget) return; setBusy(permTarget.id); try { await onPermanentDelete(permTarget.id); setPermTarget(null); setTyped('') } catch (e) { alert(e.message || 'Delete failed') } finally { setBusy('') } }
   return <>
-    <div className="section-actions"><div><h2>Deleted Students</h2><p>Archived records — restore them or permanently remove. Attendance & fee history is preserved either way.</p></div></div>
+    <div className="section-actions"><div><h2>Deleted Students</h2><p>Archived records — restore them or permanently remove. Attendance & fee history is preserved either way.</p></div>{rows.length > 0 && <button className="primary-button" disabled={busy === 'all'} onClick={restoreAll}><RotateCcw size={16} /> {busy === 'all' ? 'Restoring…' : `Restore All (${rows.length})`}</button>}</div>
     <div className="mini-stats"><div><span>Archived students</span><strong>{rows.length}</strong></div></div>
     <div className="panel table-panel">
       <div className="table-toolbar"><div className="table-search"><Search size={16} /><input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search archived student" /></div></div>
@@ -2665,6 +2666,28 @@ function useSchoolWorkspace(session) {
     setActivities(current => [{ id: `restore-${id}-${Date.now()}`, title: 'Student restored', detail: `${raw.full_name || raw.name || 'Student'} moved back to active list`, at: Date.now(), icon: '↩' }, ...current])
   }
 
+  // Restore every archived student back to the active list in one batched write.
+  const restoreAllStudents = async () => {
+    const entries = Object.entries(deletedStudents || {})
+    if (!entries.length) return
+    const changes = {}
+    const restoredRows = []
+    entries.forEach(([id, record]) => {
+      const { deletedAt, deletedBy, deletedByName, deletedReason, ...raw } = record
+      raw.updatedAt = Date.now()
+      changes[`schools/${workspace.schoolId}/students/${id}`] = raw
+      changes[`schools/${workspace.schoolId}/deletedStudents/${id}`] = null
+      restoredRows.push(studentFromRow({ ...raw, id }, 0))
+    })
+    if (!developmentDemo) {
+      const token = await session.getIdToken()
+      await databaseRequest('', token, { method: 'PATCH', body: changes })
+    }
+    setDeletedStudents({})
+    setStudents(current => [...restoredRows, ...current])
+    setActivities(current => [{ id: `restore-all-${Date.now()}`, title: 'Students restored', detail: `${restoredRows.length} student${restoredRows.length > 1 ? 's' : ''} moved back to active list`, at: Date.now(), icon: '↩' }, ...current])
+  }
+
   // Permanent delete: the ONLY place a record leaves deletedStudents for good.
   const permanentDeleteStudent = async studentId => {
     const id = String(studentId)
@@ -4000,7 +4023,7 @@ function useSchoolWorkspace(session) {
     return logo
   }
 
-  return { students, notices, fees, feeManager, attendance, timetableData, timetableRecords, homework, transport, library, accounts, leave, parents, parentMessages, parentNotifications, certificateRequests, enquiries, staff, staffAttendance, employeeConfig, approvals, expenses, academics, documents, certificates, certificateSettings, examData, reportData, idCards, idCardSettings, activities, backupSettings, workspace, createSchoolWorkspace, getNextAdmissionNumber, addStudent, updateStudent, updateStudentPhoto, deletedStudents, deleteStudents, deleteAllStudents, restoreStudent, permanentDeleteStudent, recordPayment, submitFeeReceipt, saveFeeGroup, deleteFeeGroup, saveFeeStructure, deleteFeeStructure, deleteFeeReceipt, restoreFeeReceipt, decideFeeApproval, saveFeeManagerConfig, createBackupPayload, restoreBackup, saveBackupSettings, saveSchoolProfile, saveParentAccount, addNotice, saveAttendance, saveEmployeeConfig, deleteEmployeeConfig, saveEmployee, deleteEmployee, saveStaffAttendance, savePeriod, saveTimetableRecord, deleteTimetableRecord, saveHomework, deleteHomework, markHomeworkDone, markHomeworkSeen, saveTransportItem, deleteTransportItem, saveExpenseItem, deleteExpenseItem, saveLibraryItem, deleteLibraryItem, saveAccountsItem, deleteAccountsItem, saveLeaveItem, deleteLeaveItem, saveEnquiry, uploadStudentDocument, loadStudentAttendance, saveCertificate, saveCertificateSettings, saveExamRecord, saveDateSheetRow, deleteDateSheetRow, saveAdmitCards, deleteCertificate, updateCertificateStatus, saveReportExam, deleteReportExam, saveReportMarks, saveReportCard, updateReportCard, saveIdCardSettings, saveIdCard, deleteIdCard, uploadIdCardLogo, developmentDemo }
+  return { students, notices, fees, feeManager, attendance, timetableData, timetableRecords, homework, transport, library, accounts, leave, parents, parentMessages, parentNotifications, certificateRequests, enquiries, staff, staffAttendance, employeeConfig, approvals, expenses, academics, documents, certificates, certificateSettings, examData, reportData, idCards, idCardSettings, activities, backupSettings, workspace, createSchoolWorkspace, getNextAdmissionNumber, addStudent, updateStudent, updateStudentPhoto, deletedStudents, deleteStudents, deleteAllStudents, restoreStudent, restoreAllStudents, permanentDeleteStudent, recordPayment, submitFeeReceipt, saveFeeGroup, deleteFeeGroup, saveFeeStructure, deleteFeeStructure, deleteFeeReceipt, restoreFeeReceipt, decideFeeApproval, saveFeeManagerConfig, createBackupPayload, restoreBackup, saveBackupSettings, saveSchoolProfile, saveParentAccount, addNotice, saveAttendance, saveEmployeeConfig, deleteEmployeeConfig, saveEmployee, deleteEmployee, saveStaffAttendance, savePeriod, saveTimetableRecord, deleteTimetableRecord, saveHomework, deleteHomework, markHomeworkDone, markHomeworkSeen, saveTransportItem, deleteTransportItem, saveExpenseItem, deleteExpenseItem, saveLibraryItem, deleteLibraryItem, saveAccountsItem, deleteAccountsItem, saveLeaveItem, deleteLeaveItem, saveEnquiry, uploadStudentDocument, loadStudentAttendance, saveCertificate, saveCertificateSettings, saveExamRecord, saveDateSheetRow, deleteDateSheetRow, saveAdmitCards, deleteCertificate, updateCertificateStatus, saveReportExam, deleteReportExam, saveReportMarks, saveReportCard, updateReportCard, saveIdCardSettings, saveIdCard, deleteIdCard, uploadIdCardLogo, developmentDemo }
 }
 
 export default function App() {
@@ -4081,7 +4104,7 @@ export default function App() {
     dashboard: <Dashboard students={data.students} notices={data.notices} fees={data.fees} attendance={data.attendance} activities={data.activities} staff={data.staff} staffAttendance={data.staffAttendance} employeeConfig={data.employeeConfig} approvals={data.approvals} expenses={data.expenses} transport={data.transport} library={data.library} leaveData={data.leave} setPage={setPage} onSelectStudent={setSelectedStudent} />,
     admissions: <Admissions students={data.students} enquiries={data.enquiries} onAddStudent={data.addStudent} onUpdateStudent={data.updateStudent} onSaveEnquiry={data.saveEnquiry} getNextAdmissionNumber={data.getNextAdmissionNumber} school={data.workspace.schoolProfile} />,
     students: <Students students={data.students} onAddStudent={data.addStudent} onUpdateStudent={data.updateStudent} onSelectStudent={setSelectedStudent} getNextAdmissionNumber={data.getNextAdmissionNumber} onDeleteStudents={data.deleteStudents} schoolName={data.workspace.schoolName} />,
-    'deleted-students': <DeletedStudents deletedStudents={data.deletedStudents} onRestore={data.restoreStudent} onPermanentDelete={data.permanentDeleteStudent} />,
+    'deleted-students': <DeletedStudents deletedStudents={data.deletedStudents} onRestore={data.restoreStudent} onRestoreAll={data.restoreAllStudents} onPermanentDelete={data.permanentDeleteStudent} />,
     employees: <EmployeeManager staff={data.staff} attendance={data.staffAttendance} config={data.employeeConfig} saveConfig={data.saveEmployeeConfig} deleteConfig={data.deleteEmployeeConfig} saveEmployee={data.saveEmployee} deleteEmployee={data.deleteEmployee} saveAttendance={data.saveStaffAttendance} />,
     leave: <LeaveManager staff={data.staff} config={data.employeeConfig} leave={data.leave} saveLeaveItem={data.saveLeaveItem} deleteLeaveItem={data.deleteLeaveItem} saveStaffAttendance={data.saveStaffAttendance} />,
     attendance: <Attendance students={data.students} attendance={data.attendance} onSaveAttendance={data.saveAttendance} />,
