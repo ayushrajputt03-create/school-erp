@@ -26,14 +26,14 @@
     "teachersIndex": {
       "$uid": {
         ".read": "auth != null && auth.uid === $uid",
-        ".write": "auth != null && (root.child('schools').child(newData.child('schoolId').val()).exists() || root.child('superAdmin').child(auth.uid).exists())"
+        ".write": false
       }
     },
     "schoolMembers": {
       "$schoolId": {
         "$uid": {
           ".read": "auth != null && (auth.uid === $uid || auth.uid === $schoolId || root.child('superAdmin').child(auth.uid).child('role').val() === 'super-admin')",
-          ".write": "auth != null && (auth.uid === $uid || auth.uid === $schoolId || root.child('superAdmin').child(auth.uid).child('role').val() === 'super-admin')",
+          ".write": "auth != null && (auth.uid === $schoolId || root.child('superAdmin').child(auth.uid).child('role').val() === 'super-admin')",
           ".validate": "!newData.exists() || (newData.hasChildren(['userId', 'role', 'status']) && newData.child('userId').val() === $uid)"
         }
       }
@@ -41,8 +41,8 @@
     "schools": {
       ".read": "auth != null && root.child('superAdmin').child(auth.uid).child('role').val() === 'super-admin'",
       "$schoolId": {
-        ".read": "auth != null && (auth.uid === $schoolId || root.child('superAdmin').child(auth.uid).child('role').val() === 'super-admin' || root.child('teachersIndex').child(auth.uid).child('schoolId').val() === $schoolId || root.child('schoolMembers').child($schoolId).child(auth.uid).child('status').val() === 'active' || root.child('users').child(auth.uid).child('schoolId').val() === $schoolId)",
-        ".write": "auth != null && (auth.uid === $schoolId || root.child('superAdmin').child(auth.uid).child('role').val() === 'super-admin' || root.child('schoolMembers').child($schoolId).child(auth.uid).child('status').val() === 'active' || root.child('users').child(auth.uid).child('schoolId').val() === $schoolId)",
+        ".read": "auth != null && (auth.uid === $schoolId || root.child('superAdmin').child(auth.uid).child('role').val() === 'super-admin' || root.child('teachersIndex').child(auth.uid).child('schoolId').val() === $schoolId || root.child('schoolMembers').child($schoolId).child(auth.uid).child('status').val() === 'active')",
+        ".write": "auth != null && (auth.uid === $schoolId || root.child('superAdmin').child(auth.uid).child('role').val() === 'super-admin' || root.child('schoolMembers').child($schoolId).child(auth.uid).child('status').val() === 'active')",
         "profile": {
           ".validate": "newData.hasChildren(['schoolName', 'email', 'phone', 'address', 'academicYear', 'createdAt'])"
         },

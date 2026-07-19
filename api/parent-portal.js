@@ -17,7 +17,43 @@ function getAdminApp() {
 
 const digits = value => String(value || '').replace(/\D/g, '')
 const now = () => Date.now()
-const hashPassword = value => crypto.createHash('sha256').update(String(value || '')).digest('hex')
+// Parent passwords are hashed with scrypt (Node built-in, memory-hard, per-user random salt).
+// The previous scheme was an unsalted single-round SHA-256, which a leaked database would give
+// up to an offline GPU attack almost immediately - especially with the DOB default. Stored form
+// is "scrypt$N$r$p$saltHex$keyHex"; anything not matching that prefix is treated as a legacy
+// SHA-256 digest, verified once and then transparently upgraded on the next successful login.
+const SCRYPT = { N: 16384, r: 8, p: 1, keylen: 64 }
+
+const hashPassword = value => new Promise((resolve, reject) => {
+  const salt = crypto.randomBytes(16)
+  crypto.scrypt(String(value || ''), salt, SCRYPT.keylen, { N: SCRYPT.N, r: SCRYPT.r, p: SCRYPT.p }, (error, derived) => {
+    if (error) return reject(error)
+    resolve(`scrypt$${SCRYPT.N}$${SCRYPT.r}$${SCRYPT.p}$${salt.toString('hex')}$${derived.toString('hex')}`)
+  })
+})
+
+const isLegacyHash = stored => Boolean(stored) && !String(stored).startsWith('scrypt$')
+
+const timingSafeEqualHex = (a, b) => {
+  const left = Buffer.from(String(a), 'hex')
+  const right = Buffer.from(String(b), 'hex')
+  return left.length === right.length && crypto.timingSafeEqual(left, right)
+}
+
+const verifyPassword = (value, stored) => new Promise(resolve => {
+  if (!stored) return resolve(false)
+  const parts = String(stored).split('$')
+  if (parts[0] !== 'scrypt' || parts.length !== 6) {
+    const legacy = crypto.createHash('sha256').update(String(value || '')).digest('hex')
+    return resolve(timingSafeEqualHex(legacy, stored))
+  }
+  const [, N, r, p, saltHex, keyHex] = parts
+  const expected = Buffer.from(keyHex, 'hex')
+  crypto.scrypt(String(value || ''), Buffer.from(saltHex, 'hex'), expected.length, { N: Number(N), r: Number(r), p: Number(p) }, (error, derived) => {
+    if (error) return resolve(false)
+    resolve(derived.length === expected.length && crypto.timingSafeEqual(derived, expected))
+  })
+})
 const tokenFor = () => crypto.randomBytes(32).toString('hex')
 const dateKey = value => {
   if (!value) return ''
@@ -291,7 +327,7 @@ module.exports = async function handler(request, response) {
       const linkedStudents = linkedIds.map(id => students[id]).filter(Boolean)
       const rawDob = row => row.dob || row.date_of_birth || row.dateOfBirth || ''
       const eldest = linkedStudents.sort((a, b) => String(dateKey(rawDob(a))).localeCompare(String(dateKey(rawDob(b)))))[0] || {}
-      const validCustom = parent.passwordHash && hashPassword(password) === parent.passwordHash
+      const validCustom = await verifyPassword(password, parent.passwordHash)
       const validDob = verifyDobPassword(password, rawDob(eldest))
       if (!validCustom && !validDob) {
         const failed = Number(attempts.failed || 0) + 1
@@ -299,6 +335,11 @@ module.exports = async function handler(request, response) {
         throw new Error("Incorrect password. Default is child's DOB (e.g., 15032008)")
       }
       await attemptsRef.remove()
+      // Transparent upgrade: a parent who just authenticated against a legacy SHA-256 digest gets
+      // re-hashed with scrypt here, so the old format disappears as people log in. No reset needed.
+      if (validCustom && isLegacyHash(parent.passwordHash)) {
+        await database.ref(`schools/${schoolId}/parents/${parentId}/passwordHash`).set(await hashPassword(password)).catch(() => {})
+      }
       const sessionToken = tokenFor()
       await database.ref(`schools/${schoolId}/parentSessions/${parentId}/${sessionToken}`).set({ createdAt: now(), expiresAt: now() + 30 * 60 * 1000 })
       await database.ref(`schools/${schoolId}/parents/${parentId}`).update({ lastLogin: now(), updatedAt: now() })
@@ -319,7 +360,7 @@ module.exports = async function handler(request, response) {
       const firstRow = firstStudentId ? (await database.ref(`schools/${context.schoolId}/students/${firstStudentId}`).once('value')).val() || {} : {}
       const dob = firstRow.dob || firstRow.date_of_birth || firstRow.dateOfBirth || ''
       if (verifyDobPassword(password, dob)) throw new Error('New password cannot be same as DOB.')
-      await database.ref(`schools/${context.schoolId}/parents/${context.parentId}`).update({ passwordHash: hashPassword(password), mustChangePassword: false, passwordSetAt: now(), updatedAt: now() })
+      await database.ref(`schools/${context.schoolId}/parents/${context.parentId}`).update({ passwordHash: await hashPassword(password), mustChangePassword: false, passwordSetAt: now(), updatedAt: now() })
       return response.status(200).json({ ok: true })
     }
 
