@@ -1,5 +1,6 @@
 ﻿import React, { useEffect, useMemo, useState } from 'react'
 import { createPortal } from 'react-dom'
+import { useStudentPhotos } from './student-photos'
 import {
   Award, Check, Download, Eye, FileBadge, FileText, GraduationCap,
   IdCard, Medal, MessageCircle, Printer, Save, Search, Settings,
@@ -702,6 +703,7 @@ function AdmitCardManager({ students, fees, school, settings, examData, onSaveEx
     return admitRowsForStudent(student, examId, examData?.dateSheet || {})
   }
   const selectedStudents = results.filter(student => selected[student.id])
+  useStudentPhotos(selectedStudents.map(student => student.id))
   const generatedStudents = results.filter(student => generatedIds.includes(student.id))
   useEffect(() => {
     if (!pendingPrint) return undefined
@@ -1252,6 +1254,7 @@ function CertificateForm({ type, students, certificates, attendance, academics, 
     academicHistory: [],
   })
   const existing = useMemo(() => Object.entries(certificates || {}).map(([id, row]) => ({ id, ...row })).find(row => row.studentId === student?.id && row.certificateType === type && !row.isDuplicate), [certificates, student, type])
+  useStudentPhotos([student?.id])
   const photoUrl = student ? profilePhoto(student) || documents?.[student.id]?.photo?.url || documents?.[student.id]?.photo?.data || '' : ''
   const certificateNumber = saved?.certificateNumber || numberForPreview(type)
   const selectStudent = item => {

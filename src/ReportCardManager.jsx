@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react'
+import { useStudentPhotos } from './student-photos'
 import {
   BarChart3, CheckCircle2, Download, Edit2, Eye, FileText, Lock, Plus,
   Printer, Save, Search, Trash2, Trophy, Unlock, Users,
@@ -146,6 +147,7 @@ function MarksEntry({ students, reportData, onSaveMarks, onSaveReport }) {
   const [className, setClassName] = useState('')
   const [section, setSection] = useState('')
   const [student, setStudent] = useState(null)
+  useStudentPhotos([student?.id])
   const [record, setRecord] = useState(null)
   const [saving, setSaving] = useState(false)
   const [message, setMessage] = useState('')
@@ -265,6 +267,7 @@ function ReportGenerator({ students, school, reportData, onSaveReport, onUpdateR
   const exams = Object.values(reportData.exams || {})
   const [examId, setExamId] = useState(exams[0]?.id || '')
   const [student, setStudent] = useState(null)
+  useStudentPhotos([student?.id])
   const [generated, setGenerated] = useState(null)
   const [loading, setLoading] = useState(false)
   const [message, setMessage] = useState('')

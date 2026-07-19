@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react'
+import { useStudentPhotos } from './student-photos'
 import {
   Badge, Download, Eye, FileImage, Layers, Palette, Printer, QrCode,
   Save, Search, Settings, ShieldCheck, Trash2, Upload, Users
@@ -351,6 +352,9 @@ export default function IDCardManager({ students, staff, school, idCards, settin
   })
   const selectedPeople = filteredPeople.filter(person => selectedIds.includes(person.id))
   const activePerson = selectedPeople[0] || filteredPeople[0] || people[0] || visitorPerson({ ...visitor, ...form })
+  // Cards render person.photo, which comes from the student's photoUrl. Staff and visitor ids
+  // simply miss and are cached as misses, so they are never requested twice.
+  useStudentPhotos([...selectedPeople.map(person => person.id), activePerson?.id])
   const activeTemplate = templates[cardType]
   const fieldList = Object.keys(activeTemplate.fields)
   const backFieldList = Object.keys(activeTemplate.backFields)
