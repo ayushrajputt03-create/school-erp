@@ -314,8 +314,13 @@ export default function ParentPortal() {
   }
   useEffect(() => {
     if (!session) return undefined
-    const timer = setInterval(() => refresh(selectedStudentId).catch(() => {}), 15000)
-    return () => clearInterval(timer)
+    // Attendance, fees and notices change a few times a day, not four times a minute. Poll once a
+    // minute, and only while the tab is actually visible — a portal left open in a background tab
+    // used to keep pulling every 15s all day. A visibility change refreshes immediately.
+    const tick = () => { if (!document.hidden) refresh(selectedStudentId).catch(() => {}) }
+    const timer = setInterval(tick, 60000)
+    document.addEventListener('visibilitychange', tick)
+    return () => { clearInterval(timer); document.removeEventListener('visibilitychange', tick) }
   }, [session, selectedStudentId])
   useEffect(() => {
     if (session && selectedStudentId) refresh(selectedStudentId).catch(() => {})

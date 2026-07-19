@@ -17,7 +17,8 @@ async function databaseRequest(path, token, options = {}) {
   const controller = new AbortController()
   const timeout = setTimeout(() => controller.abort(), 15000)
   try {
-    const response = await fetch(`${databaseUrl}/${path ? `${path}.json` : '.json'}?auth=${encodeURIComponent(token)}`, {
+    const extra = options.query ? `&${new URLSearchParams(options.query)}` : ''
+    const response = await fetch(`${databaseUrl}/${path ? `${path}.json` : '.json'}?auth=${encodeURIComponent(token)}${extra}`, {
       method: options.method || 'GET',
       headers: options.body ? { 'Content-Type': 'application/json' } : undefined,
       body: options.body ? JSON.stringify(options.body) : undefined,
@@ -433,13 +434,38 @@ export default function SuperAdminApp() {
 
   // `silent` refreshes (the 30s background poll) must not toggle the full-screen loading state,
   // otherwise the whole panel flashes back to its loader every 30 seconds.
+  // Reading `schools` outright pulls every school's students, attendance, fees, certificates and
+  // homework — the entire database — even though this console only ever renders the profile,
+  // subscription, payments and the *count* of students/staff. Fetch exactly those instead, and
+  // get the counts with RTDB's shallow=true (returns `{key: true}` keys only, not the records).
+  // On a 1.28MB database this cut a single refresh from ~1.28MB to a few KB.
+  const fetchSchoolSummary = async (schoolId, token) => {
+    const at = (child, query) => databaseRequest(`schools/${schoolId}/${child}`, token, query ? { query } : undefined).catch(() => null)
+    const [profile, subscription, payments, createdAt, students, staff, teachers] = await Promise.all([
+      at('profile'), at('subscription'), at('payments'), at('createdAt'),
+      at('students', { shallow: 'true' }), at('staff', { shallow: 'true' }), at('teachers', { shallow: 'true' }),
+    ])
+    return {
+      profile: profile || {},
+      subscription: subscription || {},
+      payments: payments || {},
+      createdAt: createdAt || profile?.createdAt || 0,
+      // Keep the same `{id: true}` shape the UI already counts with Object.keys(...).length.
+      students: students || {},
+      staff: staff || {},
+      teachers: teachers || {},
+    }
+  }
+
   const loadSchools = async (currentUser, silent = false) => {
     if (!silent) setLoading(true)
     setError('')
     try {
       const token = await currentUser.getIdToken()
-      const data = await databaseRequest('schools', token)
-      setSchools(data || {})
+      const index = await databaseRequest('schools', token, { query: { shallow: 'true' } })
+      const ids = Object.keys(index || {})
+      const summaries = await Promise.all(ids.map(id => fetchSchoolSummary(id, token)))
+      setSchools(Object.fromEntries(ids.map((id, i) => [id, summaries[i]])))
     } catch (loadError) {
       if (!silent) setError(loadError.message)
     } finally {
@@ -483,7 +509,9 @@ export default function SuperAdminApp() {
 
   useEffect(() => {
     if (!user || denied) return
-    const timer = setInterval(() => loadSchools(user, true), 30000)
+    // 30s was 120 refreshes an hour for a console nobody watches continuously; there is a manual
+    // Refresh button in the topbar for when it matters. 5 minutes keeps it current for free.
+    const timer = setInterval(() => loadSchools(user, true), 300000)
     return () => clearInterval(timer)
   }, [user, denied])
 
@@ -497,9 +525,12 @@ export default function SuperAdminApp() {
   const patchRoot = async changes => {
     const token = await user.getIdToken()
     await databaseRequest('', token, { method: 'PATCH', body: changes })
-    const data = await databaseRequest('schools', token)
-    setSchools(data || {})
-    syncSelected(data || {})
+    const index = await databaseRequest('schools', token, { query: { shallow: 'true' } })
+    const ids = Object.keys(index || {})
+    const summaries = await Promise.all(ids.map(id => fetchSchoolSummary(id, token)))
+    const data = Object.fromEntries(ids.map((id, i) => [id, summaries[i]]))
+    setSchools(data)
+    syncSelected(data)
   }
   const toggleSchool = async row => {
     const nextStatus = row.subscription.status === 'suspended' ? 'active' : 'suspended'
