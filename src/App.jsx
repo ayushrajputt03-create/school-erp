@@ -1848,21 +1848,28 @@ function studentFromRow(row, index) {
   const section = row.section || 'A'
   const initials = fullName ? fullName.split(/\s+/).map(part => part[0]).slice(0, 2).join('').toUpperCase() : '?'
   const classLabel = `${className}-${section}`
+  // CANONICAL identity for the parent/guardian. "Guardian" (list, edit modal) and "Father Name"
+  // (profile, ID card, certificates) are the SAME person in this app, but they used to read from
+  // different stored fields with different priorities (guardian_name vs father_name), so a record
+  // whose two fields drifted showed two different names. Derive both from one priority order here
+  // so every surface renders the same value. Same for the contact phone.
+  const guardianName = row.father_name || row.fatherName || row.guardian_name || row.guardianName || ''
+  const contactPhone = row.father_phone || row.fatherPhone || row.guardian_phone || row.guardianPhone || row.parent_login_phone || row.phone || ''
   return {
     id: row.id,
     name: fullName,
     roll: row.admission_number || row.admissionNo || row.roll || '',
     admissionNo: row.admission_number || row.admissionNo || row.roll || '',
     className: classLabel,
-    guardian: row.guardian_name || row.fatherName || row.father_name || 'Not provided',
-    phone: row.guardian_phone || row.fatherPhone || row.father_phone || row.phone || 'Not provided',
+    guardian: guardianName || 'Not provided',
+    phone: contactPhone || 'Not provided',
     attendance: row.attendance_rate || 100,
     fee: row.fee_status || 'Pending',
     createdAt: row.createdAt || 0,
     admissionScheme: row.admission_scheme || 'General',
     admissionDate: row.admission_date || '',
     admissionType: row.admission_type || 'New',
-    fatherName: row.father_name || row.guardian_name || '',
+    fatherName: guardianName,
     motherName: row.mother_name || '',
     gender: row.gender || '',
     dob: row.date_of_birth || '',
@@ -1900,7 +1907,7 @@ function studentFromRow(row, index) {
     disabilityRemarks: row.disability_remarks || row.disabilityRemarks || '',
     fatherOccupation: row.father_occupation || row.fatherOccupation || '',
     fatherQualification: row.father_qualification || row.fatherQualification || '',
-    fatherPhone: row.father_phone || row.fatherPhone || row.guardian_phone || '',
+    fatherPhone: contactPhone,
     fatherEmail: row.father_email || row.fatherEmail || '',
     fatherAadhaar: row.father_aadhaar || row.fatherAadhaar || '',
     motherOccupation: row.mother_occupation || row.motherOccupation || '',
@@ -1944,19 +1951,24 @@ function studentFromRow(row, index) {
 
 function studentToRow(student) {
   const [className, section = 'A'] = String(student.className || '').split('-')
+  // Write the guardian/father name (and phone) to BOTH legacy field pairs from a single canonical
+  // value so guardian_name === father_name and guardian_phone === father_phone always. This is the
+  // write-side half of the consolidation done in studentFromRow — no surface can drift after a save.
+  const nameCanon = student.fatherName || student.guardian || ''
+  const phoneCanon = student.phone || student.fatherPhone || student.guardianPhone || ''
   return {
     full_name: student.name,
     admission_number: String(student.roll),
     class_name: className,
     section,
-    guardian_name: student.guardian || '',
-    guardian_phone: student.phone || '',
+    guardian_name: nameCanon,
+    guardian_phone: phoneCanon,
     attendance_rate: Number(student.attendance || 0),
     fee_status: student.fee || 'Pending',
     admission_scheme: student.admissionScheme || 'General',
     admission_date: student.admissionDate || '',
     admission_type: student.admissionType || 'New',
-    father_name: student.fatherName || '',
+    father_name: nameCanon,
     mother_name: student.motherName || '',
     gender: student.gender || '',
     date_of_birth: student.dob || '',
@@ -1994,7 +2006,7 @@ function studentToRow(student) {
     disability_remarks: student.disabilityRemarks || '',
     father_occupation: student.fatherOccupation || '',
     father_qualification: student.fatherQualification || '',
-    father_phone: student.fatherPhone || student.phone || '',
+    father_phone: phoneCanon,
     father_email: student.fatherEmail || '',
     father_aadhaar: student.fatherAadhaar || '',
     mother_occupation: student.motherOccupation || '',
@@ -2400,10 +2412,19 @@ function useSchoolWorkspace(session) {
         unsubs.push(() => off(q, 'value', handler))
       }
 
+      let nameMigrationRan = false
       listen(`schools/${schoolId}/students`, snap => {
         const data = snap.val() || {}
         const rows = Object.entries(data).map(([id, row]) => ({ id, ...row })).sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0))
         setStudents(rows.map(studentFromRow))
+        // One-time reconciliation: old records whose guardian_name/father_name (or the two phone
+        // fields) drifted apart get merged to a single canonical value in the database, so the raw
+        // stored data matches what every screen now shows. Runs once per load and only writes the
+        // rows that are actually inconsistent — a clean workspace produces zero writes.
+        if (!nameMigrationRan) {
+          nameMigrationRan = true
+          reconcileStudentIdentity(schoolId, data)
+        }
       })
 
       listen(`schools/${schoolId}/deletedStudents`, snap => {
@@ -2510,6 +2531,38 @@ function useSchoolWorkspace(session) {
       return { path, url: await getDownloadURL(uploaded.ref), size: file.size, updatedAt: Date.now(), fallback: false }
     } catch {
       return { path: '', url: await fileToDataUrl(file), size: file.size, updatedAt: Date.now(), fallback: true }
+    }
+  }
+
+  // One-time data migration: merge legacy split guardian_name/father_name (and the two phone
+  // fields) into a single canonical value for every existing student. Only the rows that are
+  // actually inconsistent get written, via one atomic multi-path PATCH. Idempotent — once the
+  // stored data is consistent this produces no writes on subsequent loads.
+  const reconcileStudentIdentity = async (schoolId, data) => {
+    if (developmentDemo || !session) return
+    const patch = {}
+    Object.entries(data || {}).forEach(([id, row]) => {
+      if (!row || typeof row !== 'object') return
+      const nameCanon = row.father_name || row.fatherName || row.guardian_name || row.guardianName || ''
+      const phoneCanon = row.father_phone || row.fatherPhone || row.guardian_phone || row.guardianPhone || row.parent_login_phone || row.phone || ''
+      const base = `schools/${schoolId}/students/${id}`
+      if (nameCanon) {
+        if ((row.guardian_name || '') !== nameCanon) patch[`${base}/guardian_name`] = nameCanon
+        if ((row.father_name || '') !== nameCanon) patch[`${base}/father_name`] = nameCanon
+      }
+      if (phoneCanon) {
+        if ((row.guardian_phone || '') !== phoneCanon) patch[`${base}/guardian_phone`] = phoneCanon
+        if ((row.father_phone || '') !== phoneCanon) patch[`${base}/father_phone`] = phoneCanon
+      }
+    })
+    const paths = Object.keys(patch)
+    if (!paths.length) return
+    try {
+      const token = await session.getIdToken()
+      await databaseRequest('', token, { method: 'PATCH', body: patch })
+      console.log(`[student-identity-migration] reconciled ${paths.length} field(s) across drifted student records`)
+    } catch (error) {
+      console.warn('[student-identity-migration] skipped:', error.message)
     }
   }
 
