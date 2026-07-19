@@ -2013,12 +2013,13 @@ function studentFromRow(row, index) {
     documents: row.documents || {},
     parentLoginPhone: row.parent_login_phone || row.parentLoginPhone || row.guardian_phone || '',
     parentPasswordDOB: row.parent_password_dob !== false,
-    // Only short https URLs live on the row now. Inline (base64) photos are kept out of the
-    // students node entirely - see studentPhotos/{schoolId}/{studentId} - because this node is
-    // re-sent in full by its onValue listener on every single student change. photoInline marks
-    // "a photo exists, fetch it on demand"; ensureStudentPhotos() fills photoUrl in later.
-    photoUrl: isInlinePhoto(row.photo_url) ? '' : (row.photo_url || row.photoURL || row.photo || row.image_url || ''),
-    photoInline: row.photo_inline === true || isInlinePhoto(row.photo_url),
+    // Show whatever the row actually has, base64 included. Blanking inline photos here assumed
+    // the migration had already copied them to studentPhotos/{schoolId}/{studentId} - when it had
+    // not, every photo simply vanished from the UI. The row stays the source of truth until the
+    // migration has genuinely moved the bytes; only then (photo_url empty, photo_inline true)
+    // does ensureStudentPhotos() take over and fetch them on demand.
+    photoUrl: row.photo_url || row.photoURL || row.photo || row.image_url || '',
+    photoInline: row.photo_inline === true,
     photoPath: row.photo_path || row.photoPath || '',
     photoSize: row.photo_size || row.photoSize || 0,
     photoUpdatedAt: row.photo_updated_at || row.photoUpdatedAt || 0,
@@ -2116,10 +2117,14 @@ function studentToRow(student) {
     documents: student.documents || {},
     parent_login_phone: student.parentLoginPhone || student.fatherPhone || student.phone || '',
     parent_password_dob: student.parentPasswordDOB !== false,
-    // Never persist base64 onto the student row (see isInlinePhoto). Callers that have inline
-    // photo bytes write them to studentPhotos/{schoolId}/{studentId} and set photo_inline.
-    photo_url: isInlinePhoto(student.photoUrl) ? '' : (student.photoUrl || ''),
-    photo_inline: Boolean(student.photoInline) || isInlinePhoto(student.photoUrl),
+    // Preserve whatever photo the caller holds, base64 included. Blanking inline photos here
+    // destroyed them: updateStudent PUTs this whole row, so editing any unrelated field on a
+    // student whose photo had not been migrated yet wrote photo_url as '' and lost the image.
+    // Only the migration (which copies the bytes out first, in the same atomic write) and the
+    // explicit photo-upload paths are allowed to clear this field - and they overwrite
+    // row.photo_url after calling this function.
+    photo_url: student.photoUrl || '',
+    photo_inline: Boolean(student.photoInline),
     photo_path: student.photoPath || '',
     photo_size: Number(student.photoSize || 0),
     photo_updated_at: student.photoUpdatedAt || 0,
@@ -2771,7 +2776,9 @@ function useSchoolWorkspace(session) {
       ...(parentNotification ? { [`schools/${workspace.schoolId}/parentNotifications/${parentNotification.id}`]: parentNotification } : {}),
     } })
     if (inlinePhoto) photoCacheRef.current[studentId] = inlinePhoto
-    setStudents(current => [{ ...studentFromRow({ id: studentId, ...row }, current.length), photoUrl: inlinePhoto || '' }, ...current])
+    // studentFromRow already carries row.photo_url (a storage URL, or base64 that has not been
+    // migrated yet); only override when we hold inline bytes that were written out separately.
+    setStudents(current => [{ ...studentFromRow({ id: studentId, ...row }, current.length), ...(inlinePhoto ? { photoUrl: inlinePhoto } : {}) }, ...current])
     if (parentRow) setParents(current => ({ ...current, [parentPhone]: parentRow }))
     if (parentNotification) setParentNotifications(current => ({ ...current, [parentNotification.id]: parentNotification }))
     setActivities(current => [{ id: `student-${studentId}`, title: 'Student admitted', detail: `${student.name} joined Class ${student.className}`, at: row.createdAt, icon: '+' }, ...current])
@@ -2826,12 +2833,14 @@ function useSchoolWorkspace(session) {
         } catch (_) {}
       }
     }
-    // studentFromRow leaves photoUrl empty for inline photos; keep the image on screen by
-    // re-attaching whatever bytes we already hold for this student.
+    // Prefer the row's own photo; fall back to bytes we already hold for a student whose photo
+    // lives in studentPhotos, so an unrelated edit never blanks the image on screen.
     const localPhoto = inlinePhoto || photoCacheRef.current[studentId] || existing.photoUrl || ''
-    setStudents(current => current.map((item, index) => item.id === studentId
-      ? { ...studentFromRow({ id: studentId, ...row }, index), photoUrl: localPhoto || '' }
-      : item))
+    setStudents(current => current.map((item, index) => {
+      if (item.id !== studentId) return item
+      const next = studentFromRow({ id: studentId, ...row }, index)
+      return next.photoUrl ? next : { ...next, photoUrl: localPhoto }
+    }))
     setActivities(current => [{ id: `student-update-${studentId}-${Date.now()}`, title: 'Student updated', detail: `${updated.name} moved to Class ${updated.className}`, at: row.updatedAt, icon: 'U' }, ...current])
     return updated
   }
