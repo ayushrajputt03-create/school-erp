@@ -2630,14 +2630,35 @@ function useSchoolWorkspace(session) {
       const token = await session.getIdToken()
       rawStudents = await databaseRequest(`schools/${workspace.schoolId}/students`, token).catch(() => ({})) || {}
     }
+    const deletedSet = new Set(ids)
     const archived = {}
     const changes = {}
+    const parentTouched = {}
     ids.forEach(id => {
       const raw = rawStudents[id] || studentToRow(students.find(item => String(item.id) === id) || { id })
       const record = { ...raw, id, deletedAt: stamp, deletedBy: performedBy, deletedByName: performedByName, deletedReason: reason || '' }
       archived[id] = record
       changes[`schools/${workspace.schoolId}/deletedStudents/${id}`] = record
       changes[`schools/${workspace.schoolId}/students/${id}`] = null
+      const parentId = parentIdOf(raw.parent_login_phone || raw.father_phone || raw.guardian_phone || raw.phone)
+      if (parentId && parentId.length === 10) parentTouched[parentId] = true
+    })
+    // Parent cleanup: unlink each deleted child from its parent. If the parent has no other
+    // active child left, remove the whole parent record (their portal login goes with the
+    // last child). Multi-child parents are preserved with the remaining children.
+    const parentRemovals = []
+    Object.keys(parentTouched).forEach(parentId => {
+      const parent = parents[parentId]
+      if (!parent) return
+      const remaining = Object.keys(parent.students || {}).filter(Boolean).filter(childId => !deletedSet.has(String(childId)))
+      if (!remaining.length) {
+        changes[`schools/${workspace.schoolId}/parents/${parentId}`] = null
+        parentRemovals.push({ parentId, removed: true })
+      } else {
+        changes[`schools/${workspace.schoolId}/parents/${parentId}/students`] = Object.fromEntries(remaining.map(childId => [childId, true]))
+        changes[`schools/${workspace.schoolId}/parents/${parentId}/updatedAt`] = stamp
+        parentRemovals.push({ parentId, removed: false, remaining })
+      }
     })
     changes[`schools/${workspace.schoolId}/auditLogs/${auditId}`] = { action, studentIds: ids, performedBy, performedByName, timestamp: stamp, count: ids.length }
     if (!developmentDemo) {
@@ -2646,6 +2667,14 @@ function useSchoolWorkspace(session) {
     }
     setStudents(current => current.filter(item => !ids.includes(String(item.id))))
     setDeletedStudents(current => ({ ...current, ...archived }))
+    setParents(current => {
+      const next = { ...current }
+      parentRemovals.forEach(({ parentId, removed, remaining }) => {
+        if (removed) delete next[parentId]
+        else if (next[parentId]) next[parentId] = { ...next[parentId], students: Object.fromEntries(remaining.map(childId => [childId, true])), updatedAt: stamp }
+      })
+      return next
+    })
     setActivities(current => [{ id: auditId, title: 'Students archived', detail: `${ids.length} student${ids.length > 1 ? 's' : ''} moved to Deleted Students`, at: stamp, icon: '🗑' }, ...current])
   }
 
