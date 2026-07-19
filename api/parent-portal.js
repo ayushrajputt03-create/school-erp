@@ -118,34 +118,52 @@ function studentParentPhone(row) {
   return raw.length > 10 ? raw.slice(-10) : raw
 }
 
+async function loadStudentsByIds(database, schoolId, ids) {
+  const snaps = await Promise.all(ids.map(id => database.ref(`schools/${schoolId}/students/${id}`).once('value')))
+  const students = {}
+  snaps.forEach((snap, index) => { if (snap.exists()) students[ids[index]] = snap.val() })
+  return students
+}
+
+// Resolves a phone to its parent account and that parent's children WITHOUT reading the school's
+// students node. Previously every parent login downloaded schools/{id}/students in full just to
+// find rows whose phone matched - on a large school that is megabytes per login attempt.
+//
+// Two cheap sources give us the child ids instead:
+//   parents/{phone}.students            - the parent account, once it exists
+//   parentStudentIndex/{phone}/{id}     - written by admissions, and backfilled for old records
+// Only the resolved ids are then fetched individually.
 async function ensureParent(database, schoolId, phone, schoolCode = '') {
   const rawDigits = digits(phone)
   const parentId = rawDigits.length > 10 ? rawDigits.slice(-10) : rawDigits
+  if (!parentId) return null
   const parentRef = database.ref(`schools/${schoolId}/parents/${parentId}`)
-  // Load the parent record and the students node (bounded by enrollment, not time). The fuzzy
-  // phone match spans ~11 possible fields via studentParentPhone(), so it cannot be replaced by
-  // a single indexed query without regressing login — but we no longer pull the whole school
-  // (fees/attendance/etc.), which are the large, ever-growing nodes.
-  const [parentSnap, studentsSnap] = await Promise.all([
+  const [parentSnap, indexSnap] = await Promise.all([
     parentRef.once('value'),
-    database.ref(`schools/${schoolId}/students`).once('value'),
+    database.ref(`schools/${schoolId}/parentStudentIndex/${parentId}`).once('value'),
   ])
   let parent = parentSnap.val()
-  const students = studentsSnap.val() || {}
-  const linkedIds = Object.entries(students)
-    .filter(([, row]) => studentParentPhone(row) === parentId)
-    .map(([id]) => id)
-  if (!linkedIds.length && !parent) return null
+  const knownIds = normalizeStudentsList(parent?.students)
+  const indexedIds = normalizeStudentsList(indexSnap.val())
+  const linkedIds = [...new Set([...knownIds, ...indexedIds])]
+  // Neither an account nor an index entry: this phone is genuinely not registered. We do not fall
+  // back to scanning students - see backfillParentStudentIndex in App.jsx, which populates the
+  // index for legacy records the next time an admin opens the workspace.
+  if (!linkedIds.length) return null
+
+  const students = await loadStudentsByIds(database, schoolId, linkedIds)
+  const presentIds = Object.keys(students)
+  if (!presentIds.length) return null
 
   if (!parent) {
-    const firstStudent = students[linkedIds[0]] || {}
+    const firstStudent = students[presentIds[0]] || {}
     parent = {
       id: parentId,
       phone: parentId,
       name: firstStudent.father_name || firstStudent.fatherName || firstStudent.guardian_name || firstStudent.guardian || 'Parent',
       email: firstStudent.father_email || '',
       address: firstStudent.address || '',
-      students: Object.fromEntries(linkedIds.map(id => [id, true])),
+      students: Object.fromEntries(presentIds.map(id => [id, true])),
       schoolCode: schoolCode || '',
       mustChangePassword: true,
       language: 'english',
@@ -154,13 +172,26 @@ async function ensureParent(database, schoolId, phone, schoolCode = '') {
       updatedAt: now(),
     }
     await parentRef.set(parent)
-  } else {
-    const current = normalizeStudentsList(parent.students)
-    const merged = [...new Set([...current, ...linkedIds])]
-    parent = { ...parent, id: parentId, phone: parent.phone || parentId, students: Object.fromEntries(merged.map(id => [id, true])), updatedAt: now() }
+  } else if (presentIds.length !== knownIds.length || presentIds.some(id => !knownIds.includes(id))) {
+    // Only write when the child list actually changed, so a normal login stays read-only.
+    parent = { ...parent, id: parentId, phone: parent.phone || parentId, students: Object.fromEntries(presentIds.map(id => [id, true])), updatedAt: now() }
     await parentRef.update({ students: parent.students, updatedAt: parent.updatedAt })
   }
   return { parentId, parent, students }
+}
+
+// EMERGENCY ONLY - never called on the login path, and must stay that way. This is the old
+// behaviour: scan every student in the school and match on any of the ~11 phone-ish fields.
+// It exists so the index can be rebuilt by hand if backfillParentStudentIndex has not run and a
+// parent cannot log in. Reading the whole students node is exactly the cost this change removed,
+// so call it deliberately, once, from a one-off script - not from a request handler.
+async function scanStudentsForParentPhone(database, schoolId, phone) {
+  const rawDigits = digits(phone)
+  const parentId = rawDigits.length > 10 ? rawDigits.slice(-10) : rawDigits
+  const studentsSnap = await database.ref(`schools/${schoolId}/students`).once('value')
+  return Object.entries(studentsSnap.val() || {})
+    .filter(([, row]) => studentParentPhone(row) === parentId)
+    .map(([id]) => id)
 }
 
 function sanitizeStudent(id, row = {}) {
@@ -436,3 +467,8 @@ module.exports = async function handler(request, response) {
     return response.status(400).json({ ok: false, error: error.message })
   }
 }
+
+// Exposed for tests only. ensureParent decides which database paths a parent login touches, and
+// the property worth guarding is a negative one - that it never reads the whole students node -
+// which can only be asserted against the real implementation.
+module.exports.__internals = { ensureParent, loadStudentsByIds, scanStudentsForParentPhone }

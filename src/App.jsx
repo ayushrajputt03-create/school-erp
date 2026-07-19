@@ -2512,6 +2512,7 @@ function useSchoolWorkspace(session) {
         if (!nameMigrationRan) {
           nameMigrationRan = true
           reconcileStudentIdentity(schoolId, data)
+          backfillParentStudentIndex(schoolId, data)
           // Photo migration is deliberately OFF. It works, but moving photos out of the row means
           // the student list (which does not fetch photos, by design) falls back to initials -
           // a bad trade at this school's size. The measured egress problem was the super admin
@@ -2687,6 +2688,52 @@ function useSchoolWorkspace(session) {
     setStudents(current => current.map(item => found[item.id] ? { ...item, photoUrl: found[item.id] } : item))
   }, [developmentDemo, session, workspace.schoolId, setStudents])
 
+  // Backfill for records created before the index existed: build
+  // parentStudentIndex/{phone}/{studentId} so parent login can resolve a phone to its children
+  // without reading the students node, and create parent accounts for phones that have none yet.
+  // Idempotent - only missing entries are written, so a backfilled school produces zero writes.
+  // Existing parent records are never overwritten; ensureParent still merges children on login.
+  const backfillParentStudentIndex = async (schoolId, data) => {
+    if (developmentDemo || !session) return
+    const rows = Object.entries(data || {}).filter(([, row]) => row && typeof row === 'object')
+    if (!rows.length) return
+    const token = await session.getIdToken().catch(() => null)
+    if (!token) return
+    const [existingIndex, existingParents] = await Promise.all([
+      databaseRequest(`schools/${schoolId}/parentStudentIndex`, token).catch(() => null),
+      databaseRequest(`schools/${schoolId}/parents`, token).catch(() => null),
+    ])
+    const index = existingIndex || {}
+    const knownParents = existingParents || {}
+    const changes = {}
+    const draftParents = {}
+    rows.forEach(([studentId, raw]) => {
+      const phone = parentIdOf(raw.parent_login_phone || raw.father_phone || raw.guardian_phone || raw.phone)
+      if (!phone || phone.length !== 10) return
+      if (index[phone]?.[studentId] !== true) changes[`schools/${schoolId}/parentStudentIndex/${phone}/${studentId}`] = true
+      // Accumulate across siblings: buildParentAccount merges each child into the same map, so a
+      // phone with several children ends up with all of them and no duplicates.
+      if (!knownParents[phone]) {
+        draftParents[phone] = buildParentAccount(draftParents[phone] || {}, studentId, studentFromRow({ id: studentId, ...raw }, 0), workspace.schoolProfile)
+      }
+    })
+    Object.entries(draftParents).forEach(([phone, parentRow]) => { changes[`schools/${schoolId}/parents/${phone}`] = parentRow })
+    const paths = Object.keys(changes)
+    if (!paths.length) return
+    let written = 0
+    for (let start = 0; start < paths.length; start += 100) {
+      const slice = paths.slice(start, start + 100)
+      const patch = Object.fromEntries(slice.map(path => [path, changes[path]]))
+      try {
+        await databaseRequest('', token, { method: 'PATCH', body: patch })
+        written += slice.length
+      } catch (error) {
+        console.warn(`[parent-index] batch failed (${slice.length} entr(ies)):`, error.message)
+      }
+    }
+    console.log(`[parent-index] backfilled ${written}/${paths.length} entr(ies) across ${rows.length} student(s)`)
+  }
+
   // One-time migration: lift base64 photos out of students/{id}/photo_url into
   // studentPhotos/{schoolId}/{id}. Batched, because a single PATCH carrying hundreds of ~133KB
   // data URLs would be tens of megabytes and fail. Idempotent - once moved, no rows match.
@@ -2782,6 +2829,10 @@ function useSchoolWorkspace(session) {
     await databaseRequest('', token, { method: 'PATCH', body: {
       [`schools/${workspace.schoolId}/students/${studentId}`]: row,
       ...(inlinePhoto ? { [`studentPhotos/${workspace.schoolId}/${studentId}`]: inlinePhoto } : {}),
+      // Phone -> child index. Parent login resolves children from this (and from the parent
+      // account) instead of scanning the whole students node. Written in the same atomic PATCH
+      // as the student, so the two can never disagree.
+      ...(parentPhone ? { [`schools/${workspace.schoolId}/parentStudentIndex/${parentPhone}/${studentId}`]: true } : {}),
       ...(parentRow ? { [`schools/${workspace.schoolId}/parents/${parentPhone}`]: parentRow } : {}),
       ...(parentNotification ? { [`schools/${workspace.schoolId}/parentNotifications/${parentNotification.id}`]: parentNotification } : {}),
     } })
@@ -2834,8 +2885,15 @@ function useSchoolWorkspace(session) {
         photoCacheRef.current[studentId] = inlinePhoto
       }
       const parentPhone = parentIdOf(row.parent_login_phone || row.father_phone || row.guardian_phone)
+      // If the contact number changed, the old phone must stop pointing at this child, otherwise
+      // the previous number could still resolve it at parent login.
+      const previousPhone = parentIdOf(existing.parentLoginPhone || existing.fatherPhone || existing.phone || existing.guardianPhone || '')
+      if (previousPhone && previousPhone !== parentPhone) {
+        await databaseRequest(`schools/${workspace.schoolId}/parentStudentIndex/${previousPhone}/${studentId}`, token, { method: 'DELETE' }).catch(() => {})
+      }
       if (parentPhone) {
         try {
+          await databaseRequest(`schools/${workspace.schoolId}/parentStudentIndex/${parentPhone}/${studentId}`, token, { method: 'PUT', body: true })
           const existingParent = await databaseRequest(`schools/${workspace.schoolId}/parents/${parentPhone}`, token).catch(() => null)
           const parentRow = buildParentAccount(existingParent || {}, studentId, { ...updated, phone: parentPhone }, workspace.schoolProfile)
           await databaseRequest(`schools/${workspace.schoolId}/parents/${parentPhone}`, token, { method: 'PUT', body: parentRow })
@@ -2885,7 +2943,12 @@ function useSchoolWorkspace(session) {
       changes[`schools/${workspace.schoolId}/deletedStudents/${id}`] = record
       changes[`schools/${workspace.schoolId}/students/${id}`] = null
       const parentId = parentIdOf(raw.parent_login_phone || raw.father_phone || raw.guardian_phone || raw.phone)
-      if (parentId && parentId.length === 10) parentTouched[parentId] = true
+      if (parentId && parentId.length === 10) {
+        parentTouched[parentId] = true
+        // Drop the phone -> child index too, otherwise that number would still resolve a deleted
+        // child at parent login and recreate an account for it.
+        changes[`schools/${workspace.schoolId}/parentStudentIndex/${parentId}/${id}`] = null
+      }
     })
     // Parent cleanup: unlink each deleted child from its parent. If the parent has no other
     // active child left, remove the whole parent record (their portal login goes with the

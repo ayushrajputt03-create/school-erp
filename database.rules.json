@@ -153,6 +153,13 @@
         "certificateRequests": { ".indexOn": ["studentId"] },
         "parentMessages": { ".indexOn": ["parentId"] },
         "parentNotifications": { ".indexOn": ["parentId"] },
+        "parentStudentIndex": {
+          "$parentPhone": {
+            "$studentId": {
+              ".validate": "!newData.exists() || newData.isBoolean()"
+            }
+          }
+        },
         "deletedStudents": {
           ".indexOn": ["deletedAt"],
           "$studentId": {
