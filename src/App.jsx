@@ -1908,6 +1908,10 @@ function Notices({ notices, onAddNotice }) {
 
 const tones = ['blue', 'violet', 'green', 'orange', 'cyan', 'pink']
 
+// A base64 data: URL sitting in a student row is the expensive case we are moving out of the
+// students node. Anything else (an https Storage URL, or empty) stays on the row as-is.
+const isInlinePhoto = value => typeof value === 'string' && value.startsWith('data:')
+
 function studentFromRow(row, index) {
   const fullName = row.full_name || row.name || row.fullName || ''
   const className = row.class_name || row.class || row.className || ''
@@ -2004,7 +2008,12 @@ function studentFromRow(row, index) {
     documents: row.documents || {},
     parentLoginPhone: row.parent_login_phone || row.parentLoginPhone || row.guardian_phone || '',
     parentPasswordDOB: row.parent_password_dob !== false,
-    photoUrl: row.photo_url || row.photoURL || row.photo || row.image_url || '',
+    // Only short https URLs live on the row now. Inline (base64) photos are kept out of the
+    // students node entirely - see studentPhotos/{schoolId}/{studentId} - because this node is
+    // re-sent in full by its onValue listener on every single student change. photoInline marks
+    // "a photo exists, fetch it on demand"; ensureStudentPhotos() fills photoUrl in later.
+    photoUrl: isInlinePhoto(row.photo_url) ? '' : (row.photo_url || row.photoURL || row.photo || row.image_url || ''),
+    photoInline: row.photo_inline === true || isInlinePhoto(row.photo_url),
     photoPath: row.photo_path || row.photoPath || '',
     photoSize: row.photo_size || row.photoSize || 0,
     photoUpdatedAt: row.photo_updated_at || row.photoUpdatedAt || 0,
@@ -2102,7 +2111,10 @@ function studentToRow(student) {
     documents: student.documents || {},
     parent_login_phone: student.parentLoginPhone || student.fatherPhone || student.phone || '',
     parent_password_dob: student.parentPasswordDOB !== false,
-    photo_url: student.photoUrl || '',
+    // Never persist base64 onto the student row (see isInlinePhoto). Callers that have inline
+    // photo bytes write them to studentPhotos/{schoolId}/{studentId} and set photo_inline.
+    photo_url: isInlinePhoto(student.photoUrl) ? '' : (student.photoUrl || ''),
+    photo_inline: Boolean(student.photoInline) || isInlinePhoto(student.photoUrl),
     photo_path: student.photoPath || '',
     photo_size: Number(student.photoSize || 0),
     photo_updated_at: student.photoUpdatedAt || 0,
@@ -2490,6 +2502,7 @@ function useSchoolWorkspace(session) {
         if (!nameMigrationRan) {
           nameMigrationRan = true
           reconcileStudentIdentity(schoolId, data)
+          migrateInlinePhotos(schoolId, data)
         }
       })
 
@@ -2632,6 +2645,52 @@ function useSchoolWorkspace(session) {
     }
   }
 
+  // Photos are fetched one student at a time and cached for the session, then merged into the
+  // students state as photoUrl. Every existing consumer (StudentAvatar, ID cards, certificates,
+  // report cards) keeps reading student.photoUrl and needs no change - the value simply arrives
+  // a moment later than the rest of the row.
+  const photoCacheRef = useRef({})
+  const ensureStudentPhotos = async (studentIds = []) => {
+    if (developmentDemo || !session || !workspace.schoolId) return
+    const ids = [...new Set((studentIds || []).map(String).filter(Boolean))]
+    const missing = ids.filter(id => photoCacheRef.current[id] === undefined)
+    if (!missing.length) return
+    const token = await session.getIdToken().catch(() => null)
+    if (!token) return
+    const results = await Promise.all(missing.map(async id => {
+      const value = await databaseRequest(`studentPhotos/${workspace.schoolId}/${id}`, token).catch(() => null)
+      return [id, typeof value === 'string' ? value : '']
+    }))
+    results.forEach(([id, value]) => { photoCacheRef.current[id] = value })
+    const found = Object.fromEntries(results.filter(([, value]) => value))
+    if (!Object.keys(found).length) return
+    setStudents(current => current.map(item => found[item.id] ? { ...item, photoUrl: found[item.id] } : item))
+  }
+
+  // One-time migration: lift base64 photos out of students/{id}/photo_url into
+  // studentPhotos/{schoolId}/{id}. Batched, because a single PATCH carrying hundreds of ~133KB
+  // data URLs would be tens of megabytes and fail. Idempotent - once moved, no rows match.
+  const migrateInlinePhotos = async (schoolId, data) => {
+    if (developmentDemo || !session) return
+    const moves = Object.entries(data || {}).filter(([, row]) => row && isInlinePhoto(row.photo_url))
+    if (!moves.length) return
+    try {
+      const token = await session.getIdToken()
+      for (let start = 0; start < moves.length; start += 15) {
+        const patch = {}
+        moves.slice(start, start + 15).forEach(([id, row]) => {
+          patch[`studentPhotos/${schoolId}/${id}`] = row.photo_url
+          patch[`schools/${schoolId}/students/${id}/photo_url`] = ''
+          patch[`schools/${schoolId}/students/${id}/photo_inline`] = true
+        })
+        await databaseRequest('', token, { method: 'PATCH', body: patch })
+      }
+      console.log(`[photo-migration] moved ${moves.length} inline photo(s) out of the students node`)
+    } catch (error) {
+      console.warn('[photo-migration] skipped:', error.message)
+    }
+  }
+
   const addStudent = async student => {
     const token = developmentDemo ? null : await session.getIdToken()
     const assignedNumber = developmentDemo ? await getNextAdmissionNumber() : await reserveAdmissionNumber(workspace.schoolId, token)
@@ -2657,9 +2716,12 @@ function useSchoolWorkspace(session) {
       createdAt: Date.now(),
       updatedAt: Date.now(),
     }
+    let inlinePhoto = ''
     if (student.photoFile) {
       const photo = await uploadStudentPhotoFile(student.photoFile, assignedNumber, token, '', student.photoPreview || '')
-      row.photo_url = photo.url
+      inlinePhoto = isInlinePhoto(photo.url) ? photo.url : ''
+      row.photo_url = inlinePhoto ? '' : photo.url
+      row.photo_inline = Boolean(inlinePhoto)
       row.photo_path = photo.path
       row.photo_size = photo.size
       row.photo_updated_at = photo.updatedAt
@@ -2677,10 +2739,12 @@ function useSchoolWorkspace(session) {
     } : null
     await databaseRequest('', token, { method: 'PATCH', body: {
       [`schools/${workspace.schoolId}/students/${studentId}`]: row,
+      ...(inlinePhoto ? { [`studentPhotos/${workspace.schoolId}/${studentId}`]: inlinePhoto } : {}),
       ...(parentRow ? { [`schools/${workspace.schoolId}/parents/${parentPhone}`]: parentRow } : {}),
       ...(parentNotification ? { [`schools/${workspace.schoolId}/parentNotifications/${parentNotification.id}`]: parentNotification } : {}),
     } })
-    setStudents(current => [studentFromRow({ id: studentId, ...row }, current.length), ...current])
+    if (inlinePhoto) photoCacheRef.current[studentId] = inlinePhoto
+    setStudents(current => [{ ...studentFromRow({ id: studentId, ...row }, current.length), photoUrl: inlinePhoto || '' }, ...current])
     if (parentRow) setParents(current => ({ ...current, [parentPhone]: parentRow }))
     if (parentNotification) setParentNotifications(current => ({ ...current, [parentNotification.id]: parentNotification }))
     setActivities(current => [{ id: `student-${studentId}`, title: 'Student admitted', detail: `${student.name} joined Class ${student.className}`, at: row.createdAt, icon: '+' }, ...current])
@@ -2704,17 +2768,27 @@ function useSchoolWorkspace(session) {
     const row = studentToRow(updated)
     row.admission_number = String(existing.roll)
     row.updatedAt = Date.now()
+    let inlinePhoto = ''
     if (updates.photoFile) {
       const token = developmentDemo ? null : await session.getIdToken()
       const photo = await uploadStudentPhotoFile(updates.photoFile, existing.roll, token, existing.photoPath, updates.photoPreview || existing.photoUrl || '')
-      row.photo_url = photo.url
+      inlinePhoto = isInlinePhoto(photo.url) ? photo.url : ''
+      row.photo_url = inlinePhoto ? '' : photo.url
+      row.photo_inline = Boolean(inlinePhoto)
       row.photo_path = photo.path
       row.photo_size = photo.size
       row.photo_updated_at = photo.updatedAt
     }
+    // A PUT replaces the row, so re-assert the inline marker for a student whose photo was
+    // migrated earlier and is not part of this edit - otherwise the flag would be dropped.
+    if (!updates.photoFile && existing.photoInline) row.photo_inline = true
     if (!developmentDemo) {
       const token = await session.getIdToken()
       await databaseRequest(`schools/${workspace.schoolId}/students/${studentId}`, token, { method: 'PUT', body: row })
+      if (inlinePhoto) {
+        await databaseRequest(`studentPhotos/${workspace.schoolId}/${studentId}`, token, { method: 'PUT', body: inlinePhoto }).catch(() => {})
+        photoCacheRef.current[studentId] = inlinePhoto
+      }
       const parentPhone = parentIdOf(row.parent_login_phone || row.father_phone || row.guardian_phone)
       if (parentPhone) {
         try {
@@ -2725,7 +2799,12 @@ function useSchoolWorkspace(session) {
         } catch (_) {}
       }
     }
-    setStudents(current => current.map((item, index) => item.id === studentId ? studentFromRow({ id: studentId, ...row }, index) : item))
+    // studentFromRow leaves photoUrl empty for inline photos; keep the image on screen by
+    // re-attaching whatever bytes we already hold for this student.
+    const localPhoto = inlinePhoto || photoCacheRef.current[studentId] || existing.photoUrl || ''
+    setStudents(current => current.map((item, index) => item.id === studentId
+      ? { ...studentFromRow({ id: studentId, ...row }, index), photoUrl: localPhoto || '' }
+      : item))
     setActivities(current => [{ id: `student-update-${studentId}-${Date.now()}`, title: 'Student updated', detail: `${updated.name} moved to Class ${updated.className}`, at: row.updatedAt, icon: 'U' }, ...current])
     return updated
   }
@@ -2862,13 +2941,19 @@ function useSchoolWorkspace(session) {
     }
     const token = await session.getIdToken()
     const photo = await uploadStudentPhotoFile(photoFile, student.roll, token, student.photoPath, previewUrl || student.photoUrl || '')
+    // Firebase Storage is unavailable on the Spark plan, so uploadStudentPhotoFile falls back to
+    // a base64 data URL. Those bytes go to studentPhotos/{schoolId}/{id}, never onto the row.
+    const inline = isInlinePhoto(photo.url)
     await databaseRequest('', token, { method: 'PATCH', body: {
-      [`schools/${workspace.schoolId}/students/${studentId}/photo_url`]: photo.url,
+      [`schools/${workspace.schoolId}/students/${studentId}/photo_url`]: inline ? '' : photo.url,
+      [`schools/${workspace.schoolId}/students/${studentId}/photo_inline`]: inline,
       [`schools/${workspace.schoolId}/students/${studentId}/photo_path`]: photo.path,
       [`schools/${workspace.schoolId}/students/${studentId}/photo_size`]: photo.size,
       [`schools/${workspace.schoolId}/students/${studentId}/photo_updated_at`]: photo.updatedAt,
       [`schools/${workspace.schoolId}/students/${studentId}/updatedAt`]: photo.updatedAt,
+      ...(inline ? { [`studentPhotos/${workspace.schoolId}/${studentId}`]: photo.url } : {}),
     } })
+    photoCacheRef.current[studentId] = inline ? photo.url : ''
     setStudents(current => current.map(item => item.id === studentId ? { ...item, photoUrl: photo.url, photoPath: photo.path, photoSize: photo.size, photoUpdatedAt: photo.updatedAt } : item))
     return photo
   }
@@ -4181,7 +4266,7 @@ function useSchoolWorkspace(session) {
     return logo
   }
 
-  return { students, notices, fees, feeManager, attendance, timetableData, timetableRecords, homework, transport, library, accounts, leave, parents, parentMessages, parentNotifications, certificateRequests, enquiries, staff, staffAttendance, employeeConfig, approvals, expenses, academics, documents, certificates, certificateSettings, examData, reportData, idCards, idCardSettings, activities, backupSettings, workspace, createSchoolWorkspace, getNextAdmissionNumber, addStudent, updateStudent, updateStudentPhoto, deletedStudents, deleteStudents, deleteAllStudents, restoreStudent, restoreAllStudents, permanentDeleteStudent, recordPayment, submitFeeReceipt, saveFeeGroup, deleteFeeGroup, saveFeeStructure, deleteFeeStructure, deleteFeeReceipt, restoreFeeReceipt, decideFeeApproval, saveFeeManagerConfig, createBackupPayload, restoreBackup, saveBackupSettings, saveSchoolProfile, saveParentAccount, addNotice, saveAttendance, saveEmployeeConfig, deleteEmployeeConfig, saveEmployee, deleteEmployee, saveStaffAttendance, savePeriod, saveTimetableRecord, deleteTimetableRecord, saveHomework, deleteHomework, markHomeworkDone, markHomeworkSeen, saveTransportItem, deleteTransportItem, saveExpenseItem, deleteExpenseItem, saveLibraryItem, deleteLibraryItem, saveAccountsItem, deleteAccountsItem, saveLeaveItem, deleteLeaveItem, saveEnquiry, uploadStudentDocument, loadStudentAttendance, saveCertificate, saveCertificateSettings, saveExamRecord, saveDateSheetRow, deleteDateSheetRow, saveAdmitCards, deleteCertificate, updateCertificateStatus, saveReportExam, deleteReportExam, saveReportMarks, saveReportCard, updateReportCard, saveIdCardSettings, saveIdCard, deleteIdCard, uploadIdCardLogo, developmentDemo }
+  return { students, notices, fees, feeManager, attendance, timetableData, timetableRecords, homework, transport, library, accounts, leave, parents, parentMessages, parentNotifications, certificateRequests, enquiries, staff, staffAttendance, employeeConfig, approvals, expenses, academics, documents, certificates, certificateSettings, examData, reportData, idCards, idCardSettings, activities, backupSettings, workspace, createSchoolWorkspace, getNextAdmissionNumber, addStudent, updateStudent, updateStudentPhoto, ensureStudentPhotos, deletedStudents, deleteStudents, deleteAllStudents, restoreStudent, restoreAllStudents, permanentDeleteStudent, recordPayment, submitFeeReceipt, saveFeeGroup, deleteFeeGroup, saveFeeStructure, deleteFeeStructure, deleteFeeReceipt, restoreFeeReceipt, decideFeeApproval, saveFeeManagerConfig, createBackupPayload, restoreBackup, saveBackupSettings, saveSchoolProfile, saveParentAccount, addNotice, saveAttendance, saveEmployeeConfig, deleteEmployeeConfig, saveEmployee, deleteEmployee, saveStaffAttendance, savePeriod, saveTimetableRecord, deleteTimetableRecord, saveHomework, deleteHomework, markHomeworkDone, markHomeworkSeen, saveTransportItem, deleteTransportItem, saveExpenseItem, deleteExpenseItem, saveLibraryItem, deleteLibraryItem, saveAccountsItem, deleteAccountsItem, saveLeaveItem, deleteLeaveItem, saveEnquiry, uploadStudentDocument, loadStudentAttendance, saveCertificate, saveCertificateSettings, saveExamRecord, saveDateSheetRow, deleteDateSheetRow, saveAdmitCards, deleteCertificate, updateCertificateStatus, saveReportExam, deleteReportExam, saveReportMarks, saveReportCard, updateReportCard, saveIdCardSettings, saveIdCard, deleteIdCard, uploadIdCardLogo, developmentDemo }
 }
 
 export default function App() {
@@ -4237,6 +4322,14 @@ export default function App() {
   }, [])
 
   const data = useSchoolWorkspace(session)
+
+  // Student photos no longer ride along in the students node, so pull the one we are about to
+  // show. StudentProfile re-derives its student from data.students, so the image appears as soon
+  // as this resolves. Opening a profile costs one ~133KB fetch instead of every list render
+  // carrying every photo.
+  useEffect(() => {
+    if (selectedStudent?.id) data.ensureStudentPhotos?.([selectedStudent.id])
+  }, [selectedStudent?.id])
 
   if (window.location.pathname.startsWith('/parent')) return <ParentPortal />
   if (!isFirebaseConfigured && import.meta.env.VITE_APP_ENV === 'production') {
