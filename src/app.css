@@ -53,6 +53,10 @@
 .donut:hover{transform:scale(1.04)}
 .clickable-row{cursor:pointer}.clickable-row:hover{background:#f7f9fd}
 .empty-state{padding:28px 18px;text-align:center;color:#7b8596;font-size:10px}
+/* Shown while a lazily-loaded ERP module's chunk downloads (see the Suspense boundary in App). */
+.module-loading{display:flex;align-items:center;justify-content:center;gap:10px;padding:64px 18px;color:#7b8596;font-size:13px;font-weight:600}
+.module-loading-dot{width:14px;height:14px;border-radius:50%;border:2px solid #c9d6e6;border-top-color:#052659;animation:module-spin .7s linear infinite}
+@keyframes module-spin{to{transform:rotate(360deg)}}
 .profile-modal{overflow:hidden}.profile-hero{display:flex;align-items:center;gap:14px;padding:20px}.profile-hero .avatar{width:56px;height:56px;font-size:15px}.profile-hero strong{display:block;font:700 16px Manrope}.profile-hero .status{margin-top:7px}
 .profile-details{display:grid;grid-template-columns:1fr 1fr;margin:0;padding:0 20px 22px;gap:12px}.profile-details div{border:1px solid var(--line);padding:12px;border-radius:7px}.profile-details dt{font-size:8px;color:var(--muted);text-transform:uppercase}.profile-details dd{margin:5px 0 0;font-size:11px;font-weight:600;color:#273347}
 .section-control{display:flex;align-items:center;gap:8px}.section-control input{height:36px;border:1px solid #dbe0e8;border-radius:7px;padding:0 10px;color:#3b4658;background:#fff;font-size:10px}

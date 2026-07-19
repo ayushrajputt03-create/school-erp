@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react'
+import React, { lazy, Suspense, useEffect, useRef, useState } from 'react'
 import imageCompression from 'browser-image-compression'
 import {
   Bell, BookOpen, BusFront, CalendarCheck, Check, ChevronRight, IndianRupee,
@@ -12,20 +12,24 @@ import {
 import './app.css'
 import AuthScreen from './AuthScreen'
 import SchoolSetup from './SchoolSetup'
-import FeeManager from './FeeManager'
-import BackupCenter from './BackupCenter'
-import TimetableManager from './TimetableManager'
-import EmployeeManager from './EmployeeManager'
-import CertificateManager from './CertificateManager'
-import ReportCardManager from './ReportCardManager'
-import IDCardManager from './IDCardManager'
 import { StudentPhotoContext } from './student-photos'
-import HomeworkManager from './HomeworkManager'
-import TransportManager from './TransportManager'
-import ExpenseManager from './ExpenseManager'
-import LibraryManager from './LibraryManager'
-import AccountsManager from './AccountsManager'
-import LeaveManager from './LeaveManager'
+// Every ERP module used to be a static import, so the login screen shipped the whole ERP -
+// a 899KB main chunk. Each of these renders on exactly one page, so load them when that page is
+// opened instead. The heavy PDF/canvas libraries they pull in (jspdf, html2canvas, exceljs) were
+// already dynamically imported, but they were reachable only after this code had downloaded.
+const FeeManager = lazy(() => import('./FeeManager'))
+const BackupCenter = lazy(() => import('./BackupCenter'))
+const TimetableManager = lazy(() => import('./TimetableManager'))
+const EmployeeManager = lazy(() => import('./EmployeeManager'))
+const CertificateManager = lazy(() => import('./CertificateManager'))
+const ReportCardManager = lazy(() => import('./ReportCardManager'))
+const IDCardManager = lazy(() => import('./IDCardManager'))
+const HomeworkManager = lazy(() => import('./HomeworkManager'))
+const TransportManager = lazy(() => import('./TransportManager'))
+const ExpenseManager = lazy(() => import('./ExpenseManager'))
+const LibraryManager = lazy(() => import('./LibraryManager'))
+const AccountsManager = lazy(() => import('./AccountsManager'))
+const LeaveManager = lazy(() => import('./LeaveManager'))
 import SplashScreen from './SplashScreen'
 import DatePicker from './DatePicker'
 import ParentPortal from './ParentPortal'
@@ -4403,5 +4407,5 @@ export default function App() {
     await signOut(auth)
     setPage('dashboard')
   }
-  return <StudentPhotoContext.Provider value={data.ensureStudentPhotos}><div className={`app-shell ${darkMode ? 'theme-dark' : 'theme-light'}`}><Sidebar page={page} setPage={setPage} open={menuOpen} close={() => setMenuOpen(false)} schoolName={data.workspace.schoolName} schoolLogo={data.workspace.schoolProfile.logoURL || data.workspace.schoolProfile.logo} schoolCode={data.workspace.schoolProfile.schoolCode} cloudMode={!data.developmentDemo} profile={profile} /><main className="main-area"><Header title={current.label} subtitle={`${data.workspace.schoolName} · ${data.workspace.schoolProfile.academicYear || '2026-27'}`} schoolCode={data.workspace.schoolProfile.schoolCode} onMenu={() => setMenuOpen(true)} profile={profile} onSignOut={logout} students={data.students} onSelectStudent={setSelectedStudent} darkMode={darkMode} onToggleTheme={() => setDarkMode(current => !current)} /><div className="page-content page-enter" key={page}>{screens[page]}</div></main>{selectedStudent && <StudentProfile student={data.students.find(student => student.id === selectedStudent.id) || selectedStudent} close={() => setSelectedStudent(null)} attendance={data.attendance} fees={data.fees} feeManager={data.feeManager} schoolProfile={data.workspace.schoolProfile} academics={data.academics} documents={data.documents} onRecordPayment={data.recordPayment} onUploadDocument={data.uploadStudentDocument} onUpdatePhoto={data.updateStudentPhoto} onEdit={s => setEditingStudent(s)} loadStudentAttendance={data.loadStudentAttendance} />}{editingStudent && <StudentModal close={() => setEditingStudent(null)} student={editingStudent} updateStudent={async (id, updates) => { await data.updateStudent(id, updates); setEditingStudent(null) }} />}</div></StudentPhotoContext.Provider>
+  return <StudentPhotoContext.Provider value={data.ensureStudentPhotos}><div className={`app-shell ${darkMode ? 'theme-dark' : 'theme-light'}`}><Sidebar page={page} setPage={setPage} open={menuOpen} close={() => setMenuOpen(false)} schoolName={data.workspace.schoolName} schoolLogo={data.workspace.schoolProfile.logoURL || data.workspace.schoolProfile.logo} schoolCode={data.workspace.schoolProfile.schoolCode} cloudMode={!data.developmentDemo} profile={profile} /><main className="main-area"><Header title={current.label} subtitle={`${data.workspace.schoolName} · ${data.workspace.schoolProfile.academicYear || '2026-27'}`} schoolCode={data.workspace.schoolProfile.schoolCode} onMenu={() => setMenuOpen(true)} profile={profile} onSignOut={logout} students={data.students} onSelectStudent={setSelectedStudent} darkMode={darkMode} onToggleTheme={() => setDarkMode(current => !current)} /><div className="page-content page-enter" key={page}><Suspense fallback={<div className="module-loading"><span className="module-loading-dot" />Loading module...</div>}>{screens[page]}</Suspense></div></main>{selectedStudent && <StudentProfile student={data.students.find(student => student.id === selectedStudent.id) || selectedStudent} close={() => setSelectedStudent(null)} attendance={data.attendance} fees={data.fees} feeManager={data.feeManager} schoolProfile={data.workspace.schoolProfile} academics={data.academics} documents={data.documents} onRecordPayment={data.recordPayment} onUploadDocument={data.uploadStudentDocument} onUpdatePhoto={data.updateStudentPhoto} onEdit={s => setEditingStudent(s)} loadStudentAttendance={data.loadStudentAttendance} />}{editingStudent && <StudentModal close={() => setEditingStudent(null)} student={editingStudent} updateStudent={async (id, updates) => { await data.updateStudent(id, updates); setEditingStudent(null) }} />}</div></StudentPhotoContext.Provider>
 }
