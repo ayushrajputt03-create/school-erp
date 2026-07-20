@@ -2,6 +2,7 @@ import React, { useState } from 'react'
 import { Check, Plus, Printer, Receipt, Save, Search, X, Pencil, Trash2, Eye, RotateCcw } from 'lucide-react'
 import FeeReceipt from './FeeReceipt'
 import DatePicker from './DatePicker'
+import { getPendingFeesSummary } from './lib/pendingFees'
 
 const feeHeads = ['Admission Fee', 'Monthly Tuition Fee', 'Exam Fee', 'Annual Fee', 'Transport Fee', 'Computer Fee', 'Late Fine', 'Tuition Fee', 'IT Fee', 'Annual Charges', 'Absent Fine', 'Fine', 'Other', 'Previous Due', 'Development Charge']
 const feeMonths = ['April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December', 'January', 'February', 'March']
@@ -319,7 +320,7 @@ function SetFeePage({ students, groups, structures, onSave, onDelete }) {
   </>
 }
 
-function FeeStatusPage({ students, fees, feeManager }) {
+function FeeStatusPage({ students, fees, feeManager, schoolProfile }) {
   const classes = [...new Set(students.map(student => classParts(student.className).className))]
   const sections = [...new Set(students.map(student => classParts(student.className).section).filter(Boolean))]
   const [filters, setFilters] = useState({ className: 'All Classes', section: 'All Sections', month: new Date().toLocaleDateString('en-IN', { month: 'long' }), status: 'All' })
@@ -335,6 +336,7 @@ function FeeStatusPage({ students, fees, feeManager }) {
     const pendingAmount = receiptBalance > 0 ? receiptBalance : Math.max(0, monthlyFee - paidAmount)
     const hasPaidReceipt = receipts.some(fee => String(fee.status || '').toLowerCase() === 'paid' || Number(fee.balance || 0) === 0)
     const status = paidAmount <= 0 ? 'Pending' : pendingAmount <= 0 && hasPaidReceipt ? 'Paid' : paidAmount >= monthlyFee && pendingAmount <= 0 ? 'Paid' : 'Partial'
+    const pendingSummary = getPendingFeesSummary({ student, fees, structures: feeManager?.structures, academicYear: schoolProfile?.academicYear })
     return {
       student,
       className: parts.className,
@@ -343,6 +345,7 @@ function FeeStatusPage({ students, fees, feeManager }) {
       paidAmount,
       pendingAmount,
       status,
+      pendingSummary,
       receipt: receipts.map(fee => fee.receiptNumber || fee.invoiceNumber).filter(Boolean).join(', '),
     }
   }).filter(row => (filters.className === 'All Classes' || row.className === filters.className)
@@ -371,7 +374,7 @@ function FeeStatusPage({ students, fees, feeManager }) {
       <div><span>Total Collection</span><strong>{money(summary.collection)}</strong></div>
       <div><span>Total Pending</span><strong>{money(summary.pendingAmount)}</strong></div>
     </div>
-    <div className="panel table-panel"><div className="panel-header"><div><h3>Fee Status / Fee Check</h3><p>Class-wise and month-wise fee report</p></div><button className="secondary-button" onClick={() => window.print()}><Printer size={15} /> Print</button></div><div className="table-scroll"><table><thead><tr><th>Student Name</th><th>Admission No</th><th>Class</th><th>Section</th><th>Monthly Fee</th><th>Paid Amount</th><th>Pending Amount</th><th>Status</th><th>Receipt</th></tr></thead><tbody>{rows.map(row => <tr key={row.student.id}><td><strong>{row.student.name}</strong></td><td>{row.student.roll}</td><td>{row.className}</td><td>{row.section}</td><td>{money(row.monthlyFee)}</td><td>{money(row.paidAmount)}</td><td>{money(row.pendingAmount)}</td><td><span className={`status ${row.status.toLowerCase()}`}>{row.status}</span></td><td>{row.receipt || '-'}</td></tr>)}{!rows.length && <tr><td colSpan="9"><div className="empty-state">No students found for selected filters.</div></td></tr>}</tbody></table></div></div>
+    <div className="panel table-panel"><div className="panel-header"><div><h3>Fee Status / Fee Check</h3><p>Class-wise and month-wise fee report</p></div><button className="secondary-button" onClick={() => window.print()}><Printer size={15} /> Print</button></div><div className="table-scroll"><table><thead><tr><th>Student Name</th><th>Admission No</th><th>Class</th><th>Section</th><th>Monthly Fee</th><th>Paid Amount</th><th>Pending Amount</th><th>Status</th><th>Multi-Month Pending</th><th>Receipt</th></tr></thead><tbody>{rows.map(row => <tr key={row.student.id}><td><strong>{row.student.name}</strong></td><td>{row.student.roll}</td><td>{row.className}</td><td>{row.section}</td><td>{money(row.monthlyFee)}</td><td>{money(row.paidAmount)}</td><td>{money(row.pendingAmount)}</td><td><span className={`status ${row.status.toLowerCase()}`}>{row.status}</span></td><td>{row.pendingSummary.pendingMonthsCount > 0 ? <span className="fee-months-badge pending" title={row.pendingSummary.pendingMonths.map(item => `${item.month}: ${money(item.amountDue)}`).join(', ')}>{row.pendingSummary.pendingMonthsCount} month{row.pendingSummary.pendingMonthsCount > 1 ? 's' : ''} pending ({money(row.pendingSummary.totalPendingAmount)})</span> : <span className="fee-months-badge clear">Up to date</span>}</td><td>{row.receipt || '-'}</td></tr>)}{!rows.length && <tr><td colSpan="10"><div className="empty-state">No students found for selected filters.</div></td></tr>}</tbody></table></div></div>
   </div>
 }
 
@@ -420,7 +423,7 @@ export default function FeeManager({ students, fees, feeManager, approvals, scho
     {page === 'submit' && <SubmitFee students={students} fees={fees} onSubmit={onSubmitFee} onOpenProfile={onOpenProfile} schoolProfile={schoolProfile} receiptSettings={feeManager.settings?.config || {}} feeManager={feeManager} />}
     {page === 'groups' && <FeeGroupPage groups={feeManager.groups} onSave={onSaveGroup} onDelete={onDeleteGroup} />}
     {page === 'set' && <SetFeePage students={students} groups={feeManager.groups} structures={feeManager.structures} onSave={onSaveStructure} onDelete={onDeleteStructure} />}
-    {page === 'status' && <FeeStatusPage students={students} fees={fees} feeManager={feeManager} />}
+    {page === 'status' && <FeeStatusPage students={students} fees={fees} feeManager={feeManager} schoolProfile={schoolProfile} />}
     {!['submit','groups','set','status'].includes(page) && <FeeReportPage page={page} students={students} fees={fees} feeManager={feeManager} approvals={approvals} onSaveConfig={onSaveConfig} onDeleteReceipt={onDeleteReceipt} onRestoreReceipt={onRestoreReceipt} onDecideApproval={onDecideApproval} schoolProfile={schoolProfile} />}
   </>
 }

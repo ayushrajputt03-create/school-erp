@@ -272,3 +272,18 @@ img{max-width:100%}
 /* Student lifecycle status badge + stream tag */
 .student-status-badge{display:inline-flex;align-items:center;border-radius:10px;padding:2px 7px;font-size:8px;font-weight:700;letter-spacing:.02em;vertical-align:middle;margin-left:2px}
 .stream-pill{display:inline-flex;background:#e4f4f6;color:#147d86;border-radius:5px;padding:4px 7px;font-size:8px;font-weight:600;margin-left:5px}
+
+/* Multi-month pending fees */
+.fee-months-badge { display: inline-block; padding: 3px 10px; border-radius: 999px; font-size: 11px; font-weight: 700; white-space: nowrap; }
+.fee-months-badge.pending { background: #fdecea; color: #c0392b; border: 1px solid #e8b6ae; }
+.fee-months-badge.clear { background: #e8f7ee; color: #1e7d45; border: 1px solid #b9e2c8; }
+.pending-fees-panel { background: #fff; border: 1px solid #e8b6ae; border-radius: 12px; padding: 14px 16px; margin: 12px 0; }
+.pending-fees-panel.clear { border-color: #b9e2c8; }
+.pending-fees-total { display: flex; align-items: baseline; gap: 10px; margin-bottom: 10px; }
+.pending-fees-total strong { font-size: 22px; font-weight: 800; color: #c0392b; }
+.pending-fees-total span { font-size: 12px; font-weight: 700; color: #a24b3f; text-transform: uppercase; letter-spacing: 0.4px; }
+.pending-fees-panel ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.pending-fees-panel li { display: flex; align-items: center; gap: 10px; padding: 7px 10px; border: 1px solid #f0dcd8; border-radius: 8px; background: #fdf7f6; font-size: 12px; }
+.pending-fees-panel li span { font-weight: 700; color: #052659; min-width: 120px; }
+.pending-fees-panel li em { font-style: normal; color: #8a6d3b; flex: 1; }
+.pending-fees-panel li strong { color: #c0392b; font-weight: 800; }

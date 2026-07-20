@@ -214,6 +214,8 @@ function sanitizeStudent(id, row = {}) {
     section: row.section || '',
     rollNumber: row.roll_number || row.rollNumber || row.admission_number || '',
     dob: row.dob || row.date_of_birth || row.dateOfBirth || '',
+    admissionDate: row.admission_date || row.admissionDate || '',
+    feeGroup: row.fee_group || row.feeGroup || 'REGULAR',
     fatherName: row.father_name || row.fatherName || row.guardian_name || '',
     motherName: row.mother_name || row.motherName || '',
     phone: studentParentPhone(row),
@@ -261,9 +263,10 @@ async function buildDataPayload(database, schoolId, parentId, parent, selectedSt
 
   const byStudent = node => base.child(node).orderByChild('studentId').equalTo(selected.id).once('value')
   const byParent = node => base.child(node).orderByChild('parentId').equalTo(parentId).once('value')
-  const [profileSnap, feesSnap, attendanceSnap, reportSnap, certSnap, certReqSnap, leaveReqSnap, msgSnap, notifSnap, homeworkSnap, noticesSnap, timetableSnap, transportSnap, librarySnap] = await Promise.all([
+  const [profileSnap, feesSnap, feeStructuresSnap, attendanceSnap, reportSnap, certSnap, certReqSnap, leaveReqSnap, msgSnap, notifSnap, homeworkSnap, noticesSnap, timetableSnap, transportSnap, librarySnap] = await Promise.all([
     base.child('profile').once('value'),
     byStudent('fees'),
+    base.child('feeManager/structures').once('value'),
     byStudent('attendance'),
     byStudent('reportCards'),
     byStudent('certificates'),
@@ -312,6 +315,9 @@ async function buildDataPayload(database, schoolId, parentId, parent, selectedSt
     selectedStudent: selected,
     attendance,
     fees,
+    // Fee structure config is tiny and lets the portal compute the multi-month pending
+    // breakdown with the exact same shared logic the admin app uses.
+    feeStructures: feeStructuresSnap.val() || {},
     homework,
     notices: filterNotices(noticesSnap.val(), selected),
     reportCards,

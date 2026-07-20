@@ -6,6 +6,7 @@ import {
   Umbrella, WalletCards, XCircle,
 } from 'lucide-react'
 import './ParentPortal.css'
+import { getPendingFeesSummary } from './lib/pendingFees'
 
 const tabs = [
   ['dashboard', 'Home', Home],
@@ -197,7 +198,9 @@ function AttendancePage({ data }) {
 
 function FeesPage({ data }) {
   const stats = getStats(data)
+  const pendingSummary = getPendingFeesSummary({ student: data.selectedStudent, fees: data.fees, structures: data.feeStructures, academicYear: data.school?.academicYear })
   return <div className="parent-stack">
+    {pendingSummary.pendingMonthsCount > 0 ? <section className="parent-panel parent-pending-fees"><h3>Pending Months</h3><div className="parent-pending-total"><strong>{money(pendingSummary.totalPendingAmount)}</strong><span>{pendingSummary.pendingMonthsCount} month{pendingSummary.pendingMonthsCount > 1 ? 's' : ''} pending</span></div><ul>{pendingSummary.pendingMonths.map(item => <li key={item.monthKey}><span>{item.month}</span><em>{item.status === 'partial' ? `Partial · paid ${money(item.amountPaid)}` : 'Unpaid'}</em><strong>{money(item.amountDue)}</strong></li>)}</ul></section> : <section className="parent-panel parent-pending-fees clear"><h3>Pending Months</h3><div className="parent-uptodate">All months up to date — nothing pending.</div></section>}
     <section className="parent-panel fee-summary"><h3>Fee Summary</h3>{[['Total Fee', stats.totalFees], ['Total Paid', stats.paidFees], ['Total Pending', stats.pendingFees], ['Overdue', 0]].map(([label, value]) => <div key={label}><span>{label}</span><strong>{money(value)}</strong></div>)}</section>
     <section className="parent-panel"><h3>Month-wise Fee</h3><div className="parent-table-wrap"><table><thead><tr><th>Month</th><th>Amount</th><th>Status</th><th>Action</th></tr></thead><tbody>{monthNames.map(month => {
       const row = data.fees.find(item => String(item.billingMonth || item.month || '').toLowerCase().includes(month.toLowerCase()))
