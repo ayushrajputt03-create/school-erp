@@ -3169,8 +3169,34 @@ function useSchoolWorkspace(session) {
     }).catch(() => ({})) || {}
   }
 
+  // Every date covered by an approved leave, so attendance can be marked for the whole range.
+  // Sundays are skipped - marking a non-working day would invent an attendance record that would
+  // otherwise never exist and would drag the student's percentage down. Capped so a mistyped
+  // range cannot write thousands of records.
+  const leaveDatesInRange = (fromDate, toDate) => {
+    // Built from the Y-M-D parts rather than new Date(string): that parses as UTC midnight but
+    // getDate()/getDay() read local time, which shifts every date by a day for anyone behind UTC.
+    const parse = value => {
+      const [year, month, day] = String(value || '').split('-').map(Number)
+      if (!year || !month || !day) return null
+      const date = new Date(year, month - 1, day)
+      return Number.isNaN(date.getTime()) ? null : date
+    }
+    const start = parse(fromDate)
+    const end = parse(toDate) || start
+    if (!start || !end || end < start) return []
+    const dates = []
+    for (const cursor = new Date(start); cursor <= end && dates.length < 60; cursor.setDate(cursor.getDate() + 1)) {
+      if (cursor.getDay() === 0) continue
+      dates.push(`${cursor.getFullYear()}-${String(cursor.getMonth() + 1).padStart(2, '0')}-${String(cursor.getDate()).padStart(2, '0')}`)
+    }
+    return dates
+  }
+
   // Admin decision on a parent's student leave request. Writes the decision and notifies the
   // parent in one atomic PATCH, so a parent can never see a status without its notification.
+  // Approving also marks attendance as L across the requested dates - without that the approval
+  // changed nothing the teacher or the register could see, which is the whole point of it.
   const decideLeaveRequest = async (requestId, decision, note = '') => {
     const request = leaveRequests[requestId]
     if (!request) throw new Error('Leave request not found.')
@@ -3190,7 +3216,33 @@ function useSchoolWorkspace(session) {
     const token = await session.getIdToken()
     const notificationId = `notif_${stamp}_${Math.random().toString(36).slice(2, 8)}`
     const dates = request.fromDate === request.toDate ? request.fromDate : `${request.fromDate} to ${request.toDate}`
+    // Mark the register in the same write as the decision, so an approval can never exist without
+    // the attendance that justifies it. Overwrites an existing mark on purpose: a student marked
+    // absent before the leave was approved should end up as leave.
+    const markedDates = decision === 'approved' && request.studentId ? leaveDatesInRange(request.fromDate, request.toDate) : []
+    const [markClass, markSection = ''] = String(request.classSection || '').split('-')
+    const attendanceChanges = Object.fromEntries(markedDates.map(date => {
+      const id = `${date}_${request.studentId}`
+      return [`schools/${workspace.schoolId}/attendance/${id}`, {
+        id,
+        studentId: request.studentId,
+        student_id: request.studentId,
+        class: markClass || '',
+        section: markSection,
+        date,
+        status: 'L',
+        statusText: 'leave',
+        mark: 'L',
+        markedBy: session?.uid || 'demo',
+        marked_by: session?.uid || 'demo',
+        leaveRequestId: requestId,
+        created_at: stamp,
+        updated_at: stamp,
+        updatedAt: stamp,
+      }]
+    }))
     await databaseRequest('', token, { method: 'PATCH', body: {
+      ...attendanceChanges,
       ...Object.fromEntries(Object.entries(reviewed).map(([key, value]) => [`schools/${workspace.schoolId}/leaveRequests/${requestId}/${key}`, value])),
       ...(request.parentId ? { [`schools/${workspace.schoolId}/parentNotifications/${notificationId}`]: {
         id: notificationId,
@@ -3203,7 +3255,23 @@ function useSchoolWorkspace(session) {
       } } : {}),
     } })
     setLeaveRequests(current => ({ ...current, [requestId]: { ...request, ...reviewed } }))
-    setActivities(current => [{ id: `leave-${requestId}-${stamp}`, title: `Leave ${decision}`, detail: `${request.studentName || 'Student'} · ${dates}`, at: stamp, icon: 'L' }, ...current])
+    // The attendance listener is bounded to the current month, so dates outside it arrive only in
+    // the database. Merge locally too, and the register reflects the approval immediately.
+    if (markedDates.length) {
+      setAttendance(current => {
+        const next = { ...current }
+        markedDates.forEach(date => { next[date] = { ...(next[date] || {}), [request.studentId]: 'L' } })
+        return next
+      })
+    }
+    setActivities(current => [{
+      id: `leave-${requestId}-${stamp}`,
+      title: `Leave ${decision}`,
+      detail: `${request.studentName || 'Student'} · ${dates}${markedDates.length ? ` · ${markedDates.length} day(s) marked L` : ''}`,
+      at: stamp,
+      icon: 'L',
+    }, ...current])
+    return { markedDates: markedDates.length }
   }
 
   async function getNextAdmissionNumber() {

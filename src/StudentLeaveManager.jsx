@@ -71,6 +71,7 @@ export default function StudentLeaveManager({ leaveRequests, onDecide, role }) {
   const [tab, setTab] = useState('pending')
   const [query, setQuery] = useState('')
   const [target, setTarget] = useState(null)
+  const [message, setMessage] = useState('')
   const canDecide = role === 'Owner' || role === 'Administrator'
 
   const rows = useMemo(() => Object.entries(leaveRequests || {})
@@ -87,7 +88,11 @@ export default function StudentLeaveManager({ leaveRequests, onDecide, role }) {
   }, [rows, tab, query])
 
   const decide = async note => {
-    await onDecide(target.request.id, target.decision, note)
+    const result = await onDecide(target.request.id, target.decision, note)
+    const marked = result?.markedDates || 0
+    setMessage(target.decision === 'approved'
+      ? `${target.request.studentName} approved${marked ? ` · ${marked} day(s) marked as Leave in attendance` : ''}.`
+      : `${target.request.studentName}'s request was rejected.`)
     setTarget(null)
   }
 
@@ -97,6 +102,7 @@ export default function StudentLeaveManager({ leaveRequests, onDecide, role }) {
     </div>
 
     {!canDecide && <div className="backup-warning">Only Owner and Administrator accounts can approve or reject leave requests.</div>}
+    {message && <div className="backup-message"><Check size={15} /> {message}</div>}
 
     <section className="backup-stats">
       <div><span>Pending</span><strong>{counts.pending || 0}</strong></div>
