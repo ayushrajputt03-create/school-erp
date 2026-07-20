@@ -327,6 +327,7 @@ export default function ParentPortal() {
   const [session, setSession] = useState(() => JSON.parse(localStorage.getItem('parent-session') || 'null'))
   const [data, setData] = useState(() => JSON.parse(localStorage.getItem('parent-data') || 'null'))
   const [tab, setTab] = useState('dashboard')
+  const [moreOpen, setMoreOpen] = useState(false)
   const [mode, setMode] = useState(window.location.pathname.includes('forgot') ? 'forgot' : 'login')
   const [selectedStudentId, setSelectedStudentId] = useState(() => data?.selectedStudent?.id || '')
   const [online, setOnline] = useState(navigator.onLine)
@@ -406,6 +407,20 @@ export default function ParentPortal() {
       <aside className="parent-sidebar">{tabs.map(([id, label, Icon]) => <button key={id} className={tab === id ? 'active' : ''} onClick={() => setTab(id)}><Icon size={18} /> {language === 'hindi' ? hindi[id] : label}</button>)}</aside>
       <section className="parent-content"><div className="parent-page-title"><h1>{language === 'hindi' ? hindi[tab] : tabs.find(item => item[0] === tab)?.[1]}</h1><button className="parent-secondary" onClick={() => refresh()}><RefreshCw size={15} /> Refresh</button></div>{pages[tab]}</section>
     </div>
-    <nav className="parent-bottom-nav">{tabs.slice(0, 5).map(([id, label, Icon]) => <button key={id} className={tab === id ? 'active' : ''} onClick={() => setTab(id)}><Icon size={18} /><span>{label}</span></button>)}<button onClick={() => setTab('profile')}><Menu size={18} /><span>More</span></button></nav>
+    <nav className="parent-bottom-nav">
+      {tabs.slice(0, 5).map(([id, label, Icon]) => <button key={id} className={tab === id ? 'active' : ''} onClick={() => { setMoreOpen(false); setTab(id) }}><Icon size={18} /><span>{language === 'hindi' ? hindi[id] : label}</span></button>)}
+      {/* Below 900px the sidebar is hidden, so everything past the fifth tab - Certificates,
+          Leave, Transport, Timetable, Contact - is only reachable from here. This used to jump
+          straight to Profile, which left those pages unreachable on a phone. */}
+      <button className={moreOpen ? 'active' : ''} onClick={() => setMoreOpen(open => !open)}><Menu size={18} /><span>More</span></button>
+    </nav>
+    {moreOpen && <>
+      <button className="parent-more-overlay" aria-label="Close menu" onClick={() => setMoreOpen(false)} />
+      <div className="parent-more-sheet">
+        {tabs.slice(5).map(([id, label, Icon]) => <button key={id} className={tab === id ? 'active' : ''} onClick={() => { setTab(id); setMoreOpen(false) }}>
+          <Icon size={18} /> {language === 'hindi' ? hindi[id] : label}
+        </button>)}
+      </div>
+    </>}
   </main>
 }
