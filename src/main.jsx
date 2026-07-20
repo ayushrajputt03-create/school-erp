@@ -1,4 +1,4 @@
-import React from 'react'
+import React, { lazy, Suspense } from 'react'
 import ReactDOM from 'react-dom/client'
 import { BrowserRouter } from 'react-router-dom'
 import './print-shared.css'
@@ -7,7 +7,10 @@ import SuperAdminApp from './SuperAdminApp'
 import ParentDashboard from './pages/ParentDashboard'
 import TeacherApp from './TeacherApp'
 import LandingPage from './LandingPage'
-import AdmissionForm from './AdmissionForm'
+// Lazy so the public form's stylesheet only loads on its own route. As a static import its CSS
+// applied everywhere, and its .admission-card rule collided with the admin Admission module's
+// class of the same name, capping that page at 640px wide.
+const AdmissionForm = lazy(() => import('./AdmissionForm'))
 
 // Quality-of-life: when a number/numeric field showing just "0" is focused, select it so the
 // first keystroke replaces the 0 instead of typing after it (the "0 hatta nahi" annoyance).
@@ -25,7 +28,7 @@ if (typeof document !== 'undefined') {
 function Root() {
   const path = window.location.pathname
   // Public, no auth: reached by scanning a school's admission QR code.
-  if (path.startsWith('/admission/')) return <AdmissionForm />
+  if (path.startsWith('/admission/')) return <Suspense fallback={null}><AdmissionForm /></Suspense>
   if (path.startsWith('/super-admin')) return <SuperAdminApp />
   if (path.startsWith('/parent/dashboard')) return <ParentDashboard />
   if (path.startsWith('/teacher')) return <TeacherApp />

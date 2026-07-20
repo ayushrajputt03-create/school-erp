@@ -75,7 +75,13 @@ module.exports = async function handler(request, response) {
     if (action === 'submit') {
       // Honeypot: hidden from real users by CSS, so anything in it means a bot filled every
       // field. Report success without writing, so the bot has no signal that it was caught.
-      if (clean(body.website, 200)) return response.status(200).json({ ok: true })
+      // Logged because a silent drop is indistinguishable from a lost submission otherwise -
+      // the first version of this field was called "website", which Chrome autofilled for real
+      // parents and discarded their applications with no trace anywhere.
+      if (clean(body.applicantRef, 200)) {
+        console.warn('[admission] honeypot triggered, submission dropped', { schoolId })
+        return response.status(200).json({ ok: true })
+      }
 
       const identity = await publicSchoolIdentity(database, schoolId)
       if (!identity) throw new Error('This admission link is not valid.')

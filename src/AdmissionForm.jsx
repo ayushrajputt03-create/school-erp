@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react'
+﻿import React, { useEffect, useState } from 'react'
 import { CheckCircle2, GraduationCap, Loader2, ShieldCheck } from 'lucide-react'
 import { CLASS_LIST } from './schoolOptions'
 import './admission-form.css'
@@ -23,7 +23,10 @@ const EMPTY = {
   studentName: '', dob: '', gender: '', classAppliedFor: '',
   fatherName: '', motherName: '', parentPhone: '', parentEmail: '',
   address: '', previousSchool: '',
-  website: '', // honeypot - hidden from real users, see .admission-hp in the stylesheet
+  // Honeypot. Named so no browser autofill profile maps to it - the first version called this
+  // "website" with a matching label, which Chrome happily autofills from a saved profile even
+  // when hidden, silently dropping a real parent's application.
+  applicantRef: '',
 }
 
 export default function AdmissionForm() {
@@ -67,11 +70,11 @@ export default function AdmissionForm() {
   }
 
   if (school.loading) {
-    return <main className="admission-shell"><div className="admission-card admission-state"><Loader2 className="admission-spin" size={26} /><p>Loading...</p></div></main>
+    return <main className="padm-shell"><div className="padm-card padm-state"><Loader2 className="padm-spin" size={26} /><p>Loading...</p></div></main>
   }
 
   if (!school.found || !school.open) {
-    return <main className="admission-shell"><div className="admission-card admission-state">
+    return <main className="padm-shell"><div className="padm-card padm-state">
       <ShieldCheck size={30} />
       <h1>Admissions currently closed</h1>
       <p>{school.found ? 'This school is not accepting online applications right now.' : 'This admission link is not valid.'} Please contact the school directly.</p>
@@ -79,24 +82,24 @@ export default function AdmissionForm() {
   }
 
   if (done) {
-    return <main className="admission-shell"><div className="admission-card admission-state">
-      <CheckCircle2 size={34} className="admission-ok" />
+    return <main className="padm-shell"><div className="padm-card padm-state">
+      <CheckCircle2 size={34} className="padm-ok" />
       <h1>Application submitted</h1>
       <p>Thank you. {school.schoolName} has received the application and will contact you on the number provided.</p>
     </div></main>
   }
 
-  return <main className="admission-shell">
-    <form className="admission-card" onSubmit={submit}>
-      <header className="admission-head">
-        {school.logo ? <img src={school.logo} alt="" onError={event => { event.target.style.display = 'none' }} /> : <span className="admission-mark"><GraduationCap size={22} /></span>}
+  return <main className="padm-shell">
+    <form className="padm-card" onSubmit={submit}>
+      <header className="padm-head">
+        {school.logo ? <img src={school.logo} alt="" onError={event => { event.target.style.display = 'none' }} /> : <span className="padm-mark"><GraduationCap size={22} /></span>}
         <div>
           <small>Admission Form</small>
           <h1>{school.schoolName}</h1>
         </div>
       </header>
 
-      <div className="admission-grid">
+      <div className="padm-grid">
         <label className="full">Student's full name *<input required value={form.studentName} onChange={event => set('studentName', event.target.value)} placeholder="Full name as per birth certificate" /></label>
         <label>Date of birth *<input required type="date" max={todayKey()} value={form.dob} onChange={event => set('dob', event.target.value)} /></label>
         <label>Gender<select value={form.gender} onChange={event => set('gender', event.target.value)}><option value="">Select</option><option>Male</option><option>Female</option><option>Other</option></select></label>
@@ -108,15 +111,16 @@ export default function AdmissionForm() {
         <label>Previous school (optional)<input value={form.previousSchool} onChange={event => set('previousSchool', event.target.value)} /></label>
         <label className="full">Address<textarea rows="2" value={form.address} onChange={event => set('address', event.target.value)} /></label>
 
-        {/* Honeypot: hidden from people, tempting to bots. Filled means the submission is dropped. */}
-        <div className="admission-hp" aria-hidden="true">
-          <label>Website<input tabIndex="-1" autoComplete="off" value={form.website} onChange={event => set('website', event.target.value)} /></label>
+        {/* Honeypot: hidden from people, tempting to bots. Filled means the submission is dropped.
+            The name and label carry no meaning a browser can autofill against. */}
+        <div className="padm-hp" aria-hidden="true">
+          <input name="applicantRef" tabIndex="-1" autoComplete="off" value={form.applicantRef} onChange={event => set('applicantRef', event.target.value)} />
         </div>
       </div>
 
-      {error && <p className="admission-error">{error}</p>}
-      <button className="admission-submit" disabled={saving}>{saving ? 'Submitting...' : 'Submit Application'}</button>
-      <p className="admission-note">Your details are sent only to {school.schoolName} for review.</p>
+      {error && <p className="padm-error">{error}</p>}
+      <button className="padm-submit" disabled={saving}>{saving ? 'Submitting...' : 'Submit Application'}</button>
+      <p className="padm-note">Your details are sent only to {school.schoolName} for review.</p>
     </form>
   </main>
 }
