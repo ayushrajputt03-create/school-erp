@@ -53,6 +53,10 @@ import {
 
 const admissionClasses = classOptions.flatMap(cls => sectionOptions.slice(0, cls.match(/^(11|12)$/) ? 1 : 5).map(section => `${cls}-${section}`))
 
+// The dashboard activity feed renders a short list. Building or keeping more than this is wasted
+// work that grows with the school's age rather than with what anyone actually looks at.
+const ACTIVITY_FEED_LIMIT = 50
+
 // Student lifecycle status. Anything without a status is treated as active (legacy records).
 const STUDENT_STATUS_META = {
   active: { key: 'active', label: 'Active', bg: '', color: '' },
@@ -2417,12 +2421,23 @@ function useSchoolWorkspace(session) {
           return dates
         }, {})
         const nextFees = feeData || {}
+        // Each source is trimmed to the newest few BEFORE its rows are turned into activity
+        // objects. Previously every record in the school became an activity - a year of
+        // attendance alone is tens of thousands of objects allocated on every single load,
+        // sorted, and then kept in state forever, when the feed only ever renders a handful.
+        // Trimming first means the work is bounded by the feed size, not by the school's age.
+        const newestBy = (entries, at) => entries
+          .map(entry => ({ entry, at: at(entry) || 0 }))
+          .filter(item => item.at)
+          .sort((a, b) => b.at - a.at)
+          .slice(0, ACTIVITY_FEED_LIMIT)
+          .map(item => item.entry)
         const nextActivities = [
-          ...studentRows.map(row => ({ id: `student-${row.id}`, title: 'Student admitted', detail: `${row.full_name || row.name || ''} joined Class ${row.class_name || row.class || ''}-${row.section || 'A'}`, at: row.createdAt || 0, icon: '+' })),
-          ...Object.entries(nextFees).map(([id, row]) => ({ id: `fee-${id}`, title: 'Fee payment received', detail: `${money(row.amount)} via ${row.method || 'payment'}`, at: row.paidAt || row.updatedAt || 0, icon: '₹' })),
-          ...noticeRows.map(row => ({ id: `notice-${row.id}`, title: 'Notice published', detail: row.title, at: row.publishAt || 0, icon: 'N' })),
-          ...Object.entries(attendanceData || {}).map(([id, row]) => ({ id: `attendance-${id}`, title: 'Attendance updated', detail: `${row.date} attendance marked`, at: row.updatedAt || 0, icon: '✓' })),
-        ].filter(item => item.at).sort((a, b) => b.at - a.at)
+          ...newestBy(studentRows, row => row.createdAt).map(row => ({ id: `student-${row.id}`, title: 'Student admitted', detail: `${row.full_name || row.name || ''} joined Class ${row.class_name || row.class || ''}-${row.section || 'A'}`, at: row.createdAt || 0, icon: '+' })),
+          ...newestBy(Object.entries(nextFees), ([, row]) => row.paidAt || row.updatedAt).map(([id, row]) => ({ id: `fee-${id}`, title: 'Fee payment received', detail: `${money(row.amount)} via ${row.method || 'payment'}`, at: row.paidAt || row.updatedAt || 0, icon: '₹' })),
+          ...newestBy(noticeRows, row => row.publishAt).map(row => ({ id: `notice-${row.id}`, title: 'Notice published', detail: row.title, at: row.publishAt || 0, icon: 'N' })),
+          ...newestBy(Object.entries(attendanceData || {}), ([, row]) => row.updatedAt).map(([id, row]) => ({ id: `attendance-${id}`, title: 'Attendance updated', detail: `${row.date} attendance marked`, at: row.updatedAt || 0, icon: '✓' })),
+        ].sort((a, b) => b.at - a.at).slice(0, ACTIVITY_FEED_LIMIT)
         setStudents(studentRows.map(studentFromRow))
         setNotices(noticeRows.map(noticeFromRow))
         setFees(nextFees)
