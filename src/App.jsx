@@ -2290,19 +2290,10 @@ function useSchoolWorkspace(session) {
       LISTENERLESS_NODES.forEach((node, index) => {
         if (values[index] !== null && values[index] !== undefined) school[node] = values[index]
       })
-      // Students, leave requests and admission requests are ALSO served by live listeners, but
-      // these are the nodes the school cannot appear to lose - if a listener ever fails to
-      // attach, every other module degrades gracefully while an empty student list reads as
-      // data loss and an empty request queue silently hides real applications. Fetch them in
-      // the bootstrap unconditionally and let the listeners overwrite with the same rows.
-      const [studentRows, leaveRequestRows, admissionRequestRows] = await Promise.all([
-        safeRequest(`schools/${schoolId}/students`, token),
-        safeRequest(`schools/${schoolId}/leaveRequests`, token),
-        safeRequest(`schools/${schoolId}/admissionRequests`, token),
-      ])
-      school.students = studentRows || {}
-      school.leaveRequests = leaveRequestRows || {}
-      school.admissionRequests = admissionRequestRows || {}
+      // Students and the request queues are deliberately NOT fetched here - their listeners
+      // are the single supplier, so each is downloaded exactly once per login. If a listener
+      // fails to deliver, the watchdog in the listener effect below REST-fetches the missing
+      // nodes once, so the screen can still never present as empty.
       return school
     }
 
@@ -2542,6 +2533,34 @@ function useSchoolWorkspace(session) {
     let cancelled = false
     const unsubs = []
 
+    // Fail-safe watchdog: students and the two request queues are the nodes the school cannot
+    // appear to lose - an empty student list reads as data loss and an empty queue silently
+    // hides real applications. If their listeners have not delivered a first snapshot shortly
+    // after mount (stale-chunk import failure, blocked websocket, query error), fetch each
+    // missing node once over REST. In the healthy path the listeners land first and this
+    // fetches nothing, keeping the single-download login.
+    const delivered = new Set()
+    const watchdog = setTimeout(async () => {
+      const missing = ['students', 'leaveRequests', 'admissionRequests'].filter(node => !delivered.has(node))
+      if (!missing.length) return
+      console.error(`[listeners] no live snapshot after 8s for: ${missing.join(', ')} - fetching once via REST`)
+      try {
+        const token = await session.getIdToken()
+        const values = await Promise.all(missing.map(node => databaseRequest(`schools/${schoolId}/${node}`, token).catch(() => null)))
+        if (cancelled) return
+        missing.forEach((node, index) => {
+          if (delivered.has(node)) return
+          const value = values[index] || {}
+          if (node === 'students') setStudents(Object.entries(value).map(([id, row]) => ({ id, ...row })).sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0)).map(studentFromRow))
+          if (node === 'leaveRequests') setLeaveRequests(value)
+          if (node === 'admissionRequests') setAdmissionRequests(Object.fromEntries(Object.entries(value).filter(([, row]) => row?.status === 'pending')))
+        })
+      } catch (error) {
+        console.error('[listeners] REST fail-safe fetch failed:', error?.message)
+      }
+    }, 8000)
+    unsubs.push(() => clearTimeout(watchdog))
+
     import('firebase/database').then(({ ref: dbRef, onValue, off, getDatabase, query, orderByChild, startAt, equalTo }) => {
       if (cancelled) return
       let rtdb
@@ -2569,6 +2588,7 @@ function useSchoolWorkspace(session) {
 
       let nameMigrationRan = false
       listen(`schools/${schoolId}/students`, snap => {
+        delivered.add('students')
         const data = snap.val() || {}
         const rows = Object.entries(data).map(([id, row]) => ({ id, ...row })).sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0))
         setStudents(rows.map(studentFromRow))
@@ -2635,6 +2655,7 @@ function useSchoolWorkspace(session) {
       })
 
       listen(`schools/${schoolId}/leaveRequests`, snap => {
+        delivered.add('leaveRequests')
         setLeaveRequests(snap.val() || {})
       })
 
@@ -2645,10 +2666,11 @@ function useSchoolWorkspace(session) {
       // broke" look identical on screen and that ambiguity already cost a day of debugging.
       // If the indexed query errors (e.g. .indexOn dropped by a console rules edit), fall back
       // to reading the node whole and filtering here.
-      onValue(pendingAdmissions, snap => setAdmissionRequests(snap.val() || {}), error => {
+      onValue(pendingAdmissions, snap => { delivered.add('admissionRequests'); setAdmissionRequests(snap.val() || {}) }, error => {
         console.warn('[admissions] pending query failed, falling back to full read:', error?.message)
         const fallbackRef = dbRef(rtdb, `schools/${schoolId}/admissionRequests`)
         const fallbackHandler = snap => {
+          delivered.add('admissionRequests')
           const all = snap.val() || {}
           setAdmissionRequests(Object.fromEntries(Object.entries(all).filter(([, row]) => row?.status === 'pending')))
         }
@@ -3021,10 +3043,17 @@ function useSchoolWorkspace(session) {
     const auditId = `audit_${stamp}_${Math.random().toString(36).slice(2, 8)}`
     const action = isAll ? 'student_delete_all' : ids.length === 1 ? 'student_delete' : 'student_bulk_delete'
     // Fetch raw rows once for exact-fidelity archival (falls back to in-memory row in demo mode).
+    // Only the rows being deleted are fetched - the whole node (with every inline photo) is
+    // downloaded only for a delete-all, where every row is needed anyway.
     let rawStudents = {}
     if (!developmentDemo) {
       const token = await session.getIdToken()
-      rawStudents = await databaseRequest(`schools/${workspace.schoolId}/students`, token).catch(() => ({})) || {}
+      if (isAll) {
+        rawStudents = await databaseRequest(`schools/${workspace.schoolId}/students`, token).catch(() => ({})) || {}
+      } else {
+        const fetched = await Promise.all(ids.map(id => databaseRequest(`schools/${workspace.schoolId}/students/${id}`, token).catch(() => null)))
+        fetched.forEach((row, index) => { if (row) rawStudents[ids[index]] = row })
+      }
     }
     const deletedSet = new Set(ids)
     const archived = {}

@@ -364,11 +364,13 @@ export default function ParentPortal() {
   }
   useEffect(() => {
     if (!session) return undefined
-    // Attendance, fees and notices change a few times a day, not four times a minute. Poll once a
-    // minute, and only while the tab is actually visible — a portal left open in a background tab
-    // used to keep pulling every 15s all day. A visibility change refreshes immediately.
+    // Attendance, fees and notices change a few times a day, not once a minute. Every poll makes
+    // the server re-read whole-school nodes (homework, notices, timetable, transport, library),
+    // so poll every 5 minutes, and only while the tab is actually visible — a portal left open
+    // in a background tab used to keep pulling all day. Returning to the tab refreshes
+    // immediately via the visibility handler, so the data never feels stale.
     const tick = () => { if (!document.hidden) refresh(selectedStudentId).catch(() => {}) }
-    const timer = setInterval(tick, 60000)
+    const timer = setInterval(tick, 300000)
     document.addEventListener('visibilitychange', tick)
     return () => { clearInterval(timer); document.removeEventListener('visibilitychange', tick) }
   }, [session, selectedStudentId])
