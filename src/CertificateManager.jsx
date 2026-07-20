@@ -963,17 +963,17 @@ async function downloadCharacterCertificatePdf(student, form, school, settings, 
   pdf.setFont('helvetica', 'bold')
   pdf.setFontSize(11)
   pdf.text(`Serial No: ${display.serial}`, 17, 24)
-  pdf.circle(29, 73, 12)
-  if (logoData) pdf.addImage(logoData, imageFormat(logoData), 17, 61, 24, 24, undefined, 'FAST')
-  pdf.rect(width - 42, 58, 28, 34)
+  pdf.circle(29, 73, 13)
+  if (logoData) pdf.addImage(logoData, imageFormat(logoData), 16, 60, 26, 26, undefined, 'FAST')
+  pdf.rect(width - 47, 54, 30, 38)
   if (photoData) {
-    pdf.addImage(photoData, imageFormat(photoData), width - 42, 58, 28, 34, undefined, 'FAST')
+    pdf.addImage(photoData, imageFormat(photoData), width - 47, 54, 30, 38, undefined, 'FAST')
   } else {
     pdf.setFont('helvetica', 'bold')
     pdf.setFontSize(6.5)
     pdf.setTextColor(100, 116, 139)
-    pdf.text('Paste Photo', width - 28, 73, { align: 'center' })
-    pdf.text('Here', width - 28, 77, { align: 'center' })
+    pdf.text('Paste Photo', width - 32, 71, { align: 'center' })
+    pdf.text('Here', width - 32, 75, { align: 'center' })
     pdf.setTextColor(12, 28, 52)
   }
 
@@ -1169,17 +1169,19 @@ async function downloadCertificatePdf(type, student, form, school, settings, cer
   pdf.setFontSize(8.5)
   pdf.text(settings.address || school.address || '', width / 2, 28, { align: 'center' })
   pdf.text([settings.phone || school.phone, settings.email || school.email].filter(Boolean).join(' | '), width / 2, 33, { align: 'center' })
+  const logoData = await imageUrlToDataUrl(settings.logo || school.logo || '')
+  if (logoData) pdf.addImage(logoData, imageFormat(logoData), 14, 13, 26, 26, undefined, 'FAST')
   pdf.setDrawColor(51, 51, 51)
   pdf.setLineWidth(0.25)
-  pdf.rect(width - 32, 18, 24.5, 31.5)
+  pdf.rect(width - 44, 13, 30, 38)
   const photoData = await imageUrlToDataUrl(photoUrl || student.photoUrl || '')
   if (photoData) {
-    pdf.addImage(photoData, 'JPEG', width - 32, 18, 24.5, 31.5, undefined, 'FAST')
+    pdf.addImage(photoData, imageFormat(photoData), width - 44, 13, 30, 38, undefined, 'FAST')
   } else {
     pdf.setFontSize(6.5)
     pdf.setTextColor(110, 118, 132)
-    pdf.text('Paste Photo', width - 19.75, 32, { align: 'center' })
-    pdf.text('Here', width - 19.75, 35, { align: 'center' })
+    pdf.text('Paste Photo', width - 29, 30, { align: 'center' })
+    pdf.text('Here', width - 29, 34, { align: 'center' })
   }
   pdf.setFillColor(5, 38, 89)
   pdf.rect(45, 41, 120, 10, 'F')
