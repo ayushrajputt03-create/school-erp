@@ -1,4 +1,4 @@
-import React, { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react'
+import React, { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import imageCompression from 'browser-image-compression'
 import {
   Bell, BookOpen, BusFront, CalendarCheck, Check, ChevronRight, IndianRupee,
@@ -2272,6 +2272,30 @@ function useSchoolWorkspace(session) {
       return null
     }
 
+    // The school node used to be downloaded whole on every login - full-year attendance, every
+    // student row, every certificate - and then the live listeners below immediately downloaded
+    // the same nodes AGAIN, doubling egress on every session. When the SDK listeners are
+    // available they are the sole supplier of those nodes, so the bootstrap fetches only the
+    // small pieces it actually inspects (profile, subscription, counters) plus the modules that
+    // have no listener, and the heavy nodes are downloaded exactly once, by the listener.
+    const LISTENERLESS_NODES = ['subscription', 'staffCount', 'admissionSequenceVersion', 'timetable', 'timetableRecords', 'library', 'accounts', 'enquiries', 'employeeManager', 'parentMessages', 'parentNotifications', 'certificateRequests', 'approvals', 'studentAcademics', 'studentDocuments', 'exams', 'dateSheet', 'admitCards', 'reportExams', 'reportMarks', 'reportCards', 'idCards', 'idCardSettings', 'backupSettings']
+    async function fetchScopedSchool(schoolId, token) {
+      const profile = await fetchPrimarySchool(`schools/${schoolId}/profile`, token)
+      if (profile === undefined) return undefined
+      // No profile means first-time setup, a legacy migration, or a failed read - every one of
+      // those paths inspects the whole school object, so hand them the original full fetch.
+      if (!profile) return fetchPrimarySchool(`schools/${schoolId}`, token)
+      const values = await Promise.all(LISTENERLESS_NODES.map(node => safeRequest(`schools/${schoolId}/${node}`, token)))
+      const school = { profile }
+      LISTENERLESS_NODES.forEach((node, index) => {
+        if (values[index] !== null && values[index] !== undefined) school[node] = values[index]
+      })
+      // The one-time admission renumbering is the only bootstrap step that reads students;
+      // fetch that node only while the migration is actually pending.
+      if (school.admissionSequenceVersion !== 1) school.students = (await safeRequest(`schools/${schoolId}/students`, token)) || {}
+      return school
+    }
+
     async function load() {
       setWorkspace(current => ({ ...current, loading: true, error: '' }))
       try {
@@ -2280,7 +2304,10 @@ function useSchoolWorkspace(session) {
         let schoolId = ownSchoolId
         let workspaceRole = 'Owner'
         let canMaintainWorkspace = true
-        let school = await fetchPrimarySchool(`schools/${schoolId}`, token)
+        // The live listeners re-download students/attendance/fees/etc. moments after this
+        // fetch, so when the SDK is available the bootstrap skips those nodes entirely.
+        const canUseListeners = isFirebaseConfigured && Boolean(firebaseApp)
+        let school = canUseListeners ? await fetchScopedSchool(schoolId, token) : await fetchPrimarySchool(`schools/${schoolId}`, token)
         if (!active) return
         const pendingProfile = JSON.parse(localStorage.getItem('northstar-pending-school-profile') || 'null')
         const legacyUser = await safeRequest(`users/${session.uid}`, token)
@@ -4597,7 +4624,24 @@ function useSchoolWorkspace(session) {
     return logo
   }
 
-  return { students, notices, fees, feeManager, attendance, timetableData, timetableRecords, homework, transport, library, accounts, leave, parents, parentMessages, parentNotifications, certificateRequests, leaveRequests, decideLeaveRequest, admissionRequests, approveAdmissionRequest, rejectAdmissionRequest, loadAdmissionHistory, enquiries, staff, staffAttendance, employeeConfig, approvals, expenses, academics, documents, certificates, certificateSettings, examData, reportData, idCards, idCardSettings, activities, backupSettings, workspace, createSchoolWorkspace, getNextAdmissionNumber, addStudent, updateStudent, updateStudentPhoto, ensureStudentPhotos, deletedStudents, deleteStudents, deleteAllStudents, restoreStudent, restoreAllStudents, permanentDeleteStudent, recordPayment, submitFeeReceipt, saveFeeGroup, deleteFeeGroup, saveFeeStructure, deleteFeeStructure, deleteFeeReceipt, restoreFeeReceipt, decideFeeApproval, saveFeeManagerConfig, createBackupPayload, restoreBackup, saveBackupSettings, saveSchoolProfile, saveParentAccount, addNotice, saveAttendance, saveEmployeeConfig, deleteEmployeeConfig, saveEmployee, deleteEmployee, saveStaffAttendance, savePeriod, saveTimetableRecord, deleteTimetableRecord, saveHomework, deleteHomework, markHomeworkDone, markHomeworkSeen, saveTransportItem, deleteTransportItem, saveExpenseItem, deleteExpenseItem, saveLibraryItem, deleteLibraryItem, saveAccountsItem, deleteAccountsItem, saveLeaveItem, deleteLeaveItem, saveEnquiry, uploadStudentDocument, loadStudentAttendance, saveCertificate, saveCertificateSettings, saveExamRecord, saveDateSheetRow, deleteDateSheetRow, saveAdmitCards, deleteCertificate, updateCertificateStatus, saveReportExam, deleteReportExam, saveReportMarks, saveReportCard, updateReportCard, saveIdCardSettings, saveIdCard, deleteIdCard, uploadIdCardLogo, developmentDemo }
+  // The dashboard feed derives its student/fee/notice entries from live state instead of the
+  // login fetch - the scoped bootstrap no longer downloads those nodes, and the listeners that
+  // do deliver them keep this feed current for free. Session actions (the setActivities
+  // prepends) win over a derived row with the same id.
+  const feedActivities = useMemo(() => {
+    const derived = [
+      ...students.slice(0, ACTIVITY_FEED_LIMIT).map(row => ({ id: `student-${row.id}`, title: 'Student admitted', detail: `${row.name} joined Class ${row.className}`, at: row.createdAt || 0, icon: '+' })),
+      ...Object.entries(fees).map(([id, row]) => ({ id: `fee-${id}`, title: 'Fee payment received', detail: `${money(row.amount)} via ${row.method || 'payment'}`, at: row.paidAt || row.updatedAt || 0, icon: '₹' })),
+      ...notices.slice(0, ACTIVITY_FEED_LIMIT).map(row => ({ id: `notice-${row.id}`, title: 'Notice published', detail: row.title, at: row.publishAt || 0, icon: 'N' })),
+    ]
+    const byId = new Map()
+    for (const item of [...activities, ...derived]) {
+      if (item.at && !byId.has(item.id)) byId.set(item.id, item)
+    }
+    return [...byId.values()].sort((a, b) => b.at - a.at).slice(0, ACTIVITY_FEED_LIMIT)
+  }, [students, fees, notices, activities])
+
+  return { students, notices, fees, feeManager, attendance, timetableData, timetableRecords, homework, transport, library, accounts, leave, parents, parentMessages, parentNotifications, certificateRequests, leaveRequests, decideLeaveRequest, admissionRequests, approveAdmissionRequest, rejectAdmissionRequest, loadAdmissionHistory, enquiries, staff, staffAttendance, employeeConfig, approvals, expenses, academics, documents, certificates, certificateSettings, examData, reportData, idCards, idCardSettings, activities: feedActivities, backupSettings, workspace, createSchoolWorkspace, getNextAdmissionNumber, addStudent, updateStudent, updateStudentPhoto, ensureStudentPhotos, deletedStudents, deleteStudents, deleteAllStudents, restoreStudent, restoreAllStudents, permanentDeleteStudent, recordPayment, submitFeeReceipt, saveFeeGroup, deleteFeeGroup, saveFeeStructure, deleteFeeStructure, deleteFeeReceipt, restoreFeeReceipt, decideFeeApproval, saveFeeManagerConfig, createBackupPayload, restoreBackup, saveBackupSettings, saveSchoolProfile, saveParentAccount, addNotice, saveAttendance, saveEmployeeConfig, deleteEmployeeConfig, saveEmployee, deleteEmployee, saveStaffAttendance, savePeriod, saveTimetableRecord, deleteTimetableRecord, saveHomework, deleteHomework, markHomeworkDone, markHomeworkSeen, saveTransportItem, deleteTransportItem, saveExpenseItem, deleteExpenseItem, saveLibraryItem, deleteLibraryItem, saveAccountsItem, deleteAccountsItem, saveLeaveItem, deleteLeaveItem, saveEnquiry, uploadStudentDocument, loadStudentAttendance, saveCertificate, saveCertificateSettings, saveExamRecord, saveDateSheetRow, deleteDateSheetRow, saveAdmitCards, deleteCertificate, updateCertificateStatus, saveReportExam, deleteReportExam, saveReportMarks, saveReportCard, updateReportCard, saveIdCardSettings, saveIdCard, deleteIdCard, uploadIdCardLogo, developmentDemo }
 }
 
 export default function App() {
