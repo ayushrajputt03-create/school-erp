@@ -1,9 +1,12 @@
-import React, { useMemo, useState } from 'react'
+import React, { useEffect, useMemo, useState } from 'react'
 import { Check, Search, X } from 'lucide-react'
 
 // Reuses the existing status pill palette: approved reads as paid (green), pending as pending
 // (amber), rejected as overdue (red), so this screen matches the rest of the ERP without new CSS.
 const PILL = { approved: 'paid', pending: 'pending', rejected: 'overdue' }
+// The success banner is a confirmation, not a permanent part of the screen - it hides itself so it
+// cannot go stale and sit there claiming an approval that happened several actions ago.
+const MESSAGE_TIMEOUT_MS = 6000
 const TABS = [['pending', 'Pending'], ['approved', 'Approved'], ['rejected', 'Rejected'], ['all', 'All']]
 
 const dayText = value => {
@@ -77,6 +80,12 @@ export default function StudentLeaveManager({ leaveRequests, onDecide, role }) {
   const rows = useMemo(() => Object.entries(leaveRequests || {})
     .map(([id, row]) => ({ ...row, id }))
     .sort((a, b) => (b.submittedAt || 0) - (a.submittedAt || 0)), [leaveRequests])
+
+  useEffect(() => {
+    if (!message) return undefined
+    const timer = setTimeout(() => setMessage(''), MESSAGE_TIMEOUT_MS)
+    return () => clearTimeout(timer)
+  }, [message])
 
   const counts = useMemo(() => rows.reduce((all, row) => ({ ...all, [row.status]: (all[row.status] || 0) + 1 }), {}), [rows])
 
