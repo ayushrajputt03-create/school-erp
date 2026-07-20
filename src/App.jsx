@@ -2290,9 +2290,11 @@ function useSchoolWorkspace(session) {
       LISTENERLESS_NODES.forEach((node, index) => {
         if (values[index] !== null && values[index] !== undefined) school[node] = values[index]
       })
-      // The one-time admission renumbering is the only bootstrap step that reads students;
-      // fetch that node only while the migration is actually pending.
-      if (school.admissionSequenceVersion !== 1) school.students = (await safeRequest(`schools/${schoolId}/students`, token)) || {}
+      // Students are ALSO served by a live listener, but they are the one node the school cannot
+      // appear to lose - if the listener ever fails to attach, every other module degrades while
+      // an empty student list reads as data loss. Fetch them in the bootstrap unconditionally and
+      // let the listener overwrite with the same rows moments later.
+      school.students = (await safeRequest(`schools/${schoolId}/students`, token)) || {}
       return school
     }
 
