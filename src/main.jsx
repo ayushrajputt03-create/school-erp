@@ -7,6 +7,7 @@ import SuperAdminApp from './SuperAdminApp'
 import ParentDashboard from './pages/ParentDashboard'
 import TeacherApp from './TeacherApp'
 import LandingPage from './LandingPage'
+import AdmissionForm from './AdmissionForm'
 
 // Quality-of-life: when a number/numeric field showing just "0" is focused, select it so the
 // first keystroke replaces the 0 instead of typing after it (the "0 hatta nahi" annoyance).
@@ -23,6 +24,8 @@ if (typeof document !== 'undefined') {
 
 function Root() {
   const path = window.location.pathname
+  // Public, no auth: reached by scanning a school's admission QR code.
+  if (path.startsWith('/admission/')) return <AdmissionForm />
   if (path.startsWith('/super-admin')) return <SuperAdminApp />
   if (path.startsWith('/parent/dashboard')) return <ParentDashboard />
   if (path.startsWith('/teacher')) return <TeacherApp />

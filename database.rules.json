@@ -153,6 +153,20 @@
         "certificateRequests": { ".indexOn": ["studentId"] },
         "parentMessages": { ".indexOn": ["parentId"] },
         "parentNotifications": { ".indexOn": ["parentId"] },
+        "admissionRequests": {
+          ".indexOn": ["status", "submittedAt"],
+          "$requestId": {
+            ".validate": "!newData.exists() || newData.hasChildren(['studentName', 'dob', 'parentPhone', 'status', 'submittedAt'])",
+            "status": { ".validate": "newData.val() === 'pending' || newData.val() === 'approved' || newData.val() === 'rejected'" },
+            "studentName": { ".validate": "newData.isString() && newData.val().length > 1 && newData.val().length < 200" },
+            "parentPhone": { ".validate": "newData.isString() && newData.val().length === 10" }
+          }
+        },
+        "admissionThrottle": {
+          "$phone": {
+            ".validate": "!newData.exists() || newData.hasChildren(['count'])"
+          }
+        },
         "leaveRequests": {
           ".indexOn": ["studentId", "classSection", "submittedAt"],
           "$requestId": {

@@ -7,7 +7,7 @@ import {
   Eye, Receipt, Save, ClipboardList, Download, Upload, Link2, Cake,
   UserCheck, Clock3, TrendingUp, WalletCards, Printer, FileText, Pencil, Trash2,
   DatabaseBackup, BriefcaseBusiness, Moon, Sun, Camera, Badge, Umbrella, UserRound,
-  RotateCcw, AlertTriangle, Archive
+  RotateCcw, AlertTriangle, Archive, QrCode
 } from 'lucide-react'
 import './app.css'
 import AuthScreen from './AuthScreen'
@@ -20,6 +20,7 @@ import { StudentPhotoContext } from './student-photos'
 const FeeManager = lazy(() => import('./FeeManager'))
 const BackupCenter = lazy(() => import('./BackupCenter'))
 const StudentLeaveManager = lazy(() => import('./StudentLeaveManager'))
+const AdmissionRequestsManager = lazy(() => import('./AdmissionRequestsManager'))
 const TimetableManager = lazy(() => import('./TimetableManager'))
 const EmployeeManager = lazy(() => import('./EmployeeManager'))
 const CertificateManager = lazy(() => import('./CertificateManager'))
@@ -421,6 +422,7 @@ const nav = [
   { id: 'dashboard', label: 'Command Center', icon: LayoutDashboard },
   { id: 'admissions', label: 'Admissions', icon: ClipboardList },
   { id: 'students', label: 'Students', icon: Users },
+  { id: 'admission-requests', label: 'Admission Requests', icon: QrCode },
   { id: 'deleted-students', label: 'Deleted Students', icon: Archive },
   { id: 'employees', label: 'Employees', icon: BriefcaseBusiness },
   { id: 'leave', label: 'Leave', icon: Umbrella },
@@ -2203,6 +2205,9 @@ function useSchoolWorkspace(session) {
   const [parentNotifications, setParentNotifications] = useState({})
   const [certificateRequests, setCertificateRequests] = useState({})
   const [leaveRequests, setLeaveRequests] = useState({})
+  // Only pending admission requests are subscribed. Approved/rejected history is fetched on
+  // demand when that tab is opened, so a school with years of applications never streams them.
+  const [admissionRequests, setAdmissionRequests] = useState({})
   const [approvals, setApprovals] = useState({ fees: {}, leaves: {} })
   const [expenses, setExpenses] = useState({})
   const [academics, setAcademics] = useState({})
@@ -2482,7 +2487,7 @@ function useSchoolWorkspace(session) {
     let cancelled = false
     const unsubs = []
 
-    import('firebase/database').then(({ ref: dbRef, onValue, off, getDatabase, query, orderByChild, startAt }) => {
+    import('firebase/database').then(({ ref: dbRef, onValue, off, getDatabase, query, orderByChild, startAt, equalTo }) => {
       if (cancelled) return
       let rtdb
       try { rtdb = getDatabase(firebaseApp) } catch { return }
@@ -2574,6 +2579,12 @@ function useSchoolWorkspace(session) {
       listen(`schools/${schoolId}/leaveRequests`, snap => {
         setLeaveRequests(snap.val() || {})
       })
+
+      // Scoped to pending only - the queue the admin actually acts on. Requires
+      // "admissionRequests": { ".indexOn": ["status"] } in the rules.
+      const pendingAdmissions = query(dbRef(rtdb, `schools/${schoolId}/admissionRequests`), orderByChild('status'), equalTo('pending'))
+      onValue(pendingAdmissions, snap => setAdmissionRequests(snap.val() || {}), () => {})
+      unsubs.push(() => off(pendingAdmissions, 'value'))
 
       listen(`schools/${schoolId}/certificates`, snap => {
         setCertificates(snap.val() || {})
@@ -3073,6 +3084,89 @@ function useSchoolWorkspace(session) {
     photoCacheRef.current[studentId] = inline ? photo.url : ''
     setStudents(current => current.map(item => item.id === studentId ? { ...item, photoUrl: photo.url, photoPath: photo.path, photoSize: photo.size, photoUpdatedAt: photo.updatedAt } : item))
     return photo
+  }
+
+  // Approving an admission request creates the student through addStudent - the same function the
+  // manual Admission module uses. Deliberately not a second create-student path: duplicated field
+  // mapping is what produced the guardian/father-name mismatch this app already had to fix.
+  const approveAdmissionRequest = async requestId => {
+    const request = admissionRequests[requestId]
+    if (!request) throw new Error('Admission request not found.')
+    const admissionNumber = await addStudent({
+      name: request.studentName,
+      className: `${request.classAppliedFor}-A`,
+      fatherName: request.fatherName || '',
+      motherName: request.motherName || '',
+      guardian: request.fatherName || '',
+      phone: request.parentPhone || '',
+      fatherPhone: request.parentPhone || '',
+      parentLoginPhone: request.parentPhone || '',
+      dob: request.dob || '',
+      gender: request.gender || '',
+      email: request.parentEmail || '',
+      address: request.address || '',
+      previousSchool: request.previousSchool || '',
+      admissionDate: today(),
+      admissionScheme: 'General',
+      newAdmission: true,
+    })
+    const stamp = Date.now()
+    const reviewed = {
+      status: 'approved',
+      reviewedAt: stamp,
+      reviewedBy: session?.uid || 'demo',
+      reviewedByName: session?.displayName || session?.email || 'Admin',
+      admissionNumber: String(admissionNumber),
+    }
+    if (!developmentDemo) {
+      const token = await session.getIdToken()
+      const auditId = `audit_${stamp}_${Math.random().toString(36).slice(2, 8)}`
+      await databaseRequest('', token, { method: 'PATCH', body: {
+        ...Object.fromEntries(Object.entries(reviewed).map(([key, value]) => [`schools/${workspace.schoolId}/admissionRequests/${requestId}/${key}`, value])),
+        [`schools/${workspace.schoolId}/auditLogs/${auditId}`]: {
+          id: auditId,
+          action: 'admission_approved',
+          requestId,
+          admissionNumber: String(admissionNumber),
+          studentName: request.studentName || '',
+          performedBy: reviewed.reviewedBy,
+          performedByName: reviewed.reviewedByName,
+          timestamp: stamp,
+        },
+      } })
+    }
+    // The pending listener drops it on the next push; clear locally so the row leaves at once.
+    setAdmissionRequests(current => { const next = { ...current }; delete next[requestId]; return next })
+    return admissionNumber
+  }
+
+  const rejectAdmissionRequest = async (requestId, note = '') => {
+    const request = admissionRequests[requestId]
+    if (!request) throw new Error('Admission request not found.')
+    const stamp = Date.now()
+    const reviewed = {
+      status: 'rejected',
+      reviewedAt: stamp,
+      reviewedBy: session?.uid || 'demo',
+      reviewedByName: session?.displayName || session?.email || 'Admin',
+      rejectionNote: String(note || '').trim().slice(0, 300),
+    }
+    if (!developmentDemo) {
+      const token = await session.getIdToken()
+      await databaseRequest('', token, { method: 'PATCH', body: Object.fromEntries(
+        Object.entries(reviewed).map(([key, value]) => [`schools/${workspace.schoolId}/admissionRequests/${requestId}/${key}`, value]),
+      ) })
+    }
+    setAdmissionRequests(current => { const next = { ...current }; delete next[requestId]; return next })
+  }
+
+  // History is read only when the admin opens that tab, never subscribed.
+  const loadAdmissionHistory = async status => {
+    if (developmentDemo) return {}
+    const token = await session.getIdToken()
+    return await databaseRequest(`schools/${workspace.schoolId}/admissionRequests`, token, {
+      query: `orderBy=${encodeURIComponent('"status"')}&equalTo=${encodeURIComponent(`"${status}"`)}`,
+    }).catch(() => ({})) || {}
   }
 
   // Admin decision on a parent's student leave request. Writes the decision and notifies the
@@ -4420,7 +4514,7 @@ function useSchoolWorkspace(session) {
     return logo
   }
 
-  return { students, notices, fees, feeManager, attendance, timetableData, timetableRecords, homework, transport, library, accounts, leave, parents, parentMessages, parentNotifications, certificateRequests, leaveRequests, decideLeaveRequest, enquiries, staff, staffAttendance, employeeConfig, approvals, expenses, academics, documents, certificates, certificateSettings, examData, reportData, idCards, idCardSettings, activities, backupSettings, workspace, createSchoolWorkspace, getNextAdmissionNumber, addStudent, updateStudent, updateStudentPhoto, ensureStudentPhotos, deletedStudents, deleteStudents, deleteAllStudents, restoreStudent, restoreAllStudents, permanentDeleteStudent, recordPayment, submitFeeReceipt, saveFeeGroup, deleteFeeGroup, saveFeeStructure, deleteFeeStructure, deleteFeeReceipt, restoreFeeReceipt, decideFeeApproval, saveFeeManagerConfig, createBackupPayload, restoreBackup, saveBackupSettings, saveSchoolProfile, saveParentAccount, addNotice, saveAttendance, saveEmployeeConfig, deleteEmployeeConfig, saveEmployee, deleteEmployee, saveStaffAttendance, savePeriod, saveTimetableRecord, deleteTimetableRecord, saveHomework, deleteHomework, markHomeworkDone, markHomeworkSeen, saveTransportItem, deleteTransportItem, saveExpenseItem, deleteExpenseItem, saveLibraryItem, deleteLibraryItem, saveAccountsItem, deleteAccountsItem, saveLeaveItem, deleteLeaveItem, saveEnquiry, uploadStudentDocument, loadStudentAttendance, saveCertificate, saveCertificateSettings, saveExamRecord, saveDateSheetRow, deleteDateSheetRow, saveAdmitCards, deleteCertificate, updateCertificateStatus, saveReportExam, deleteReportExam, saveReportMarks, saveReportCard, updateReportCard, saveIdCardSettings, saveIdCard, deleteIdCard, uploadIdCardLogo, developmentDemo }
+  return { students, notices, fees, feeManager, attendance, timetableData, timetableRecords, homework, transport, library, accounts, leave, parents, parentMessages, parentNotifications, certificateRequests, leaveRequests, decideLeaveRequest, admissionRequests, approveAdmissionRequest, rejectAdmissionRequest, loadAdmissionHistory, enquiries, staff, staffAttendance, employeeConfig, approvals, expenses, academics, documents, certificates, certificateSettings, examData, reportData, idCards, idCardSettings, activities, backupSettings, workspace, createSchoolWorkspace, getNextAdmissionNumber, addStudent, updateStudent, updateStudentPhoto, ensureStudentPhotos, deletedStudents, deleteStudents, deleteAllStudents, restoreStudent, restoreAllStudents, permanentDeleteStudent, recordPayment, submitFeeReceipt, saveFeeGroup, deleteFeeGroup, saveFeeStructure, deleteFeeStructure, deleteFeeReceipt, restoreFeeReceipt, decideFeeApproval, saveFeeManagerConfig, createBackupPayload, restoreBackup, saveBackupSettings, saveSchoolProfile, saveParentAccount, addNotice, saveAttendance, saveEmployeeConfig, deleteEmployeeConfig, saveEmployee, deleteEmployee, saveStaffAttendance, savePeriod, saveTimetableRecord, deleteTimetableRecord, saveHomework, deleteHomework, markHomeworkDone, markHomeworkSeen, saveTransportItem, deleteTransportItem, saveExpenseItem, deleteExpenseItem, saveLibraryItem, deleteLibraryItem, saveAccountsItem, deleteAccountsItem, saveLeaveItem, deleteLeaveItem, saveEnquiry, uploadStudentDocument, loadStudentAttendance, saveCertificate, saveCertificateSettings, saveExamRecord, saveDateSheetRow, deleteDateSheetRow, saveAdmitCards, deleteCertificate, updateCertificateStatus, saveReportExam, deleteReportExam, saveReportMarks, saveReportCard, updateReportCard, saveIdCardSettings, saveIdCard, deleteIdCard, uploadIdCardLogo, developmentDemo }
 }
 
 export default function App() {
@@ -4498,7 +4592,7 @@ export default function App() {
         import('./IDCardManager'), import('./EmployeeManager'), import('./LeaveManager'),
         import('./TimetableManager'), import('./HomeworkManager'), import('./TransportManager'),
         import('./ExpenseManager'), import('./LibraryManager'), import('./AccountsManager'),
-        import('./BackupCenter'), import('./StudentLeaveManager'),
+        import('./BackupCenter'), import('./StudentLeaveManager'), import('./AdmissionRequestsManager'),
       ]).catch(() => { /* a failed prefetch is harmless; the real import retries on navigation */ })
     }
     if ('requestIdleCallback' in window) {
@@ -4536,6 +4630,7 @@ export default function App() {
     'deleted-students': <DeletedStudents deletedStudents={data.deletedStudents} onRestore={data.restoreStudent} onRestoreAll={data.restoreAllStudents} onPermanentDelete={data.permanentDeleteStudent} />,
     employees: <EmployeeManager staff={data.staff} attendance={data.staffAttendance} config={data.employeeConfig} saveConfig={data.saveEmployeeConfig} deleteConfig={data.deleteEmployeeConfig} saveEmployee={data.saveEmployee} deleteEmployee={data.deleteEmployee} saveAttendance={data.saveStaffAttendance} />,
     leave: <LeaveManager staff={data.staff} config={data.employeeConfig} leave={data.leave} saveLeaveItem={data.saveLeaveItem} deleteLeaveItem={data.deleteLeaveItem} saveStaffAttendance={data.saveStaffAttendance} />,
+    'admission-requests': <AdmissionRequestsManager schoolId={data.workspace.schoolId} schoolName={data.workspace.schoolName} pendingRequests={data.admissionRequests} onApprove={data.approveAdmissionRequest} onReject={data.rejectAdmissionRequest} onLoadHistory={data.loadAdmissionHistory} role={data.workspace.role} />,
     'student-leave': <StudentLeaveManager leaveRequests={data.leaveRequests} onDecide={data.decideLeaveRequest} role={data.workspace.role} />,
     attendance: <Attendance students={data.students} attendance={data.attendance} onSaveAttendance={data.saveAttendance} />,
     fees: <FeeManager students={data.students} fees={data.fees} feeManager={data.feeManager} approvals={data.approvals.fees || {}} schoolProfile={data.workspace.schoolProfile} onSubmitFee={data.submitFeeReceipt} onSaveGroup={data.saveFeeGroup} onDeleteGroup={data.deleteFeeGroup} onSaveStructure={data.saveFeeStructure} onDeleteStructure={data.deleteFeeStructure} onDeleteReceipt={data.deleteFeeReceipt} onRestoreReceipt={data.restoreFeeReceipt} onDecideApproval={data.decideFeeApproval} onSaveConfig={data.saveFeeManagerConfig} onOpenProfile={setSelectedStudent} />,
