@@ -261,13 +261,14 @@ async function buildDataPayload(database, schoolId, parentId, parent, selectedSt
 
   const byStudent = node => base.child(node).orderByChild('studentId').equalTo(selected.id).once('value')
   const byParent = node => base.child(node).orderByChild('parentId').equalTo(parentId).once('value')
-  const [profileSnap, feesSnap, attendanceSnap, reportSnap, certSnap, certReqSnap, msgSnap, notifSnap, homeworkSnap, noticesSnap, timetableSnap, transportSnap, librarySnap] = await Promise.all([
+  const [profileSnap, feesSnap, attendanceSnap, reportSnap, certSnap, certReqSnap, leaveReqSnap, msgSnap, notifSnap, homeworkSnap, noticesSnap, timetableSnap, transportSnap, librarySnap] = await Promise.all([
     base.child('profile').once('value'),
     byStudent('fees'),
     byStudent('attendance'),
     byStudent('reportCards'),
     byStudent('certificates'),
     byStudent('certificateRequests'),
+    byStudent('leaveRequests'),
     byParent('parentMessages'),
     byParent('parentNotifications'),
     base.child('homework').once('value'),
@@ -288,6 +289,7 @@ async function buildDataPayload(database, schoolId, parentId, parent, selectedSt
   const reportCards = rows(reportSnap).filter(row => row.status === 'published' || row.published || row.locked)
   const certificates = rows(certSnap).sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0))
   const certificateRequests = rows(certReqSnap).filter(row => row.parentId === parentId)
+  const leaveRequests = rows(leaveReqSnap).filter(row => row.parentId === parentId).sort((a, b) => (b.submittedAt || 0) - (a.submittedAt || 0))
   const messages = rows(msgSnap).sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0))
   const notifications = rows(notifSnap).sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0))
 
@@ -315,6 +317,7 @@ async function buildDataPayload(database, schoolId, parentId, parent, selectedSt
     reportCards,
     certificates,
     certificateRequests,
+    leaveRequests,
     messages,
     notifications,
     timetable: timetableSnap.val() || {},
@@ -446,6 +449,42 @@ module.exports = async function handler(request, response) {
         purpose: body.purpose,
         status: 'pending',
         createdAt: now(),
+      })
+      return response.status(200).json({ ok: true })
+    }
+
+    if (action === 'leaveRequest') {
+      const context = await requireSession(database, body)
+      const studentId = String(body.studentId || '')
+      // The session proves who the parent is, so the child must be checked against that parent's
+      // own list - otherwise any signed-in parent could file a request against another student.
+      if (!normalizeStudentsList(context.parent.students).includes(studentId)) {
+        throw new Error('That student is not linked to this parent account.')
+      }
+      const fromDate = dateKey(body.fromDate)
+      const toDate = dateKey(body.toDate) || fromDate
+      const reason = String(body.reason || '').trim()
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(fromDate)) throw new Error('Choose a valid start date.')
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(toDate)) throw new Error('Choose a valid end date.')
+      if (toDate < fromDate) throw new Error('End date cannot be before the start date.')
+      if (reason.length < 3) throw new Error('Please write a short reason for the leave.')
+      const student = (await database.ref(`schools/${context.schoolId}/students/${studentId}`).once('value')).val() || {}
+      const id = `leave_req_${now()}_${crypto.randomBytes(3).toString('hex')}`
+      await database.ref(`schools/${context.schoolId}/leaveRequests/${id}`).set({
+        id,
+        parentId: context.parentId,
+        parentName: context.parent.name || 'Parent',
+        studentId,
+        studentName: student.full_name || student.name || '',
+        admissionNo: student.admission_number || '',
+        // Denormalised so a teacher can query their own classes directly - see the classSection
+        // index. Stored in the same "9-A" shape TeacherApp's classSectionOptions() produces.
+        classSection: `${student.class_name || student.class || ''}-${student.section || 'A'}`,
+        fromDate,
+        toDate,
+        reason: reason.slice(0, 500),
+        status: 'pending',
+        submittedAt: now(),
       })
       return response.status(200).json({ ok: true })
     }

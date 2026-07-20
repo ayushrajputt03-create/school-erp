@@ -2,10 +2,10 @@ import React, { useEffect, useMemo, useRef, useState } from 'react'
 import {
   BookOpen, CalendarCheck, ChevronRight, ClipboardList, FileText, GraduationCap,
   Home, LayoutDashboard, LoaderCircle, LogOut, Menu, MessageSquareText, Pencil,
-  Search, User, X, Eye, EyeOff, Check, Clock3, Users, Bell, Save, Camera
+  Search, User, X, Eye, EyeOff, Check, Clock3, Users, Bell, Save, Camera, Umbrella
 } from 'lucide-react'
 import { onAuthStateChanged, signInWithCustomToken, signOut, updatePassword, EmailAuthProvider, reauthenticateWithCredential } from 'firebase/auth'
-import { ref, onValue, query, orderByChild, startAt } from 'firebase/database'
+import { ref, onValue, query, orderByChild, startAt, equalTo } from 'firebase/database'
 import { auth, rtdb } from './lib/firebase'
 import DatePicker from './DatePicker'
 import './teacher-app.css'
@@ -571,11 +571,57 @@ function TeacherProfile({ teacher, schoolProfile }) {
   </div>
 }
 
+// Read-only by design. Teachers see why a student is marked "Leave" instead of "Absent" without
+// having to ask the admin, but cannot decide anything - there are no action buttons here, and the
+// database rules do not grant teachers write access to leaveRequests either.
+function TeacherLeaveRequests({ leaveRequests, classSections }) {
+  const [status, setStatus] = useState('all')
+  const rows = useMemo(() => Object.values(leaveRequests || {})
+    .flatMap(byClass => Object.entries(byClass || {}).map(([id, row]) => ({ ...row, id })))
+    .sort((a, b) => (b.submittedAt || 0) - (a.submittedAt || 0)), [leaveRequests])
+  const counts = useMemo(() => rows.reduce((all, row) => ({ ...all, [row.status]: (all[row.status] || 0) + 1 }), {}), [rows])
+  const filtered = status === 'all' ? rows : rows.filter(row => row.status === status)
+  const showTabs = rows.length > 10
+  const dayText = value => {
+    if (!value) return '-'
+    const parsed = new Date(value)
+    return Number.isNaN(parsed.getTime()) ? value : parsed.toLocaleDateString('en-IN', { day: '2-digit', month: 'short' })
+  }
+  const range = row => (row.fromDate === row.toDate ? dayText(row.fromDate) : `${dayText(row.fromDate)} - ${dayText(row.toDate)}`)
+
+  return <div className="teacher-page">
+    <h2>Leave Requests</h2>
+    <p className="teacher-subtitle">Leave applied by parents for your classes{classSections.length ? ` (${classSections.join(', ')})` : ''} · view only</p>
+    {showTabs && <div className="teacher-leave-tabs">
+      {[['all', 'All'], ['pending', 'Pending'], ['approved', 'Approved'], ['rejected', 'Rejected']].map(([id, label]) => (
+        <button key={id} className={status === id ? 'active' : ''} onClick={() => setStatus(id)}>
+          {label}{id !== 'all' && counts[id] ? ` (${counts[id]})` : ''}
+        </button>
+      ))}
+    </div>}
+    <div className="teacher-leave-list">
+      {filtered.map(row => <div key={row.id} className="teacher-leave-card">
+        <div className="teacher-leave-head">
+          <div><strong>{row.studentName || 'Student'}</strong><small>{row.classSection}{row.admissionNo ? ` · Adm ${row.admissionNo}` : ''}</small></div>
+          <span className={`teacher-leave-status ${row.status || 'pending'}`}>{row.status || 'pending'}</span>
+        </div>
+        <div className="teacher-leave-dates"><Umbrella size={13} /> {range(row)}</div>
+        <p>{row.reason || '-'}</p>
+        {row.reviewedByName && <small className="teacher-leave-review">
+          {row.status === 'rejected' ? 'Rejected' : 'Approved'} by {row.reviewedByName}{row.reviewNote ? ` — ${row.reviewNote}` : ''}
+        </small>}
+      </div>)}
+      {!filtered.length && <div className="teacher-empty">No {status === 'all' ? '' : status} leave requests yet.</div>}
+    </div>
+  </div>
+}
+
 const teacherNav = [
   { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
   { id: 'attendance', label: 'My Attendance', icon: CalendarCheck },
   { id: 'classes', label: 'My Classes', icon: GraduationCap },
   { id: 'homework', label: 'Homework', icon: BookOpen },
+  { id: 'leave-requests', label: 'Leave Requests', icon: Umbrella },
   { id: 'notices', label: 'Notices', icon: MessageSquareText },
   { id: 'profile', label: 'My Profile', icon: User },
 ]
@@ -590,6 +636,8 @@ export default function TeacherApp() {
   const [attendance, setAttendance] = useState({})
   const [homework, setHomework] = useState({})
   const [notices, setNotices] = useState({})
+  // Keyed by classSection, since each assigned class has its own scoped listener.
+  const [leaveRequests, setLeaveRequests] = useState({})
   const [page, setPage] = useState('dashboard')
   const [loadError, setLoadError] = useState('')
   const [sidebarOpen, setSidebarOpen] = useState(false)
@@ -658,6 +706,27 @@ export default function TeacherApp() {
     return () => { active = false; unsubs.forEach(fn => fn()) }
   }, [session, schoolId])
 
+  // Leave requests, scoped to this teacher's own classes. RTDB allows one equalTo per query, so
+  // each assigned class gets its own listener and the results are merged by class. A teacher
+  // therefore never receives a request belonging to a class they do not teach.
+  const myClassSections = useMemo(() => classSectionOptions(teacher, students), [teacher, students])
+  // `students` gets a new object identity on every push, so depend on the resolved class list as
+  // a stable string - otherwise these listeners would tear down and resubscribe constantly.
+  const myClassSectionsKey = myClassSections.join(',')
+  useEffect(() => {
+    if (!session || !schoolId || !rtdb || !myClassSectionsKey) { setLeaveRequests({}); return undefined }
+    let active = true
+    const unsubs = []
+    myClassSectionsKey.split(',').forEach(classSection => {
+      const scoped = query(ref(rtdb, `schools/${schoolId}/leaveRequests`), orderByChild('classSection'), equalTo(classSection))
+      unsubs.push(onValue(scoped, snap => {
+        if (!active) return
+        setLeaveRequests(current => ({ ...current, [classSection]: snap.val() || {} }))
+      }, () => { /* permission/transient errors: keep whatever we already have */ }))
+    })
+    return () => { active = false; unsubs.forEach(fn => fn()) }
+  }, [session, schoolId, myClassSectionsKey])
+
   const doLogout = async () => { await signOut(auth); window.location.href = '/' }
 
   if (window.location.pathname === '/teacher/login' || window.location.pathname === '/teacher/login/') {
@@ -718,6 +787,7 @@ export default function TeacherApp() {
         {page === 'attendance' && <TeacherAttendance teacher={teacher} students={students} attendance={attendance} token={null} schoolId={schoolId} onSaved={(d, c, data) => setAttendance(a => ({ ...a, [d]: { ...(a[d] || {}), [c]: data } }))} />}
         {page === 'classes' && <TeacherClasses teacher={teacher} students={students} />}
         {page === 'homework' && <TeacherHomework teacher={teacher} homework={homework} students={students} token={null} schoolId={schoolId} />}
+        {page === 'leave-requests' && <TeacherLeaveRequests leaveRequests={leaveRequests} classSections={myClassSections} />}
         {page === 'notices' && <TeacherNotices notices={notices} />}
         {page === 'profile' && <TeacherProfile teacher={teacher} schoolProfile={schoolProfile} />}
       </div>

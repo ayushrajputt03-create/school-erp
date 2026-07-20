@@ -3,7 +3,7 @@ import {
   Bell, BookOpen, BusFront, CalendarDays, CheckCircle2, ChevronLeft, ChevronRight,
   Download, Eye, EyeOff, FileText, GraduationCap, Home, LogOut, Mail, Menu,
   MessageSquareText, Phone, Printer, RefreshCw, Save, ShieldCheck, UserRound,
-  WalletCards, XCircle,
+  Umbrella, WalletCards, XCircle,
 } from 'lucide-react'
 import './ParentPortal.css'
 
@@ -17,6 +17,7 @@ const tabs = [
   ['transport', 'Transport', BusFront],
   ['timetable', 'Timetable', CalendarDays],
   ['certificates', 'Certificates', FileText],
+  ['leave', 'Leave', Umbrella],
   ['contact', 'Contact', Phone],
   ['profile', 'Profile', UserRound],
 ]
@@ -247,6 +248,54 @@ function CertificatesPage({ data, session, reload }) {
   return <div className="parent-stack"><div className="parent-card-list">{data.certificates.map(row => <article key={row.id}><span>{row.certificateNumber || row.certNo}</span><h3>{row.certificateType || row.type}</h3><small>{longDate(row.issueDate || row.createdAt)}</small><button onClick={() => window.print()}>View / Print</button></article>)}{!data.certificates.length && <Empty title="No certificates issued yet" />}</div><form className="parent-panel" onSubmit={submit}><h3>Request Certificate</h3><label>Type<select value={request.certificateType} onChange={event => setRequest({ ...request, certificateType: event.target.value })}>{['Transfer Certificate','Bonafide','Character','Study','Sports'].map(item => <option key={item}>{item}</option>)}</select></label><label>Purpose<textarea required value={request.purpose} onChange={event => setRequest({ ...request, purpose: event.target.value })} /></label><button className="parent-primary">Submit Request</button></form></div>
 }
 
+function LeavePage({ data, session, reload }) {
+  const today = new Date().toISOString().slice(0, 10)
+  const empty = { fromDate: today, toDate: today, reason: '' }
+  const [form, setForm] = useState(empty)
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState('')
+  const submit = async event => {
+    event.preventDefault()
+    if (busy) return
+    setBusy(true)
+    setError('')
+    try {
+      await api({ action: 'leaveRequest', ...session, studentId: data.selectedStudent.id, ...form })
+      setForm({ ...empty })
+      await reload()
+    } catch (submitError) {
+      setError(submitError.message)
+    } finally {
+      setBusy(false)
+    }
+  }
+  const requests = data.leaveRequests || []
+  return <div className="parent-stack">
+    <form className="parent-panel" onSubmit={submit}>
+      <h3>Apply for Leave</h3>
+      <label>From<input type="date" required value={form.fromDate} onChange={event => setForm({ ...form, fromDate: event.target.value })} /></label>
+      <label>To<input type="date" required value={form.toDate} min={form.fromDate} onChange={event => setForm({ ...form, toDate: event.target.value })} /></label>
+      <label>Reason<textarea required value={form.reason} onChange={event => setForm({ ...form, reason: event.target.value })} placeholder="e.g. Fever, family function" /></label>
+      {error && <p className="parent-error">{error}</p>}
+      <button className="parent-primary" disabled={busy}>{busy ? 'Submitting...' : 'Submit Request'}</button>
+    </form>
+    <section className="parent-panel">
+      <h3>My Requests</h3>
+      <div className="parent-table-wrap"><table>
+        <thead><tr><th>Dates</th><th>Reason</th><th>Status</th></tr></thead>
+        <tbody>
+          {requests.map(row => <tr key={row.id}>
+            <td>{row.fromDate === row.toDate ? longDate(row.fromDate) : `${longDate(row.fromDate)} - ${longDate(row.toDate)}`}</td>
+            <td>{row.reason}{row.reviewNote ? <small style={{ display: 'block', opacity: 0.7 }}>{row.reviewNote}</small> : null}</td>
+            <td><span className={`parent-status ${row.status === 'approved' ? 'paid' : row.status === 'rejected' ? 'due' : 'upcoming'}`}>{row.status}</span></td>
+          </tr>)}
+          {!requests.length && <tr><td colSpan="3">No leave requests yet.</td></tr>}
+        </tbody>
+      </table></div>
+    </section>
+  </div>
+}
+
 function ContactPage({ data, session, reload }) {
   const [form, setForm] = useState({ subject: '', message: '' })
   const submit = async event => {
@@ -345,6 +394,7 @@ export default function ParentPortal() {
     transport: <TransportPage data={selectedData} />,
     timetable: <TimetablePage data={selectedData} />,
     certificates: <CertificatesPage data={selectedData} session={session} reload={refresh} />,
+    leave: <LeavePage data={selectedData} session={session} reload={refresh} />,
     contact: <ContactPage data={selectedData} session={session} reload={refresh} />,
     profile: <ProfilePage data={selectedData} session={session} updateLocal={setData} />,
   }

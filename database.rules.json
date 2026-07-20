@@ -153,6 +153,13 @@
         "certificateRequests": { ".indexOn": ["studentId"] },
         "parentMessages": { ".indexOn": ["parentId"] },
         "parentNotifications": { ".indexOn": ["parentId"] },
+        "leaveRequests": {
+          ".indexOn": ["studentId", "classSection", "submittedAt"],
+          "$requestId": {
+            ".validate": "!newData.exists() || newData.hasChildren(['studentId', 'classSection', 'fromDate', 'toDate', 'status', 'submittedAt'])",
+            "status": { ".validate": "newData.val() === 'pending' || newData.val() === 'approved' || newData.val() === 'rejected'" }
+          }
+        },
         "parentStudentIndex": {
           "$parentPhone": {
             "$studentId": {

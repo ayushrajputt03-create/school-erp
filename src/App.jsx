@@ -19,6 +19,7 @@ import { StudentPhotoContext } from './student-photos'
 // already dynamically imported, but they were reachable only after this code had downloaded.
 const FeeManager = lazy(() => import('./FeeManager'))
 const BackupCenter = lazy(() => import('./BackupCenter'))
+const StudentLeaveManager = lazy(() => import('./StudentLeaveManager'))
 const TimetableManager = lazy(() => import('./TimetableManager'))
 const EmployeeManager = lazy(() => import('./EmployeeManager'))
 const CertificateManager = lazy(() => import('./CertificateManager'))
@@ -423,6 +424,7 @@ const nav = [
   { id: 'deleted-students', label: 'Deleted Students', icon: Archive },
   { id: 'employees', label: 'Employees', icon: BriefcaseBusiness },
   { id: 'leave', label: 'Leave', icon: Umbrella },
+  { id: 'student-leave', label: 'Student Leave', icon: Umbrella },
   { id: 'attendance', label: 'Attendance', icon: CalendarCheck },
   { id: 'fees', label: 'Fee Management', icon: IndianRupee },
   { id: 'academics', label: 'Timetable', icon: BookOpen },
@@ -2200,6 +2202,7 @@ function useSchoolWorkspace(session) {
   const [parentMessages, setParentMessages] = useState({})
   const [parentNotifications, setParentNotifications] = useState({})
   const [certificateRequests, setCertificateRequests] = useState({})
+  const [leaveRequests, setLeaveRequests] = useState({})
   const [approvals, setApprovals] = useState({ fees: {}, leaves: {} })
   const [expenses, setExpenses] = useState({})
   const [academics, setAcademics] = useState({})
@@ -2434,6 +2437,7 @@ function useSchoolWorkspace(session) {
         setParentMessages(school?.parentMessages || {})
         setParentNotifications(school?.parentNotifications || {})
         setCertificateRequests(school?.certificateRequests || {})
+    setLeaveRequests(school?.leaveRequests || {})
         setApprovals({ fees: school?.approvals?.fees || {}, leaves: school?.approvals?.leaves || {} })
         setExpenses(school?.expenses || {})
         setAcademics(school?.studentAcademics || {})
@@ -2565,6 +2569,10 @@ function useSchoolWorkspace(session) {
 
       listen(`schools/${schoolId}/parents`, snap => {
         setParents(snap.val() || {})
+      })
+
+      listen(`schools/${schoolId}/leaveRequests`, snap => {
+        setLeaveRequests(snap.val() || {})
       })
 
       listen(`schools/${schoolId}/certificates`, snap => {
@@ -3065,6 +3073,43 @@ function useSchoolWorkspace(session) {
     photoCacheRef.current[studentId] = inline ? photo.url : ''
     setStudents(current => current.map(item => item.id === studentId ? { ...item, photoUrl: photo.url, photoPath: photo.path, photoSize: photo.size, photoUpdatedAt: photo.updatedAt } : item))
     return photo
+  }
+
+  // Admin decision on a parent's student leave request. Writes the decision and notifies the
+  // parent in one atomic PATCH, so a parent can never see a status without its notification.
+  const decideLeaveRequest = async (requestId, decision, note = '') => {
+    const request = leaveRequests[requestId]
+    if (!request) throw new Error('Leave request not found.')
+    if (decision !== 'approved' && decision !== 'rejected') throw new Error('Invalid decision.')
+    const stamp = Date.now()
+    const reviewed = {
+      status: decision,
+      reviewedAt: stamp,
+      reviewedBy: session?.uid || 'demo',
+      reviewedByName: session?.displayName || session?.email || 'Admin',
+      reviewNote: String(note || '').trim().slice(0, 300),
+    }
+    if (developmentDemo) {
+      setLeaveRequests(current => ({ ...current, [requestId]: { ...request, ...reviewed } }))
+      return
+    }
+    const token = await session.getIdToken()
+    const notificationId = `notif_${stamp}_${Math.random().toString(36).slice(2, 8)}`
+    const dates = request.fromDate === request.toDate ? request.fromDate : `${request.fromDate} to ${request.toDate}`
+    await databaseRequest('', token, { method: 'PATCH', body: {
+      ...Object.fromEntries(Object.entries(reviewed).map(([key, value]) => [`schools/${workspace.schoolId}/leaveRequests/${requestId}/${key}`, value])),
+      ...(request.parentId ? { [`schools/${workspace.schoolId}/parentNotifications/${notificationId}`]: {
+        id: notificationId,
+        parentId: request.parentId,
+        title: `Leave request ${decision}`,
+        message: `${request.studentName || 'Your child'}'s leave for ${dates} was ${decision}.${reviewed.reviewNote ? ` Note: ${reviewed.reviewNote}` : ''}`,
+        type: 'leave',
+        isRead: false,
+        createdAt: stamp,
+      } } : {}),
+    } })
+    setLeaveRequests(current => ({ ...current, [requestId]: { ...request, ...reviewed } }))
+    setActivities(current => [{ id: `leave-${requestId}-${stamp}`, title: `Leave ${decision}`, detail: `${request.studentName || 'Student'} · ${dates}`, at: stamp, icon: 'L' }, ...current])
   }
 
   async function getNextAdmissionNumber() {
@@ -4375,7 +4420,7 @@ function useSchoolWorkspace(session) {
     return logo
   }
 
-  return { students, notices, fees, feeManager, attendance, timetableData, timetableRecords, homework, transport, library, accounts, leave, parents, parentMessages, parentNotifications, certificateRequests, enquiries, staff, staffAttendance, employeeConfig, approvals, expenses, academics, documents, certificates, certificateSettings, examData, reportData, idCards, idCardSettings, activities, backupSettings, workspace, createSchoolWorkspace, getNextAdmissionNumber, addStudent, updateStudent, updateStudentPhoto, ensureStudentPhotos, deletedStudents, deleteStudents, deleteAllStudents, restoreStudent, restoreAllStudents, permanentDeleteStudent, recordPayment, submitFeeReceipt, saveFeeGroup, deleteFeeGroup, saveFeeStructure, deleteFeeStructure, deleteFeeReceipt, restoreFeeReceipt, decideFeeApproval, saveFeeManagerConfig, createBackupPayload, restoreBackup, saveBackupSettings, saveSchoolProfile, saveParentAccount, addNotice, saveAttendance, saveEmployeeConfig, deleteEmployeeConfig, saveEmployee, deleteEmployee, saveStaffAttendance, savePeriod, saveTimetableRecord, deleteTimetableRecord, saveHomework, deleteHomework, markHomeworkDone, markHomeworkSeen, saveTransportItem, deleteTransportItem, saveExpenseItem, deleteExpenseItem, saveLibraryItem, deleteLibraryItem, saveAccountsItem, deleteAccountsItem, saveLeaveItem, deleteLeaveItem, saveEnquiry, uploadStudentDocument, loadStudentAttendance, saveCertificate, saveCertificateSettings, saveExamRecord, saveDateSheetRow, deleteDateSheetRow, saveAdmitCards, deleteCertificate, updateCertificateStatus, saveReportExam, deleteReportExam, saveReportMarks, saveReportCard, updateReportCard, saveIdCardSettings, saveIdCard, deleteIdCard, uploadIdCardLogo, developmentDemo }
+  return { students, notices, fees, feeManager, attendance, timetableData, timetableRecords, homework, transport, library, accounts, leave, parents, parentMessages, parentNotifications, certificateRequests, leaveRequests, decideLeaveRequest, enquiries, staff, staffAttendance, employeeConfig, approvals, expenses, academics, documents, certificates, certificateSettings, examData, reportData, idCards, idCardSettings, activities, backupSettings, workspace, createSchoolWorkspace, getNextAdmissionNumber, addStudent, updateStudent, updateStudentPhoto, ensureStudentPhotos, deletedStudents, deleteStudents, deleteAllStudents, restoreStudent, restoreAllStudents, permanentDeleteStudent, recordPayment, submitFeeReceipt, saveFeeGroup, deleteFeeGroup, saveFeeStructure, deleteFeeStructure, deleteFeeReceipt, restoreFeeReceipt, decideFeeApproval, saveFeeManagerConfig, createBackupPayload, restoreBackup, saveBackupSettings, saveSchoolProfile, saveParentAccount, addNotice, saveAttendance, saveEmployeeConfig, deleteEmployeeConfig, saveEmployee, deleteEmployee, saveStaffAttendance, savePeriod, saveTimetableRecord, deleteTimetableRecord, saveHomework, deleteHomework, markHomeworkDone, markHomeworkSeen, saveTransportItem, deleteTransportItem, saveExpenseItem, deleteExpenseItem, saveLibraryItem, deleteLibraryItem, saveAccountsItem, deleteAccountsItem, saveLeaveItem, deleteLeaveItem, saveEnquiry, uploadStudentDocument, loadStudentAttendance, saveCertificate, saveCertificateSettings, saveExamRecord, saveDateSheetRow, deleteDateSheetRow, saveAdmitCards, deleteCertificate, updateCertificateStatus, saveReportExam, deleteReportExam, saveReportMarks, saveReportCard, updateReportCard, saveIdCardSettings, saveIdCard, deleteIdCard, uploadIdCardLogo, developmentDemo }
 }
 
 export default function App() {
@@ -4453,7 +4498,7 @@ export default function App() {
         import('./IDCardManager'), import('./EmployeeManager'), import('./LeaveManager'),
         import('./TimetableManager'), import('./HomeworkManager'), import('./TransportManager'),
         import('./ExpenseManager'), import('./LibraryManager'), import('./AccountsManager'),
-        import('./BackupCenter'),
+        import('./BackupCenter'), import('./StudentLeaveManager'),
       ]).catch(() => { /* a failed prefetch is harmless; the real import retries on navigation */ })
     }
     if ('requestIdleCallback' in window) {
@@ -4491,6 +4536,7 @@ export default function App() {
     'deleted-students': <DeletedStudents deletedStudents={data.deletedStudents} onRestore={data.restoreStudent} onRestoreAll={data.restoreAllStudents} onPermanentDelete={data.permanentDeleteStudent} />,
     employees: <EmployeeManager staff={data.staff} attendance={data.staffAttendance} config={data.employeeConfig} saveConfig={data.saveEmployeeConfig} deleteConfig={data.deleteEmployeeConfig} saveEmployee={data.saveEmployee} deleteEmployee={data.deleteEmployee} saveAttendance={data.saveStaffAttendance} />,
     leave: <LeaveManager staff={data.staff} config={data.employeeConfig} leave={data.leave} saveLeaveItem={data.saveLeaveItem} deleteLeaveItem={data.deleteLeaveItem} saveStaffAttendance={data.saveStaffAttendance} />,
+    'student-leave': <StudentLeaveManager leaveRequests={data.leaveRequests} onDecide={data.decideLeaveRequest} role={data.workspace.role} />,
     attendance: <Attendance students={data.students} attendance={data.attendance} onSaveAttendance={data.saveAttendance} />,
     fees: <FeeManager students={data.students} fees={data.fees} feeManager={data.feeManager} approvals={data.approvals.fees || {}} schoolProfile={data.workspace.schoolProfile} onSubmitFee={data.submitFeeReceipt} onSaveGroup={data.saveFeeGroup} onDeleteGroup={data.deleteFeeGroup} onSaveStructure={data.saveFeeStructure} onDeleteStructure={data.deleteFeeStructure} onDeleteReceipt={data.deleteFeeReceipt} onRestoreReceipt={data.restoreFeeReceipt} onDecideApproval={data.decideFeeApproval} onSaveConfig={data.saveFeeManagerConfig} onOpenProfile={setSelectedStudent} />,
     academics: <Academics timetableData={data.timetableData} timetableRecords={data.timetableRecords} students={data.students} onSavePeriod={data.savePeriod} onSaveTimetable={data.saveTimetableRecord} onDeleteTimetable={data.deleteTimetableRecord} />,
