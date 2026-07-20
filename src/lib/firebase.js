@@ -16,6 +16,14 @@ const firebaseConfig = {
 
 export const isFirebaseConfigured = Object.values(firebaseConfig).every(Boolean)
 
+// One transient websocket failure makes the RTDB SDK write this flag and switch to
+// long-polling PERMANENTLY for the browser. On networks where the JSONP long-poll
+// endpoint is blocked (observed 503s on .lp while websockets work fine), that leaves
+// every live listener silently dead - students, admissions and leave queues all render
+// empty while REST reads still succeed. Clear the poisoned flag on every startup so the
+// SDK always retries websockets first.
+try { localStorage.removeItem('firebase:previous_websocket_failure') } catch { /* storage unavailable */ }
+
 const app = isFirebaseConfigured ? initializeApp(firebaseConfig) : null
 export const auth = app ? getAuth(app) : null
 export const storage = app ? getStorage(app) : null
