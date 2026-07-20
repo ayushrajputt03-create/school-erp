@@ -1,4 +1,4 @@
-import React, { useState } from 'react'
+import React, { useMemo, useState } from 'react'
 import { Check, Plus, Printer, Receipt, Save, Search, X, Pencil, Trash2, Eye, RotateCcw } from 'lucide-react'
 import FeeReceipt from './FeeReceipt'
 import DatePicker from './DatePicker'
@@ -96,6 +96,10 @@ function SubmitFee({ students, fees, onSubmit, onOpenProfile, schoolProfile, rec
   const lateFine = selectedRows.filter(row => row.head === 'Late Fine' || row.head === 'Fine').reduce((sum, row) => sum + Number(row.due || 0), 0)
   const otherFeeHeads = selectedRows.filter(row => !isMonthlyHead(row.head) && row.head !== 'Admission Fee' && row.head !== 'Late Fine' && row.head !== 'Fine' && row.head !== 'Previous Due').reduce((sum, row) => sum + Number(row.due || 0), 0)
   const alreadyPaidThisMonth = currentMonthReceipts.some(fee => String(fee.status || '').toLowerCase() === 'paid' || Number(fee.balance || 0) <= 0)
+  const pendingSummary = useMemo(
+    () => student ? getPendingFeesSummary({ student, fees, structures: feeManager?.structures, academicYear: schoolProfile?.academicYear }) : null,
+    [student, fees, feeManager?.structures, schoolProfile?.academicYear]
+  )
   const paymentStatus = paidAmount <= 0 ? 'Pending' : balance > 0 ? 'Partial' : 'Paid'
   const updateRow = (id, patch) => setRows(current => current.map(row => row.id === id ? { ...row, ...patch } : row))
   const updatePayment = (id, patch) => setPayments(current => current.map(payment => payment.id === id ? { ...payment, ...patch } : payment))
@@ -195,6 +199,9 @@ function SubmitFee({ students, fees, onSubmit, onOpenProfile, schoolProfile, rec
           <label>Receipt Date<DatePicker required value={form.receiptDate} onChange={value => setForm({ ...form, receiptDate: value })} /></label>
           <label>Select Fee Month<select value={form.month} onChange={event => setForm({ ...form, month: event.target.value })}>{feeMonths.map(month => <option key={month}>{month}</option>)}</select></label>
         </div>
+        {pendingSummary && (pendingSummary.pendingMonthsCount > 0
+          ? <div className="fee-pending-alert"><X size={16} /><div><strong>{pendingSummary.pendingMonthsCount} month{pendingSummary.pendingMonthsCount > 1 ? 's' : ''} pending · {money(pendingSummary.totalPendingAmount)}</strong><div className="fee-pending-chip-row">{pendingSummary.pendingMonths.map(item => <span key={item.monthKey} className={`fee-pending-chip ${item.status}`}>{item.month} · {money(item.amountDue)}{item.status === 'partial' ? ' left' : ''}</span>)}</div></div></div>
+          : <div className="fee-paid-warning fee-uptodate-note"><Check size={16} /><div><strong>All months paid up to date</strong><span>No previous month pending for this student.</span></div></div>)}
         <div className="fee-summary-panel">
           <div><span>Student Name</span><strong>{student.name}</strong></div>
           <div><span>Admission No.</span><strong>{student.roll}</strong></div>

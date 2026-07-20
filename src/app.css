@@ -180,6 +180,14 @@ button:disabled{opacity:.55;cursor:not-allowed}
 .fee-summary-panel strong{font:700 12px Manrope;margin-top:4px;color:#253044}
 .fee-paid-warning{margin:12px 15px 0;border:1px solid #86efac;background:#ecfdf3;color:#166534;border-radius:8px;padding:12px;display:flex;align-items:center;gap:10px}
 .fee-paid-warning div{flex:1}.fee-paid-warning strong,.fee-paid-warning span{display:block}.fee-paid-warning span{font-size:9px;margin-top:3px}
+.fee-pending-alert{margin:12px 15px 0;border:1px solid #fca5a5;background:#fef2f2;color:#991b1b;border-radius:8px;padding:12px;display:flex;align-items:flex-start;gap:10px}
+.fee-pending-alert>div{flex:1}.fee-pending-alert strong{display:block;font-size:12px}
+.fee-pending-chip-row{display:flex;flex-wrap:wrap;gap:6px;margin-top:7px}
+.fee-pending-chip{border:1px solid #fca5a5;background:#fff;color:#b91c1c;border-radius:999px;padding:3px 9px;font-size:10px;font-weight:700}
+.fee-pending-chip.partial{border-color:#fcd34d;background:#fffbeb;color:#92400e}
+.theme-dark .fee-pending-alert{background:#2a1215;border-color:#7f1d1d;color:#fecaca}
+.theme-dark .fee-pending-chip{background:#1f2937;border-color:#7f1d1d;color:#fca5a5}
+.theme-dark .fee-pending-chip.partial{background:#292112;border-color:#92400e;color:#fcd34d}
 .fee-history-panel{margin:0 15px 15px;border:1px solid var(--line);border-radius:8px;overflow:hidden}
 .fee-history-panel .panel-header{padding:12px 14px}
 .theme-dark .fee-summary-panel{background:#111827;border-color:var(--theme-line)}.theme-dark .fee-summary-panel>div,.theme-dark .fee-history-panel{background:var(--surface);border-color:var(--theme-line)}.theme-dark .fee-paid-warning{background:#12251b;border-color:#1f7a4a;color:#b7f7d0}
