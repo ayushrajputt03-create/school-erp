@@ -2625,7 +2625,20 @@ function useSchoolWorkspace(session) {
       // Scoped to pending only - the queue the admin actually acts on. Requires
       // "admissionRequests": { ".indexOn": ["status"] } in the rules.
       const pendingAdmissions = query(dbRef(rtdb, `schools/${schoolId}/admissionRequests`), orderByChild('status'), equalTo('pending'))
-      onValue(pendingAdmissions, snap => setAdmissionRequests(snap.val() || {}), () => {})
+      // A failed query must not present as an empty queue - "no applications" and "the query
+      // broke" look identical on screen and that ambiguity already cost a day of debugging.
+      // If the indexed query errors (e.g. .indexOn dropped by a console rules edit), fall back
+      // to reading the node whole and filtering here.
+      onValue(pendingAdmissions, snap => setAdmissionRequests(snap.val() || {}), error => {
+        console.warn('[admissions] pending query failed, falling back to full read:', error?.message)
+        const fallbackRef = dbRef(rtdb, `schools/${schoolId}/admissionRequests`)
+        const fallbackHandler = snap => {
+          const all = snap.val() || {}
+          setAdmissionRequests(Object.fromEntries(Object.entries(all).filter(([, row]) => row?.status === 'pending')))
+        }
+        onValue(fallbackRef, fallbackHandler, () => {})
+        unsubs.push(() => off(fallbackRef, 'value', fallbackHandler))
+      })
       unsubs.push(() => off(pendingAdmissions, 'value'))
 
       listen(`schools/${schoolId}/certificates`, snap => {
