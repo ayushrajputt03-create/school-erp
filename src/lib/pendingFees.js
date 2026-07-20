@@ -58,6 +58,18 @@ const rowMatchesMonth = (row, key, name, year) => {
   return false
 }
 
+// Month a fee row was billed for, as a first-of-month Date. Understands "YYYY-MM"
+// periods, "YYYY-MM" billingMonth values and legacy month-name rows (year taken
+// from the receipt/paid date).
+const rowBilledMonth = row => {
+  const period = firstOfMonth(row.billingPeriod) || firstOfMonth(row.billingMonth)
+  if (period) return period
+  const monthIndex = MONTH_NAMES.indexOf(String(row.billingMonth || ''))
+  if (monthIndex < 0) return null
+  const year = Number(String(row.receiptDate || '').slice(0, 4)) || (row.paidAt ? new Date(row.paidAt).getFullYear() : 0)
+  return year ? new Date(year, monthIndex, 1) : null
+}
+
 const firstOfMonth = value => {
   const match = String(value || '').match(/^(\d{4})-(\d{2})/)
   if (!match) return null
@@ -82,8 +94,17 @@ export function getPendingFeesSummary({ student, fees = {}, structures = {}, aca
   const fallbackStart = now.getMonth() >= 3 ? now.getFullYear() : now.getFullYear() - 1
   const startYear = Number(String(academicYear || '').match(/\d{4}/)?.[0] || fallbackStart)
   let cursor = new Date(startYear, 3, 1)
-  const admissionMonth = firstOfMonth(student.admissionDate)
-  if (admissionMonth && admissionMonth > cursor) cursor = admissionMonth
+  // Admission dates are often the day the record was entered, not when dues began:
+  // schools bill from the session start and back-date receipts (billingMonth "April"
+  // on a July admission). So only clamp to the admission month when no fee row is
+  // billed earlier - otherwise start from the earliest billed month so previous
+  // months are still walked and reported.
+  let startMonth = firstOfMonth(student.admissionDate)
+  for (const row of studentRows) {
+    const billed = rowBilledMonth(row)
+    if (billed && startMonth && billed < startMonth) startMonth = billed
+  }
+  if (startMonth && startMonth > cursor) cursor = startMonth
   const currentMonth = new Date(now.getFullYear(), now.getMonth(), 1)
 
   const pendingMonths = []

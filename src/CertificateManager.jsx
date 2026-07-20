@@ -919,6 +919,25 @@ async function imageUrlToDataUrl(url) {
   }
 }
 
+// jsPDF addImage stretches to the given box, so non-square school logos distort.
+// Fit the image inside the box on its natural aspect ratio and centre it instead.
+const imageNaturalSize = dataUrl => new Promise(resolve => {
+  if (!dataUrl) return resolve(null)
+  const image = new Image()
+  image.onload = () => resolve({ width: image.naturalWidth, height: image.naturalHeight })
+  image.onerror = () => resolve(null)
+  image.src = dataUrl
+})
+
+async function fitImageInBox(dataUrl, x, y, boxWidth, boxHeight) {
+  const size = await imageNaturalSize(dataUrl)
+  if (!size || !size.width || !size.height) return { x, y, width: boxWidth, height: boxHeight }
+  const scale = Math.min(boxWidth / size.width, boxHeight / size.height)
+  const width = size.width * scale
+  const height = size.height * scale
+  return { x: x + (boxWidth - width) / 2, y: y + (boxHeight - height) / 2, width, height }
+}
+
 async function downloadCharacterCertificatePdf(student, form, school, settings, certificateNumber, duplicate, photoUrl = '') {
   const { jsPDF } = await import('jspdf')
   const pdf = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' })
@@ -964,7 +983,10 @@ async function downloadCharacterCertificatePdf(student, form, school, settings, 
   pdf.setFontSize(11)
   pdf.text(`Serial No: ${display.serial}`, 17, 24)
   pdf.circle(29, 73, 13)
-  if (logoData) pdf.addImage(logoData, imageFormat(logoData), 16, 60, 26, 26, undefined, 'FAST')
+  if (logoData) {
+    const box = await fitImageInBox(logoData, 16, 60, 26, 26)
+    pdf.addImage(logoData, imageFormat(logoData), box.x, box.y, box.width, box.height, undefined, 'FAST')
+  }
   pdf.rect(width - 47, 54, 30, 38)
   if (photoData) {
     pdf.addImage(photoData, imageFormat(photoData), width - 47, 54, 30, 38, undefined, 'FAST')
@@ -1063,7 +1085,10 @@ async function downloadTransferCertificatePdf(student, form, school, settings, c
 
   pdf.setTextColor(15, 23, 42)
   pdf.circle(24, 24, 10)
-  if (logoData) pdf.addImage(logoData, imageFormat(logoData), 14, 14, 20, 20, undefined, 'FAST')
+  if (logoData) {
+    const box = await fitImageInBox(logoData, 14, 14, 20, 20)
+    pdf.addImage(logoData, imageFormat(logoData), box.x, box.y, box.width, box.height, undefined, 'FAST')
+  }
   pdf.rect(width - 37, 14, 25, 30)
   if (photoData) pdf.addImage(photoData, imageFormat(photoData), width - 37, 14, 25, 30, undefined, 'FAST')
   else {
@@ -1170,7 +1195,10 @@ async function downloadCertificatePdf(type, student, form, school, settings, cer
   pdf.text(settings.address || school.address || '', width / 2, 28, { align: 'center' })
   pdf.text([settings.phone || school.phone, settings.email || school.email].filter(Boolean).join(' | '), width / 2, 33, { align: 'center' })
   const logoData = await imageUrlToDataUrl(settings.logo || school.logo || '')
-  if (logoData) pdf.addImage(logoData, imageFormat(logoData), 14, 13, 26, 26, undefined, 'FAST')
+  if (logoData) {
+    const box = await fitImageInBox(logoData, 14, 13, 26, 26)
+    pdf.addImage(logoData, imageFormat(logoData), box.x, box.y, box.width, box.height, undefined, 'FAST')
+  }
   pdf.setDrawColor(51, 51, 51)
   pdf.setLineWidth(0.25)
   pdf.rect(width - 44, 13, 30, 38)
