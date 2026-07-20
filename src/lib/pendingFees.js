@@ -40,6 +40,27 @@ export const monthlyFeeFor = (student, structures) => {
     .reduce((sum, row) => sum + Number(row.amount || 0), 0)
 }
 
+// When no fee structure matches the student's class (structures are only configured
+// for some classes), fall back to the recurring monthly heads on the student's own
+// most recent receipt so record-less months still get an expected due.
+const MONTHLY_HEADS = ['Monthly Tuition Fee', 'Tuition Fee', 'Transport Fee', 'Computer Fee', 'IT Fee']
+const monthlyFeeFromRows = rows => {
+  let best = 0
+  let bestAt = -1
+  for (const row of rows) {
+    const items = Array.isArray(row.feeItems) ? row.feeItems : []
+    const sum = items
+      .filter(item => MONTHLY_HEADS.includes(String(item.head || '')))
+      .reduce((total, item) => total + Number(item.due || 0), 0)
+    const at = Number(row.paidAt || 0)
+    if (sum > 0 && at >= bestAt) {
+      best = sum
+      bestAt = at
+    }
+  }
+  return best
+}
+
 const belongsToStudent = (row, student) => {
   if (String(row.studentId || '') === String(student.id)) return true
   const admission = String(student.roll || student.admissionNo || '')
@@ -85,11 +106,12 @@ const firstOfMonth = value => {
 // when no matching fee row says "paid" and the amount collected is short of the monthly fee.
 export function getPendingFeesSummary({ student, fees = {}, structures = {}, academicYear, monthlyFee, now = new Date() }) {
   if (!student) return { pendingMonthsCount: 0, pendingMonths: [], totalPendingAmount: 0, monthlyFee: 0 }
-  const fee = monthlyFee !== undefined && monthlyFee !== null && Number.isFinite(Number(monthlyFee))
-    ? Number(monthlyFee)
-    : monthlyFeeFor(student, structures)
   const allRows = Array.isArray(fees) ? fees : Object.values(fees || {})
   const studentRows = allRows.filter(row => row && belongsToStudent(row, student))
+  const configuredFee = monthlyFee !== undefined && monthlyFee !== null && Number.isFinite(Number(monthlyFee))
+    ? Number(monthlyFee)
+    : monthlyFeeFor(student, structures)
+  const fee = configuredFee > 0 ? configuredFee : monthlyFeeFromRows(studentRows)
 
   const fallbackStart = now.getMonth() >= 3 ? now.getFullYear() : now.getFullYear() - 1
   const startYear = Number(String(academicYear || '').match(/\d{4}/)?.[0] || fallbackStart)

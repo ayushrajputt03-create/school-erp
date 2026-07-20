@@ -982,7 +982,7 @@ async function downloadCharacterCertificatePdf(student, form, school, settings, 
   pdf.setFont('helvetica', 'bold')
   pdf.setFontSize(11)
   pdf.text(`Serial No: ${display.serial}`, 17, 24)
-  pdf.circle(29, 73, 13)
+  pdf.roundedRect(16, 60, 26, 26, 1.5, 1.5)
   if (logoData) {
     const box = await fitImageInBox(logoData, 16, 60, 26, 26)
     pdf.addImage(logoData, imageFormat(logoData), box.x, box.y, box.width, box.height, undefined, 'FAST')
@@ -1084,7 +1084,7 @@ async function downloadTransferCertificatePdf(student, form, school, settings, c
   }
 
   pdf.setTextColor(15, 23, 42)
-  pdf.circle(24, 24, 10)
+  pdf.roundedRect(14, 14, 20, 20, 1.5, 1.5)
   if (logoData) {
     const box = await fitImageInBox(logoData, 14, 14, 20, 20)
     pdf.addImage(logoData, imageFormat(logoData), box.x, box.y, box.width, box.height, undefined, 'FAST')
