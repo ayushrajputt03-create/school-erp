@@ -153,14 +153,22 @@ function classParts(value = '') {
   return { className: className.trim(), section: section.trim() }
 }
 
-function qrMatrix(seed = '') {
-  let hash = 0
-  for (let index = 0; index < seed.length; index += 1) hash = ((hash << 5) - hash + seed.charCodeAt(index)) | 0
-  return Array.from({ length: 49 }, (_, index) => ((hash >> (index % 24)) + index + seed.length) % 3 === 0)
-}
-
+// This used to be a 7x7 pattern derived from a string hash - it looked like a QR code but
+// encoded nothing, so the "Scan to verify ERP profile" line on the card back was not true and
+// nothing could actually be scanned. Now a real QR encoding the verification URL.
 function QRPreview({ value }) {
-  return <div className="id-qr" title={value}>{qrMatrix(value).map((active, index) => <i key={index} className={active ? 'on' : ''} />)}</div>
+  const [src, setSrc] = useState('')
+  useEffect(() => {
+    let active = true
+    const text = String(value || '')
+    if (!text) { setSrc(''); return undefined }
+    import('qrcode')
+      .then(({ default: QRCode }) => QRCode.toDataURL(text, { margin: 0, width: 320, errorCorrectionLevel: 'M', color: { dark: '#021024ff', light: '#ffffffff' } }))
+      .then(result => { if (active) setSrc(result) })
+      .catch(() => { if (active) setSrc('') })
+    return () => { active = false }
+  }, [value])
+  return <div className="id-qr" title={value}>{src ? <img src={src} alt="" /> : null}</div>
 }
 
 function BarcodePreview({ value }) {
