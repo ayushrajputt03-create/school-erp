@@ -2290,11 +2290,19 @@ function useSchoolWorkspace(session) {
       LISTENERLESS_NODES.forEach((node, index) => {
         if (values[index] !== null && values[index] !== undefined) school[node] = values[index]
       })
-      // Students are ALSO served by a live listener, but they are the one node the school cannot
-      // appear to lose - if the listener ever fails to attach, every other module degrades while
-      // an empty student list reads as data loss. Fetch them in the bootstrap unconditionally and
-      // let the listener overwrite with the same rows moments later.
-      school.students = (await safeRequest(`schools/${schoolId}/students`, token)) || {}
+      // Students, leave requests and admission requests are ALSO served by live listeners, but
+      // these are the nodes the school cannot appear to lose - if a listener ever fails to
+      // attach, every other module degrades gracefully while an empty student list reads as
+      // data loss and an empty request queue silently hides real applications. Fetch them in
+      // the bootstrap unconditionally and let the listeners overwrite with the same rows.
+      const [studentRows, leaveRequestRows, admissionRequestRows] = await Promise.all([
+        safeRequest(`schools/${schoolId}/students`, token),
+        safeRequest(`schools/${schoolId}/leaveRequests`, token),
+        safeRequest(`schools/${schoolId}/admissionRequests`, token),
+      ])
+      school.students = studentRows || {}
+      school.leaveRequests = leaveRequestRows || {}
+      school.admissionRequests = admissionRequestRows || {}
       return school
     }
 
@@ -2487,6 +2495,9 @@ function useSchoolWorkspace(session) {
         setParentNotifications(school?.parentNotifications || {})
         setCertificateRequests(school?.certificateRequests || {})
     setLeaveRequests(school?.leaveRequests || {})
+        // The admissions state holds the pending queue only (the listener subscribes to a
+        // status === 'pending' query), so filter the bootstrap rows the same way.
+        setAdmissionRequests(Object.fromEntries(Object.entries(school?.admissionRequests || {}).filter(([, row]) => row?.status === 'pending')))
         setApprovals({ fees: school?.approvals?.fees || {}, leaves: school?.approvals?.leaves || {} })
         setExpenses(school?.expenses || {})
         setAcademics(school?.studentAcademics || {})
@@ -2534,7 +2545,10 @@ function useSchoolWorkspace(session) {
     import('firebase/database').then(({ ref: dbRef, onValue, off, getDatabase, query, orderByChild, startAt, equalTo }) => {
       if (cancelled) return
       let rtdb
-      try { rtdb = getDatabase(firebaseApp) } catch { return }
+      try { rtdb = getDatabase(firebaseApp) } catch (error) {
+        console.error('[listeners] getDatabase failed - live updates are OFF for this session:', error?.message)
+        return
+      }
 
       function listen(path, handler) {
         const r = dbRef(rtdb, path)
@@ -2678,7 +2692,11 @@ function useSchoolWorkspace(session) {
         const profile = snap.val()
         if (profile) setWorkspace(current => ({ ...current, schoolProfile: profile, schoolName: profile.schoolName || current.schoolName }))
       })
-    }).catch(() => {})
+    }).catch(error => {
+      // A failed dynamic import (typically a stale tab loading a chunk that no longer exists
+      // after a deploy) means NO listener attaches and every live surface silently freezes.
+      console.error('[listeners] firebase/database failed to load - live updates are OFF for this session:', error?.message)
+    })
 
     return () => { cancelled = true; unsubs.forEach(fn => fn()) }
   }, [workspace.schoolId, workspace.needsSetup, workspace.loading])
