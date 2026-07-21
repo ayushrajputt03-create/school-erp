@@ -26,24 +26,19 @@ export default function BackupCenter({ students, fees, attendance, settings, cre
   // does every stored receipt carry a timestamp to bound on? A bounded query silently skips
   // rows whose ordered field is missing, so a single dateless receipt would quietly vanish
   // from pending totals. This writes nothing - it reads the same payload a backup reads.
+  // Counts the fees already held in memory - no network call at all. That is exactly the right
+  // source here: the question being answered is whether the CURRENTLY UNBOUNDED listener's rows
+  // all carry a date, and while it is unbounded this state is the complete set. An earlier
+  // version routed this through createBackup(), which downloads the whole attendance node too -
+  // a needless bill on every click.
   const [health, setHealth] = useState(null)
-  const runHealthCheck = async () => {
-    setBusy('health')
-    setHealth(null)
-    try {
-      const payload = await createBackup()
-      const rows = Object.values(payload.data.fees || {})
-      const dateless = rows.filter(row => !row.paidAt && !row.receiptDate && !row.billingPeriod && !row.date)
-      setHealth({
-        total: rows.length,
-        missingPaidAt: rows.filter(row => !row.paidAt).length,
-        dateless: dateless.length,
-      })
-    } catch (error) {
-      setHealth({ error: error?.message || 'Could not read fee records.' })
-    } finally {
-      setBusy('')
-    }
+  const runHealthCheck = () => {
+    const rows = Object.values(fees || {})
+    setHealth({
+      total: rows.length,
+      missingPaidAt: rows.filter(row => !row.paidAt).length,
+      dateless: rows.filter(row => !row.paidAt && !row.receiptDate && !row.billingPeriod && !row.date).length,
+    })
   }
 
   const exportJson = async () => {
@@ -159,8 +154,8 @@ export default function BackupCenter({ students, fees, attendance, settings, cre
       </section>
       <section className="panel backup-card">
         <div className="backup-icon json"><DatabaseBackup size={23} /></div>
-        <div><h3>Fee Data Health Check</h3><p>Checks whether every stored receipt carries a date. Read only — nothing is changed.</p></div>
-        <button className="secondary-button" disabled={!admin || busy === 'health'} onClick={runHealthCheck}><Check size={15} /> {busy === 'health' ? 'Checking...' : 'Run check'}</button>
+        <div><h3>Fee Data Health Check</h3><p>Checks whether every stored receipt carries a date. Reads loaded data only — no download, nothing changed.</p></div>
+        <button className="secondary-button" disabled={!admin} onClick={runHealthCheck}><Check size={15} /> Run check</button>
         {health && (health.error
           ? <p className="health-result bad">{health.error}</p>
           : <p className={`health-result ${health.missingPaidAt || health.dateless ? 'bad' : 'good'}`}>
