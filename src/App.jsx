@@ -12,7 +12,11 @@ import {
 import './app.css'
 import AuthScreen from './AuthScreen'
 import SchoolSetup from './SchoolSetup'
-import { StudentPhotoContext } from './student-photos'
+import { StudentPhotoContext, useStudentPhotos } from './student-photos'
+
+// One screenful of students. Each row can carry ~133KB of photo, so this is the difference
+// between a directory costing a few megabytes and costing tens of them.
+const STUDENT_PAGE_SIZE = 50
 // Every ERP module used to be a static import, so the login screen shipped the whole ERP -
 // a 899KB main chunk. Each of these renders on exactly one page, so load them when that page is
 // opened instead. The heavy PDF/canvas libraries they pull in (jspdf, html2canvas, exceljs) were
@@ -472,6 +476,8 @@ function useStoredState(key, initialValue) {
 function StudentSearch({ students, onSelect, prominent = false }) {
   const [query, setQuery] = useState('')
   const results = query.trim() ? students.filter(student => `${student.roll} ${student.name} ${student.phone}`.toLowerCase().includes(query.trim().toLowerCase())).slice(0, 6) : []
+  // Already capped at six, so this only ever pulls a handful of photos.
+  useStudentPhotos(results.map(student => student.id))
   return <div className={`student-quick-search ${prominent ? 'prominent' : ''}`}>
     <Search size={prominent ? 18 : 16} /><input value={query} onChange={event => setQuery(event.target.value)} placeholder="Search admission no., student name or phone" />
     {results.length > 0 && <div className="search-results">{results.map(student => <button key={student.id} onClick={() => { onSelect(student); setQuery('') }}><StudentAvatar student={student} size="search" /><div><strong>{student.name}</strong><small>Adm No: {student.roll}</small><small>Class: {student.className} - Father: {student.fatherName || student.guardian || '-'}</small><small>Phone: {student.phone}</small></div></button>)}</div>}
@@ -1097,6 +1103,8 @@ function StudentProfile({ student, close, attendance, fees, feeManager, schoolPr
   const pendingSummary = getPendingFeesSummary({ student, fees: studentFees, structures: feeManager?.structures, academicYear, sessionStartMonth })
   const results = academics?.[student.id] || {}
   const docs = documents?.[student.id] || {}
+  // The profile is the one screen that always shows a photo, so it asks for its own.
+  useStudentPhotos([student?.id])
   const currentPhoto = student.photoUrl || docs.photo?.url || docs.photo?.data || ''
   const upload = async (type, file) => {
     if (!file) return
@@ -1175,6 +1183,17 @@ function Students({ students, onAddStudent, onUpdateStudent, onSelectStudent, ge
   })
   const selectedStudents = students.filter(s => selected.has(String(s.id)))
   const runDelete = async (ids, reason, isAll) => { await onDeleteStudents(ids, reason, isAll); setSelected(new Set()); setDeleteTarget(null) }
+
+  // Photos are the single heaviest thing this app reads: roughly 133KB of base64 per student.
+  // Rendering every match at once means a directory of 500 pulls tens of megabytes for rows
+  // nobody scrolled to, so the table shows one page at a time and asks for only those photos.
+  // Filtering resets to page one, otherwise a narrowed search can strand you on an empty page.
+  const [page, setPage] = useState(1)
+  const pageCount = Math.max(1, Math.ceil(filtered.length / STUDENT_PAGE_SIZE))
+  const safePage = Math.min(page, pageCount)
+  const visible = filtered.slice((safePage - 1) * STUDENT_PAGE_SIZE, safePage * STUDENT_PAGE_SIZE)
+  useEffect(() => { setPage(1) }, [search, codeSearch, filter, statusFilter, streamFilter])
+  useStudentPhotos(visible.map(s => s.id))
   return <>
     <div className="section-actions"><div><h2>Student directory</h2><p>Manage profiles, guardians, attendance and fee status.</p></div><div style={{ display: 'flex', gap: 8 }}><button className="primary-button" onClick={() => setModal('add')}><Plus size={17} /> Add student</button></div></div>
     <div className="mini-stats"><div><span>All students</span><strong>{students.length}</strong></div><div><span>Active</span><strong>{activeStudents.length}</strong></div><div><span>Drop outs</span><strong>{dropoutCount}</strong></div><div><span>Fee defaulters</span><strong>{activeStudents.filter(s => s.fee !== 'Paid').length}</strong></div></div>
@@ -1192,10 +1211,15 @@ function Students({ students, onAddStudent, onUpdateStudent, onSelectStudent, ge
           <select value={statusFilter} onChange={e => setStatusFilter(e.target.value)}><option value="all">All statuses</option><option value="active">Active</option><option value="dropout">Drop Out</option><option value="transfer">Transfer Out</option><option value="passedout">Passed Out</option></select>
         </div>
       </div>
-      <div className="table-scroll"><table><thead><tr><th style={{ width: 34 }}><input type="checkbox" checked={allVisibleSelected} onChange={toggleAllVisible} title="Select all visible" style={{ cursor: 'pointer' }} /></th><th>Student</th><th>Class</th><th>Guardian</th><th>Attendance</th><th>Fee status</th><th /></tr></thead><tbody>
-        {filtered.map(s => <tr key={s.id} onClick={() => onSelectStudent(s)} className="clickable-row"><td onClick={e => e.stopPropagation()}><input type="checkbox" checked={selected.has(String(s.id))} onChange={() => toggleOne(s.id)} style={{ cursor: 'pointer' }} /></td><td><div className="student-cell"><StudentAvatar student={s} /><div><strong>{s.name} <StudentStatusBadge student={s} /></strong><small>{s.roll}</small></div></div></td><td><span className="class-pill">{s.className}</span>{s.stream && <span className="stream-pill">{s.stream}</span>}</td><td><strong className="regular">{s.guardian}</strong><small className="cell-sub">{s.phone}</small></td><td><div className="attendance-cell"><span>{s.attendance}%</span><div><i style={{width: `${s.attendance}%`}} /></div></div></td><td><span className={`status ${s.fee.toLowerCase()}`}>{s.fee}</span></td><td><div style={{ display: 'flex', gap: '4px', justifyContent: 'flex-end' }} onClick={e => e.stopPropagation()}><button type="button" className="icon-button" onClick={() => onSelectStudent(s)} title={`View ${s.name}`}><Eye size={16} /></button><button type="button" className="icon-button" onClick={() => setModal(s)} title={`Edit ${s.name}`}><Pencil size={16} /></button><button type="button" className="icon-button danger" onClick={() => setDeleteTarget({ mode: 'selected', students: [s] })} title={`Delete ${s.name}`}><Trash2 size={16} /></button></div></td></tr>)}
+      <div className="table-scroll"><table><thead><tr><th style={{ width: 34 }}><input type="checkbox" checked={allVisibleSelected} onChange={toggleAllVisible} title="Select every student matching the current filters, across all pages" style={{ cursor: 'pointer' }} /></th><th>Student</th><th>Class</th><th>Guardian</th><th>Attendance</th><th>Fee status</th><th /></tr></thead><tbody>
+        {visible.map(s => <tr key={s.id} onClick={() => onSelectStudent(s)} className="clickable-row"><td onClick={e => e.stopPropagation()}><input type="checkbox" checked={selected.has(String(s.id))} onChange={() => toggleOne(s.id)} style={{ cursor: 'pointer' }} /></td><td><div className="student-cell"><StudentAvatar student={s} /><div><strong>{s.name} <StudentStatusBadge student={s} /></strong><small>{s.roll}</small></div></div></td><td><span className="class-pill">{s.className}</span>{s.stream && <span className="stream-pill">{s.stream}</span>}</td><td><strong className="regular">{s.guardian}</strong><small className="cell-sub">{s.phone}</small></td><td><div className="attendance-cell"><span>{s.attendance}%</span><div><i style={{width: `${s.attendance}%`}} /></div></div></td><td><span className={`status ${s.fee.toLowerCase()}`}>{s.fee}</span></td><td><div style={{ display: 'flex', gap: '4px', justifyContent: 'flex-end' }} onClick={e => e.stopPropagation()}><button type="button" className="icon-button" onClick={() => onSelectStudent(s)} title={`View ${s.name}`}><Eye size={16} /></button><button type="button" className="icon-button" onClick={() => setModal(s)} title={`Edit ${s.name}`}><Pencil size={16} /></button><button type="button" className="icon-button danger" onClick={() => setDeleteTarget({ mode: 'selected', students: [s] })} title={`Delete ${s.name}`}><Trash2 size={16} /></button></div></td></tr>)}
         {!filtered.length && <tr><td colSpan="7"><div className="empty-state">No students match this search.</div></td></tr>}
       </tbody></table></div>
+      {pageCount > 1 && <div className="table-pager">
+        <button type="button" className="secondary-button" disabled={safePage === 1} onClick={() => setPage(safePage - 1)}>Previous</button>
+        <span>Showing {(safePage - 1) * STUDENT_PAGE_SIZE + 1}-{Math.min(safePage * STUDENT_PAGE_SIZE, filtered.length)} of {filtered.length}</span>
+        <button type="button" className="secondary-button" disabled={safePage === pageCount} onClick={() => setPage(safePage + 1)}>Next</button>
+      </div>}
     </div>
     <div className="danger-zone">
       <div><strong><AlertTriangle size={15} /> Danger zone</strong><small>Deletes every student in this school. Records are archived to Deleted Students and can be restored.</small></div>
@@ -1307,6 +1331,8 @@ function AdmissionForm({ students, onAddStudent, onUpdateStudent, onOpenRegister
   const update = (key, value) => setForm(current => ({ ...current, [key]: value, ...(key === 'dob' ? { ageOn31March: ageOnDate(value) } : {}), ...(key === 'className' ? { stream: isSeniorClass(String(value).split('-')[0]) ? current.stream : '' } : {}) }))
   const toggleDisability = value => setForm(current => ({ ...current, disabilityType: current.disabilityType.includes(value) ? current.disabilityType.filter(item => item !== value) : [...current.disabilityType, value] }))
   const oldMatches = oldSearch.trim() ? students.filter(student => `${student.roll} ${student.name} ${student.phone}`.toLowerCase().includes(oldSearch.toLowerCase())).slice(0, 8) : []
+  // Capped at eight results, so this is a handful of photos at most.
+  useStudentPhotos(oldMatches.map(student => student.id))
   const selectOldStudent = student => {
     setSelectedOldStudent(student)
     const { className, section } = splitClassSection(student.className)
@@ -1675,10 +1701,24 @@ td.lbl{color:#333;width:130px;font-weight:600}
 }
 
 function StudentRegisterTable({ students }) {
+  // Paged for the same reason as the directory: one row can carry ~133KB of photo, and this
+  // register happily lists the whole school. Only the page on screen asks for its photos.
+  const [page, setPage] = useState(1)
+  const pageCount = Math.max(1, Math.ceil(students.length / STUDENT_PAGE_SIZE))
+  const safePage = Math.min(page, pageCount)
+  const visible = students.slice((safePage - 1) * STUDENT_PAGE_SIZE, safePage * STUDENT_PAGE_SIZE)
+  useEffect(() => { setPage(1) }, [students.length])
+  useStudentPhotos(visible.map(student => student.id))
   return <div className="panel table-panel"><div className="table-scroll"><table><thead><tr><th>Student</th><th>Admission No.</th><th>Class</th><th>Father</th><th>Mobile</th><th>Admission</th><th>Status</th></tr></thead><tbody>
-    {students.map(student => <tr key={student.id}><td><div className="student-cell"><StudentAvatar student={student} /><strong>{student.name}</strong></div></td><td>{student.roll}</td><td>{student.className}</td><td>{student.fatherName || student.guardian}</td><td>{student.phone}</td><td>{student.admissionType}</td><td><span className={`status ${student.active ? 'paid' : 'overdue'}`}>{student.active ? 'Active' : 'Inactive'}</span></td></tr>)}
+    {visible.map(student => <tr key={student.id}><td><div className="student-cell"><StudentAvatar student={student} /><strong>{student.name}</strong></div></td><td>{student.roll}</td><td>{student.className}</td><td>{student.fatherName || student.guardian}</td><td>{student.phone}</td><td>{student.admissionType}</td><td><span className={`status ${student.active ? 'paid' : 'overdue'}`}>{student.active ? 'Active' : 'Inactive'}</span></td></tr>)}
     {!students.length && <tr><td colSpan="7"><div className="empty-state">No students found.</div></td></tr>}
-  </tbody></table></div></div>
+  </tbody></table></div>
+  {pageCount > 1 && <div className="table-pager">
+    <button type="button" className="secondary-button" disabled={safePage === 1} onClick={() => setPage(safePage - 1)}>Previous</button>
+    <span>Showing {(safePage - 1) * STUDENT_PAGE_SIZE + 1}-{Math.min(safePage * STUDENT_PAGE_SIZE, students.length)} of {students.length}</span>
+    <button type="button" className="secondary-button" disabled={safePage === pageCount} onClick={() => setPage(safePage + 1)}>Next</button>
+  </div>}
+  </div>
 }
 
 function AdmissionRegister({ students, compact = false }) {

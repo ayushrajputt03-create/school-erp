@@ -310,3 +310,7 @@ img{max-width:100%}
 .health-result.bad { border: 1px solid #f0c9c2; background: #fdf3f1; color: #b03a2e; }
 .theme-dark .health-result.good { background: #12271c; border-color: #245239; color: #9fdcbb; }
 .theme-dark .health-result.bad { background: #2e1a17; border-color: #5c2f27; color: #f3b4a8; }
+.table-pager { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 11px 14px; border-top: 1px solid #e6eaf1; flex-wrap: wrap; }
+.table-pager span { font-size: 11px; color: #64748b; font-weight: 600; }
+.theme-dark .table-pager { border-top-color: #22304a; }
+.theme-dark .table-pager span { color: #8fa3c0; }

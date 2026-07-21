@@ -4,6 +4,7 @@ import FeeReceipt from './FeeReceipt'
 import DatePicker from './DatePicker'
 import { getPendingFeesSummary } from './lib/pendingFees'
 import { sessionMonthNames, sessionStartMonthOf } from './schoolOptions'
+import { useStudentPhotos } from './student-photos'
 
 const feeHeads = ['Admission Fee', 'Monthly Tuition Fee', 'Exam Fee', 'Annual Fee', 'Transport Fee', 'Computer Fee', 'Late Fine', 'Tuition Fee', 'IT Fee', 'Annual Charges', 'Absent Fine', 'Fine', 'Other', 'Previous Due', 'Development Charge']
 const classWiseHeads = ['Admission Fee', 'Monthly Tuition Fee', 'Exam Fee', 'Annual Fee', 'Transport Fee', 'Computer Fee', 'Late Fine']
@@ -82,6 +83,8 @@ function SubmitFee({ students, fees, onSubmit, onOpenProfile, schoolProfile, rec
     const source = searchBy === 'Admission No.' ? item.roll : searchBy === 'Student Name' ? item.name : item.phone
     return String(source).toLowerCase().includes(query.trim().toLowerCase())
   }).slice(0, 6) : []
+  // Six results plus whoever is selected - the photos this screen actually renders.
+  useStudentPhotos([...matches.map(item => item.id), student?.id])
   const selectedRows = rows.filter(row => row.selected)
   const totalDue = selectedRows.reduce((sum, row) => sum + Number(row.due || 0), 0)
   const previousDue = selectedRows.reduce((sum, row) => sum + Number(row.previous || 0), 0)
