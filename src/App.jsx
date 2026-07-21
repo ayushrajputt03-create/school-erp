@@ -2397,7 +2397,7 @@ function useSchoolWorkspace(session) {
     }
 
     async function load() {
-      setWorkspace(current => ({ ...current, loading: true, error: '' }))
+      setWorkspace(current => ({ ...current, loading: !current.schoolId, error: '' }))
       try {
         const token = await session.getIdToken()
         const ownSchoolId = session.uid
@@ -2624,7 +2624,7 @@ function useSchoolWorkspace(session) {
 
     load()
     return () => { active = false; controller.abort() }
-  }, [session, setAttendance, setEnquiries, setFees, setNotices, setStudents, setTimetableData, workspaceVersion])
+  }, [session?.uid, setAttendance, setEnquiries, setFees, setNotices, setStudents, setTimetableData, workspaceVersion])
 
   useEffect(() => {
     if (!isFirebaseConfigured || !firebaseApp || !workspace.schoolId || workspace.needsSetup || workspace.loading) return
