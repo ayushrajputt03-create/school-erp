@@ -48,3 +48,72 @@ export const sessionsKnownFor = student => {
   const all = current ? [...past, current] : past
   return [...new Set(all)].sort()
 }
+
+// ---------------------------------------------------------------------------
+// Reading a whole session back. Everything below is read-only derivation over
+// data the app already stores - nothing here writes, and nothing here invents a
+// value that was not recorded. A session with no snapshots simply looks empty.
+// ---------------------------------------------------------------------------
+
+const pad = value => String(value).padStart(2, '0')
+const isoDay = date => `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`
+
+// Calendar span of a session, honouring the school's configured start month.
+// "2025-26" with an April start is 2025-04-01 .. 2026-03-31.
+export const sessionRange = (session, startMonth = 4) => {
+  const startYear = Number(String(session || '').match(/\d{4}/)?.[0])
+  if (!startYear) return null
+  const month = Number(startMonth)
+  const index = Number.isInteger(month) && month >= 1 && month <= 12 ? month - 1 : 3
+  return {
+    start: isoDay(new Date(startYear, index, 1)),
+    end: isoDay(new Date(startYear + 1, index, 0)),
+  }
+}
+
+export const isDateInSession = (date, session, startMonth) => {
+  const range = sessionRange(session, startMonth)
+  const day = String(date || '').slice(0, 10)
+  if (!range || day.length !== 10) return false
+  return day >= range.start && day <= range.end
+}
+
+// The day a fee row belongs to. Rows come from two writers with different shapes,
+// so fall back through every date the app has ever stored on one.
+export const feeRowDate = row => {
+  const direct = String(row?.receiptDate || row?.date || '').slice(0, 10)
+  if (direct.length === 10) return direct
+  if (row?.paidAt) return isoDay(new Date(row.paidAt))
+  const period = String(row?.billingPeriod || '')
+  return /^\d{4}-\d{2}$/.test(period) ? `${period}-01` : ''
+}
+
+// Students as they were in a given session, with className swapped to the class they
+// actually sat in. Students without a snapshot for that session are left out rather
+// than shown with their present-day class, which would be plainly wrong.
+export const studentsInSession = (students = [], session) => {
+  const wanted = sessionOf(session)
+  if (!wanted) return students
+  return students.reduce((list, student) => {
+    const className = classInSession(student, wanted)
+    if (!className) return list
+    const entry = entriesOf(student).find(item => sessionOf(item.session) === wanted)
+    return [...list, {
+      ...student,
+      className,
+      rollNumber: entry?.rollNumber || student.rollNumber || '',
+      feeGroup: entry?.feeGroup || student.feeGroup || '',
+    }]
+  }, [])
+}
+
+// Every session the workspace can show, newest first, with the live one always present.
+export const sessionOptionsFrom = (students = [], currentSession) => {
+  const all = students.reduce((set, student) => {
+    sessionsKnownFor(student).forEach(item => set.add(item))
+    return set
+  }, new Set())
+  const current = sessionOf(currentSession)
+  if (current) all.add(current)
+  return [...all].filter(Boolean).sort().reverse()
+}

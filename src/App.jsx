@@ -32,10 +32,11 @@ const ExpenseManager = lazy(() => import('./ExpenseManager'))
 const LibraryManager = lazy(() => import('./LibraryManager'))
 const AccountsManager = lazy(() => import('./AccountsManager'))
 const LeaveManager = lazy(() => import('./LeaveManager'))
+const SessionArchive = lazy(() => import('./SessionArchive'))
 import SplashScreen from './SplashScreen'
 import DatePicker from './DatePicker'
 import { getPendingFeesSummary } from './lib/pendingFees'
-import { promotionHistory, sessionsKnownFor, classInSession } from './lib/sessionHistory'
+import { promotionHistory, sessionsKnownFor, classInSession, sessionOptionsFrom } from './lib/sessionHistory'
 import ParentPortal from './ParentPortal'
 import {
   academicYears,
@@ -484,7 +485,7 @@ function UserAvatar({ profile, className = '' }) {
     : <span className={`avatar tone-blue ${className}`}>{profile.initials}</span>
 }
 
-function Header({ title, subtitle, schoolCode, onMenu, profile, onSignOut, students, onSelectStudent, darkMode, onToggleTheme }) {
+function Header({ title, subtitle, schoolCode, onMenu, profile, onSignOut, students, onSelectStudent, darkMode, onToggleTheme, sessions = [], currentSession, viewSession, onChangeSession }) {
   return (
     <header className="topbar">
       <button className="icon-button mobile-menu" onClick={onMenu} aria-label="Open menu"><Menu size={20} /></button>
@@ -493,6 +494,12 @@ function Header({ title, subtitle, schoolCode, onMenu, profile, onSignOut, stude
         <p>{subtitle}{schoolCode ? ` · Code ${schoolCode}` : ''}</p>
       </div>
       <div className="topbar-actions">
+        {sessions.length > 1 && <select
+          className="session-switcher"
+          aria-label="Academic session"
+          value={viewSession || currentSession}
+          onChange={event => onChangeSession(event.target.value === currentSession ? '' : event.target.value)}
+        >{sessions.map(item => <option key={item} value={item}>{item}{item === currentSession ? ' (current)' : ''}</option>)}</select>}
         <StudentSearch students={students} onSelect={onSelectStudent} />
         <button className="icon-button theme-toggle" onClick={onToggleTheme} aria-label={darkMode ? 'Switch to light mode' : 'Switch to dark mode'} title={darkMode ? 'Light mode' : 'Dark mode'}>{darkMode ? <Sun size={18} /> : <Moon size={18} />}</button>
         <div className="profile">
@@ -4774,6 +4781,11 @@ export default function App() {
   const [selectedStudent, setSelectedStudent] = useState(null)
   const [editingStudent, setEditingStudent] = useState(null)
   const [darkMode, setDarkMode] = useState(() => localStorage.getItem('northstar-theme') === 'dark')
+  // Which session the workspace is being viewed as. Empty means "the live one" - the normal
+  // app. Anything else swaps the content area for a read-only archive, so no write path in
+  // the ERP can ever run while a past session is on screen. Deliberately not persisted:
+  // a reload must always land you back on the current session.
+  const [viewSession, setViewSession] = useState('')
 
   useEffect(() => {
     localStorage.setItem('northstar-theme', darkMode ? 'dark' : 'light')
@@ -4895,11 +4907,17 @@ export default function App() {
     'school-profile': <SchoolProfile profile={data.workspace.schoolProfile} students={data.students} staff={data.staff} save={data.saveSchoolProfile} />,
     backup: <BackupCenter students={data.students} fees={data.fees} attendance={data.attendance} settings={data.backupSettings} createBackup={data.createBackupPayload} restoreBackup={data.restoreBackup} saveSettings={data.saveBackupSettings} role={data.workspace.role} />,
   }
+  // The session switcher only lists sessions the workspace actually has records for, so a
+  // brand new school sees no dropdown at all and nothing about its screens changes.
+  const currentSession = data.workspace.schoolProfile.academicYear || '2026-27'
+  const sessionOptions = sessionOptionsFrom(data.students, currentSession)
+  const archiveSession = viewSession && viewSession !== currentSession ? viewSession : ''
+
   const logout = async () => {
     localStorage.removeItem('northstar-school-id')
     localStorage.removeItem('northstar-pending-school-profile')
     await signOut(auth)
     setPage('dashboard')
   }
-  return <StudentPhotoContext.Provider value={data.ensureStudentPhotos}><div className={`app-shell ${darkMode ? 'theme-dark' : 'theme-light'}`}><Sidebar page={page} setPage={setPage} open={menuOpen} close={() => setMenuOpen(false)} schoolName={data.workspace.schoolName} schoolLogo={data.workspace.schoolProfile.logoURL || data.workspace.schoolProfile.logo} schoolCode={data.workspace.schoolProfile.schoolCode} cloudMode={!data.developmentDemo} profile={profile} /><main className="main-area"><Header title={current.label} subtitle={`${data.workspace.schoolName} · ${data.workspace.schoolProfile.academicYear || '2026-27'}`} schoolCode={data.workspace.schoolProfile.schoolCode} onMenu={() => setMenuOpen(true)} profile={profile} onSignOut={logout} students={data.students} onSelectStudent={setSelectedStudent} darkMode={darkMode} onToggleTheme={() => setDarkMode(current => !current)} /><div className="page-content page-enter" key={page}><Suspense fallback={<div className="module-loading"><span className="module-loading-dot" />Loading module...</div>}>{screens[page]}</Suspense></div></main>{selectedStudent && <StudentProfile student={data.students.find(student => student.id === selectedStudent.id) || selectedStudent} close={() => setSelectedStudent(null)} attendance={data.attendance} fees={data.fees} feeManager={data.feeManager} schoolProfile={data.workspace.schoolProfile} academics={data.academics} documents={data.documents} onRecordPayment={data.recordPayment} onUploadDocument={data.uploadStudentDocument} onUpdatePhoto={data.updateStudentPhoto} onEdit={s => setEditingStudent(s)} loadStudentAttendance={data.loadStudentAttendance} />}{editingStudent && <StudentModal close={() => setEditingStudent(null)} student={editingStudent} updateStudent={async (id, updates) => { await data.updateStudent(id, updates); setEditingStudent(null) }} />}</div></StudentPhotoContext.Provider>
+  return <StudentPhotoContext.Provider value={data.ensureStudentPhotos}><div className={`app-shell ${darkMode ? 'theme-dark' : 'theme-light'}`}><Sidebar page={page} setPage={next => { setViewSession(''); setPage(next) }} open={menuOpen} close={() => setMenuOpen(false)} schoolName={data.workspace.schoolName} schoolLogo={data.workspace.schoolProfile.logoURL || data.workspace.schoolProfile.logo} schoolCode={data.workspace.schoolProfile.schoolCode} cloudMode={!data.developmentDemo} profile={profile} /><main className="main-area"><Header title={archiveSession ? `${archiveSession} Archive` : current.label} subtitle={`${data.workspace.schoolName} · ${archiveSession || currentSession}`} schoolCode={data.workspace.schoolProfile.schoolCode} onMenu={() => setMenuOpen(true)} profile={profile} onSignOut={logout} students={data.students} onSelectStudent={setSelectedStudent} darkMode={darkMode} onToggleTheme={() => setDarkMode(current => !current)} sessions={sessionOptions} currentSession={currentSession} viewSession={archiveSession} onChangeSession={setViewSession} /><div className="page-content page-enter" key={archiveSession || page}><Suspense fallback={<div className="module-loading"><span className="module-loading-dot" />Loading module...</div>}>{archiveSession ? <SessionArchive session={archiveSession} sessionStartMonth={sessionStartMonthOf(data.workspace.schoolProfile)} students={data.students} fees={data.fees} attendance={data.attendance} /> : screens[page]}</Suspense></div></main>{selectedStudent && <StudentProfile student={data.students.find(student => student.id === selectedStudent.id) || selectedStudent} close={() => setSelectedStudent(null)} attendance={data.attendance} fees={data.fees} feeManager={data.feeManager} schoolProfile={data.workspace.schoolProfile} academics={data.academics} documents={data.documents} onRecordPayment={data.recordPayment} onUploadDocument={data.uploadStudentDocument} onUpdatePhoto={data.updateStudentPhoto} onEdit={s => setEditingStudent(s)} loadStudentAttendance={data.loadStudentAttendance} />}{editingStudent && <StudentModal close={() => setEditingStudent(null)} student={editingStudent} updateStudent={async (id, updates) => { await data.updateStudent(id, updates); setEditingStudent(null) }} />}</div></StudentPhotoContext.Provider>
 }

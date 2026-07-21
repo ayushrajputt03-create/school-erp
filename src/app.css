@@ -295,3 +295,11 @@ img{max-width:100%}
 .pending-fees-panel li span { font-weight: 700; color: #052659; min-width: 120px; }
 .pending-fees-panel li em { font-style: normal; color: #8a6d3b; flex: 1; }
 .pending-fees-panel li strong { color: #c0392b; font-weight: 800; }
+
+/* Academic session switcher in the top bar, and the banner shown while a past session is open. */
+.session-switcher { height: 34px; padding: 0 8px; border: 1px solid #cfd8e6; border-radius: 7px; background: #fff; color: #052659; font-size: 12px; font-weight: 700; }
+.theme-dark .session-switcher { background: #16233a; border-color: #2b3649; color: #c1e8ff; }
+.session-archive-banner { border-left: 4px solid #c17a20; background: #fffaf1; }
+.theme-dark .session-archive-banner { background: #2a2113; }
+.session-archive-banner strong { color: #8a5a10; }
+.theme-dark .session-archive-banner strong { color: #f0c580; }
