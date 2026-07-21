@@ -1294,8 +1294,16 @@ function AdmissionForm({ students, onAddStudent, onUpdateStudent, onOpenRegister
   const selectOldStudent = student => {
     setSelectedOldStudent(student)
     const { className, section } = splitClassSection(student.className)
+    // Re-admitting an old student means a new session, so prefill the next class in
+    // the ladder (Playway...UKG, 1...12). Same-session re-entry keeps the class, and
+    // class 12 has nowhere to go. The operator can still change the dropdown.
+    const ladderIndex = classOptions.indexOf(String(className))
+    const isNewSession = String(student.academicSession || '') !== String(form.academicSession || '')
+    const promotedClass = isNewSession && ladderIndex >= 0 && ladderIndex < classOptions.length - 1
+      ? classOptions[ladderIndex + 1]
+      : className
     setOldSearch(`${student.roll} - ${student.name}`)
-    setForm(current => ({ ...current, ...student, admissionType: 'old', className: `${className}-${section || 'A'}`, roll: String(student.roll), academicSession: current.academicSession, admissionDate: today(), confirmDetails: false }))
+    setForm(current => ({ ...current, ...student, admissionType: 'old', className: `${promotedClass}-${section || 'A'}`, stream: isSeniorClass(promotedClass) ? student.stream || '' : '', roll: String(student.roll), academicSession: current.academicSession, admissionDate: today(), confirmDetails: false }))
     setPhoto(student.photoUrl ? { preview: student.photoUrl, compressedSize: student.photoSize || 0 } : null)
   }
   const submit = async event => {
