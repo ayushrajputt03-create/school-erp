@@ -56,8 +56,29 @@ module.exports = async function handler(request, response) {
   const app = getAdminApp()
   const database = getDatabase(app)
   const resend = new Resend(process.env.RESEND_API_KEY)
-  const schoolsSnap = await database.ref('schools').once('value')
-  const schools = schoolsSnap.val() || {}
+  // Enumerating schools with a full read pulls every student, fee, attendance and certificate
+  // record in the database, just to reach each school's backupSettings. List the ids shallowly
+  // and read only the two nodes actually needed per school. Falls back to the old full read if
+  // the shallow call is unavailable, so the backup can never silently stop running.
+  const databaseUrl = process.env.FIREBASE_DATABASE_URL || process.env.VITE_FIREBASE_DATABASE_URL
+  let schools = null
+  try {
+    const accessToken = await app.options.credential.getAccessToken()
+    const listed = await fetch(`${databaseUrl}/schools.json?shallow=true&access_token=${accessToken.access_token}`)
+    if (!listed.ok) throw new Error(`shallow list failed (${listed.status})`)
+    const ids = Object.keys(await listed.json() || {})
+    const entries = await Promise.all(ids.map(async schoolId => {
+      const [settingsSnap, nameSnap] = await Promise.all([
+        database.ref(`schools/${schoolId}/backupSettings`).once('value'),
+        database.ref(`schools/${schoolId}/profile/schoolName`).once('value'),
+      ])
+      return [schoolId, { backupSettings: settingsSnap.val() || {}, profile: { schoolName: nameSnap.val() || '' } }]
+    }))
+    schools = Object.fromEntries(entries)
+  } catch (listError) {
+    console.warn('[backup] shallow school listing unavailable, falling back to full read:', listError.message)
+    schools = (await database.ref('schools').once('value')).val() || {}
+  }
   const results = []
 
   for (const [schoolId, school] of Object.entries(schools)) {

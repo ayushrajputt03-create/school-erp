@@ -1,10 +1,12 @@
-import React, { useState } from 'react'
+import React, { useMemo, useState } from 'react'
 import { Check, Plus, Printer, Receipt, Save, Search, X, Pencil, Trash2, Eye, RotateCcw } from 'lucide-react'
 import FeeReceipt from './FeeReceipt'
 import DatePicker from './DatePicker'
+import { getPendingFeesSummary } from './lib/pendingFees'
+import { sessionMonthNames, sessionStartMonthOf } from './schoolOptions'
+import { useStudentPhotos } from './student-photos'
 
 const feeHeads = ['Admission Fee', 'Monthly Tuition Fee', 'Exam Fee', 'Annual Fee', 'Transport Fee', 'Computer Fee', 'Late Fine', 'Tuition Fee', 'IT Fee', 'Annual Charges', 'Absent Fine', 'Fine', 'Other', 'Previous Due', 'Development Charge']
-const feeMonths = ['April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December', 'January', 'February', 'March']
 const classWiseHeads = ['Admission Fee', 'Monthly Tuition Fee', 'Exam Fee', 'Annual Fee', 'Transport Fee', 'Computer Fee', 'Late Fine']
 const defaultGroups = [
   { id: 'regular', name: 'REGULAR', order: 1, createdBy: 'System', createdAt: 0 },
@@ -73,6 +75,7 @@ function SubmitFee({ students, fees, onSubmit, onOpenProfile, schoolProfile, rec
   const [payments, setPayments] = useState([{ id: 1, type: 'CASH', amount: 0 }])
   const [form, setForm] = useState({ feeGroup: 'REGULAR', setType: 'Group Wise', newAdmission: 'Yes', ledger: 'Tuition Fee', cardNo: '', receiptDate: today(), month: new Date().toLocaleDateString('en-IN', { month: 'long' }), remark: '', sms: true, whatsapp: false })
   const [saving, setSaving] = useState(false)
+  const [submitError, setSubmitError] = useState('')
   const [receiptNumber, setReceiptNumber] = useState('')
   const [selectedReceipt, setSelectedReceipt] = useState(null)
   const [allowExtraPayment, setAllowExtraPayment] = useState(false)
@@ -80,6 +83,8 @@ function SubmitFee({ students, fees, onSubmit, onOpenProfile, schoolProfile, rec
     const source = searchBy === 'Admission No.' ? item.roll : searchBy === 'Student Name' ? item.name : item.phone
     return String(source).toLowerCase().includes(query.trim().toLowerCase())
   }).slice(0, 6) : []
+  // Six results plus whoever is selected - the photos this screen actually renders.
+  useStudentPhotos([...matches.map(item => item.id), student?.id])
   const selectedRows = rows.filter(row => row.selected)
   const totalDue = selectedRows.reduce((sum, row) => sum + Number(row.due || 0), 0)
   const previousDue = selectedRows.reduce((sum, row) => sum + Number(row.previous || 0), 0)
@@ -95,6 +100,12 @@ function SubmitFee({ students, fees, onSubmit, onOpenProfile, schoolProfile, rec
   const lateFine = selectedRows.filter(row => row.head === 'Late Fine' || row.head === 'Fine').reduce((sum, row) => sum + Number(row.due || 0), 0)
   const otherFeeHeads = selectedRows.filter(row => !isMonthlyHead(row.head) && row.head !== 'Admission Fee' && row.head !== 'Late Fine' && row.head !== 'Fine' && row.head !== 'Previous Due').reduce((sum, row) => sum + Number(row.due || 0), 0)
   const alreadyPaidThisMonth = currentMonthReceipts.some(fee => String(fee.status || '').toLowerCase() === 'paid' || Number(fee.balance || 0) <= 0)
+  const sessionStartMonth = sessionStartMonthOf(schoolProfile)
+  const sessionMonths = useMemo(() => sessionMonthNames(sessionStartMonth), [sessionStartMonth])
+  const pendingSummary = useMemo(
+    () => student ? getPendingFeesSummary({ student, fees, structures: feeManager?.structures, academicYear: schoolProfile?.academicYear, sessionStartMonth }) : null,
+    [student, fees, feeManager?.structures, schoolProfile?.academicYear, sessionStartMonth]
+  )
   const paymentStatus = paidAmount <= 0 ? 'Pending' : balance > 0 ? 'Partial' : 'Paid'
   const updateRow = (id, patch) => setRows(current => current.map(row => row.id === id ? { ...row, ...patch } : row))
   const updatePayment = (id, patch) => setPayments(current => current.map(payment => payment.id === id ? { ...payment, ...patch } : payment))
@@ -124,6 +135,7 @@ function SubmitFee({ students, fees, onSubmit, onOpenProfile, schoolProfile, rec
     if (alreadyPaidThisMonth && !allowExtraPayment) return
     if (!student || paidAmount <= 0) return
     setSaving(true)
+    setSubmitError('')
     try {
       const savedReceipt = await onSubmit({
         studentId: student.id,
@@ -150,6 +162,11 @@ function SubmitFee({ students, fees, onSubmit, onOpenProfile, schoolProfile, rec
       })
       setReceiptNumber(savedReceipt.receiptNumber)
       setSelectedReceipt(savedReceipt)
+    } catch (error) {
+      // Without this the promise rejected silently: the spinner stopped and the cashier had
+      // no idea the receipt was never saved. Nothing is written when this fires, so retrying
+      // is safe.
+      setSubmitError(error?.message || 'Could not save this receipt. Please try again.')
     } finally {
       setSaving(false)
     }
@@ -192,8 +209,11 @@ function SubmitFee({ students, fees, onSubmit, onOpenProfile, schoolProfile, rec
         <div className="receipt-fields">
           <label>Receipt No<input readOnly value={receiptNumber || 'Auto generated after submit'} /></label>
           <label>Receipt Date<DatePicker required value={form.receiptDate} onChange={value => setForm({ ...form, receiptDate: value })} /></label>
-          <label>Select Fee Month<select value={form.month} onChange={event => setForm({ ...form, month: event.target.value })}>{feeMonths.map(month => <option key={month}>{month}</option>)}</select></label>
+          <label>Select Fee Month<select value={form.month} onChange={event => setForm({ ...form, month: event.target.value })}>{sessionMonths.map(month => <option key={month}>{month}</option>)}</select></label>
         </div>
+        {pendingSummary && (pendingSummary.pendingMonthsCount > 0
+          ? <div className="fee-pending-alert"><X size={16} /><div><strong>{pendingSummary.pendingMonthsCount} month{pendingSummary.pendingMonthsCount > 1 ? 's' : ''} pending · {money(pendingSummary.totalPendingAmount)}</strong><div className="fee-pending-chip-row">{pendingSummary.pendingMonths.map(item => <span key={item.monthKey} className={`fee-pending-chip ${item.status}`}>{item.month} · {money(item.amountDue)}{item.status === 'partial' ? ' left' : ''}</span>)}</div></div></div>
+          : <div className="fee-paid-warning fee-uptodate-note"><Check size={16} /><div><strong>All months paid up to date</strong><span>No previous month pending for this student.</span></div></div>)}
         <div className="fee-summary-panel">
           <div><span>Student Name</span><strong>{student.name}</strong></div>
           <div><span>Admission No.</span><strong>{student.roll}</strong></div>
@@ -249,6 +269,7 @@ function SubmitFee({ students, fees, onSubmit, onOpenProfile, schoolProfile, rec
         <div className="fee-submit-footer">
           <div className="fee-switches"><label><input type="checkbox" checked={form.sms} onChange={event => setForm({ ...form, sms: event.target.checked })} /> Send SMS</label><label><input type="checkbox" checked={form.whatsapp} onChange={event => setForm({ ...form, whatsapp: event.target.checked })} /> Send WhatsApp</label></div>
           <button className="primary-button" disabled={saving || paidAmount <= 0 || (alreadyPaidThisMonth && !allowExtraPayment)}><Receipt size={16} /> {saving ? 'Submitting...' : alreadyPaidThisMonth && !allowExtraPayment ? 'Already Paid' : 'Submit Fee'}</button>
+          {submitError && <p className="fee-submit-error" role="alert">{submitError}</p>}
         </div>
         {receiptNumber && <div className="success-banner"><Check size={16} /> Fee submitted successfully. Receipt <strong>{receiptNumber}</strong></div>}
         <div className="fee-history-panel">
@@ -319,10 +340,12 @@ function SetFeePage({ students, groups, structures, onSave, onDelete }) {
   </>
 }
 
-function FeeStatusPage({ students, fees, feeManager }) {
+function FeeStatusPage({ students, fees, feeManager, schoolProfile }) {
   const classes = [...new Set(students.map(student => classParts(student.className).className))]
   const sections = [...new Set(students.map(student => classParts(student.className).section).filter(Boolean))]
   const [filters, setFilters] = useState({ className: 'All Classes', section: 'All Sections', month: new Date().toLocaleDateString('en-IN', { month: 'long' }), status: 'All' })
+  const sessionStartMonth = sessionStartMonthOf(schoolProfile)
+  const sessionMonths = useMemo(() => sessionMonthNames(sessionStartMonth), [sessionStartMonth])
   const rows = students.map(student => {
     const parts = classParts(student.className)
     const structures = classStructureRows(feeManager?.structures, student)
@@ -335,6 +358,7 @@ function FeeStatusPage({ students, fees, feeManager }) {
     const pendingAmount = receiptBalance > 0 ? receiptBalance : Math.max(0, monthlyFee - paidAmount)
     const hasPaidReceipt = receipts.some(fee => String(fee.status || '').toLowerCase() === 'paid' || Number(fee.balance || 0) === 0)
     const status = paidAmount <= 0 ? 'Pending' : pendingAmount <= 0 && hasPaidReceipt ? 'Paid' : paidAmount >= monthlyFee && pendingAmount <= 0 ? 'Paid' : 'Partial'
+    const pendingSummary = getPendingFeesSummary({ student, fees, structures: feeManager?.structures, academicYear: schoolProfile?.academicYear, sessionStartMonth })
     return {
       student,
       className: parts.className,
@@ -343,6 +367,7 @@ function FeeStatusPage({ students, fees, feeManager }) {
       paidAmount,
       pendingAmount,
       status,
+      pendingSummary,
       receipt: receipts.map(fee => fee.receiptNumber || fee.invoiceNumber).filter(Boolean).join(', '),
     }
   }).filter(row => (filters.className === 'All Classes' || row.className === filters.className)
@@ -360,7 +385,7 @@ function FeeStatusPage({ students, fees, feeManager }) {
     <div className="fee-page-toolbar fee-status-filters">
       <label>Class<select value={filters.className} onChange={event => setFilters({ ...filters, className: event.target.value })}><option>All Classes</option>{classes.map(item => <option key={item}>{item}</option>)}</select></label>
       <label>Section<select value={filters.section} onChange={event => setFilters({ ...filters, section: event.target.value })}><option>All Sections</option>{sections.map(item => <option key={item}>{item}</option>)}</select></label>
-      <label>Month<select value={filters.month} onChange={event => setFilters({ ...filters, month: event.target.value })}>{feeMonths.map(month => <option key={month}>{month}</option>)}</select></label>
+      <label>Month<select value={filters.month} onChange={event => setFilters({ ...filters, month: event.target.value })}>{sessionMonths.map(month => <option key={month}>{month}</option>)}</select></label>
       <label>Status<select value={filters.status} onChange={event => setFilters({ ...filters, status: event.target.value })}><option>All</option><option>Paid</option><option>Pending</option><option>Partial</option></select></label>
     </div>
     <div className="fee-status-summary">
@@ -371,7 +396,7 @@ function FeeStatusPage({ students, fees, feeManager }) {
       <div><span>Total Collection</span><strong>{money(summary.collection)}</strong></div>
       <div><span>Total Pending</span><strong>{money(summary.pendingAmount)}</strong></div>
     </div>
-    <div className="panel table-panel"><div className="panel-header"><div><h3>Fee Status / Fee Check</h3><p>Class-wise and month-wise fee report</p></div><button className="secondary-button" onClick={() => window.print()}><Printer size={15} /> Print</button></div><div className="table-scroll"><table><thead><tr><th>Student Name</th><th>Admission No</th><th>Class</th><th>Section</th><th>Monthly Fee</th><th>Paid Amount</th><th>Pending Amount</th><th>Status</th><th>Receipt</th></tr></thead><tbody>{rows.map(row => <tr key={row.student.id}><td><strong>{row.student.name}</strong></td><td>{row.student.roll}</td><td>{row.className}</td><td>{row.section}</td><td>{money(row.monthlyFee)}</td><td>{money(row.paidAmount)}</td><td>{money(row.pendingAmount)}</td><td><span className={`status ${row.status.toLowerCase()}`}>{row.status}</span></td><td>{row.receipt || '-'}</td></tr>)}{!rows.length && <tr><td colSpan="9"><div className="empty-state">No students found for selected filters.</div></td></tr>}</tbody></table></div></div>
+    <div className="panel table-panel"><div className="panel-header"><div><h3>Fee Status / Fee Check</h3><p>Class-wise and month-wise fee report</p></div><button className="secondary-button" onClick={() => window.print()}><Printer size={15} /> Print</button></div><div className="table-scroll"><table><thead><tr><th>Student Name</th><th>Admission No</th><th>Class</th><th>Section</th><th>Monthly Fee</th><th>Paid Amount</th><th>Pending Amount</th><th>Status</th><th>Multi-Month Pending</th><th>Receipt</th></tr></thead><tbody>{rows.map(row => <tr key={row.student.id}><td><strong>{row.student.name}</strong></td><td>{row.student.roll}</td><td>{row.className}</td><td>{row.section}</td><td>{money(row.monthlyFee)}</td><td>{money(row.paidAmount)}</td><td>{money(row.pendingAmount)}</td><td><span className={`status ${row.status.toLowerCase()}`}>{row.status}</span></td><td>{row.pendingSummary.pendingMonthsCount > 0 ? <span className="fee-months-badge pending" title={row.pendingSummary.pendingMonths.map(item => `${item.month}: ${money(item.amountDue)}`).join(', ')}>{row.pendingSummary.pendingMonthsCount} month{row.pendingSummary.pendingMonthsCount > 1 ? 's' : ''} pending ({money(row.pendingSummary.totalPendingAmount)})</span> : <span className="fee-months-badge clear">Up to date</span>}</td><td>{row.receipt || '-'}</td></tr>)}{!rows.length && <tr><td colSpan="10"><div className="empty-state">No students found for selected filters.</div></td></tr>}</tbody></table></div></div>
   </div>
 }
 
@@ -420,7 +445,7 @@ export default function FeeManager({ students, fees, feeManager, approvals, scho
     {page === 'submit' && <SubmitFee students={students} fees={fees} onSubmit={onSubmitFee} onOpenProfile={onOpenProfile} schoolProfile={schoolProfile} receiptSettings={feeManager.settings?.config || {}} feeManager={feeManager} />}
     {page === 'groups' && <FeeGroupPage groups={feeManager.groups} onSave={onSaveGroup} onDelete={onDeleteGroup} />}
     {page === 'set' && <SetFeePage students={students} groups={feeManager.groups} structures={feeManager.structures} onSave={onSaveStructure} onDelete={onDeleteStructure} />}
-    {page === 'status' && <FeeStatusPage students={students} fees={fees} feeManager={feeManager} />}
+    {page === 'status' && <FeeStatusPage students={students} fees={fees} feeManager={feeManager} schoolProfile={schoolProfile} />}
     {!['submit','groups','set','status'].includes(page) && <FeeReportPage page={page} students={students} fees={fees} feeManager={feeManager} approvals={approvals} onSaveConfig={onSaveConfig} onDeleteReceipt={onDeleteReceipt} onRestoreReceipt={onRestoreReceipt} onDecideApproval={onDecideApproval} schoolProfile={schoolProfile} />}
   </>
 }

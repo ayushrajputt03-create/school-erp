@@ -1,0 +1,38 @@
+﻿/* Public admission form reached by QR code. Self-contained so this page ships nothing from the
+   ERP bundle beyond the shared class list. */
+.padm-shell{min-height:100vh;background:linear-gradient(160deg,#021024 0%,#052659 100%);display:flex;align-items:flex-start;justify-content:center;padding:32px 16px;font-family:'Manrope','Segoe UI',system-ui,-apple-system,sans-serif}
+.padm-card{width:100%;max-width:640px;background:#fff;border-radius:16px;padding:26px;box-shadow:0 24px 60px #02102455}
+
+.padm-head{display:flex;align-items:center;gap:14px;padding-bottom:18px;border-bottom:1px solid #e9eef5;margin-bottom:20px}
+.padm-head img{height:48px;width:48px;object-fit:contain;border-radius:8px}
+.padm-mark{display:flex;align-items:center;justify-content:center;height:48px;width:48px;border-radius:10px;background:#052659;color:#fff;flex:0 0 auto}
+.padm-head small{display:block;font-size:11.5px;font-weight:700;letter-spacing:.6px;text-transform:uppercase;color:#7b8596}
+.padm-head h1{margin:2px 0 0;font-size:20px;line-height:1.25;color:#17233a}
+
+.padm-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+.padm-grid .full{grid-column:1/-1}
+.padm-grid label{display:flex;flex-direction:column;gap:6px;font-size:12.5px;font-weight:600;color:#54627a}
+.padm-grid input,.padm-grid select,.padm-grid textarea{font-family:inherit;font-size:14px;color:#17233a;background:#f7f9fc;border:1px solid #dde5ef;border-radius:9px;padding:10px 12px;width:100%}
+.padm-grid input:focus,.padm-grid select:focus,.padm-grid textarea:focus{outline:none;border-color:#5483b3;background:#fff;box-shadow:0 0 0 3px #5483b322}
+.padm-grid textarea{resize:vertical}
+
+/* Kept in the layout for bots to find, kept away from people and screen readers. */
+.padm-hp{position:absolute;left:-9999px;width:1px;height:1px;overflow:hidden}
+
+.padm-error{margin:16px 0 0;padding:10px 12px;background:#fdecea;border:1px solid #f5c6c2;border-radius:9px;color:#c0392b;font-size:13px;font-weight:600}
+.padm-submit{margin-top:20px;width:100%;background:linear-gradient(135deg,#052659,#5483b3);color:#fff;border:0;border-radius:11px;padding:14px;font-family:inherit;font-size:15px;font-weight:700;cursor:pointer}
+.padm-submit:disabled{opacity:.65;cursor:default}
+.padm-note{margin:12px 0 0;text-align:center;font-size:11.5px;color:#8490a2}
+
+.padm-state{text-align:center;padding:48px 26px;color:#54627a}
+.padm-state h1{margin:14px 0 8px;font-size:20px;color:#17233a}
+.padm-state p{margin:0;font-size:13.5px;line-height:1.6}
+.padm-state svg{color:#5483b3}
+.padm-ok{color:#1d7a44 !important}
+.padm-spin{animation:padm-rotate .8s linear infinite}
+@keyframes padm-rotate{to{transform:rotate(360deg)}}
+
+@media(max-width:560px){
+  .padm-grid{grid-template-columns:1fr}
+  .padm-card{padding:20px}
+}

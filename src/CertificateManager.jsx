@@ -1,5 +1,6 @@
 ﻿import React, { useEffect, useMemo, useState } from 'react'
 import { createPortal } from 'react-dom'
+import { useStudentPhotos } from './student-photos'
 import {
   Award, Check, Download, Eye, FileBadge, FileText, GraduationCap,
   IdCard, Medal, MessageCircle, Printer, Save, Search, Settings,
@@ -7,6 +8,7 @@ import {
 } from 'lucide-react'
 import DatePicker from './DatePicker'
 import { classOptions } from './schoolOptions'
+import { safePrint as sharedSafePrint } from './print-utils'
 import './CertificateManager.css'
 
 const certificateTypes = [
@@ -81,38 +83,8 @@ const schoolPhone = (school = {}, settings = {}) => settings.phone || settings.s
 const schoolEmail = (school = {}, settings = {}) => settings.email || settings.schoolEmail || school.schoolEmail || school.email || ''
 const admitTime = (from, to) => [from, to].filter(Boolean).join(' - ') || ''
 const defaultDateSheetRows = ['Mathematics', 'Science', 'English', 'Hindi'].map(subject => ({ subject, date: '', fromTime: '', toTime: '' }))
-const waitFrame = () => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))
-const waitForPrintableAssets = async (selector = '.formal-certificate, .admit-card') => {
-  await waitFrame()
-  await new Promise(resolve => setTimeout(resolve, 250))
-  const root = document.querySelector(selector)
-  const images = Array.from(root?.querySelectorAll('img') || [])
-  await Promise.all(images.map(image => {
-    if (image.complete) return Promise.resolve()
-    return new Promise(resolve => {
-      const done = () => resolve()
-      image.addEventListener('load', done, { once: true })
-      image.addEventListener('error', done, { once: true })
-      setTimeout(done, 1200)
-    })
-  }))
-  await waitFrame()
-}
-const safePrint = async (selector = '.certificate-preview-shell') => {
-  document.body.classList.add('erp-printing')
-  document.querySelectorAll('.print-target').forEach(node => node.classList.remove('print-target'))
-  const target = document.querySelector(selector)
-  target?.classList.add('print-target')
-  const cleanup = () => {
-    document.body.classList.remove('erp-printing')
-    target?.classList.remove('print-target')
-    window.removeEventListener('afterprint', cleanup)
-  }
-  window.addEventListener('afterprint', cleanup, { once: true })
-  await waitForPrintableAssets(selector)
-  window.print()
-  setTimeout(cleanup, 2500)
-}
+const safePrint = (selector = '.certificate-preview-shell') =>
+  sharedSafePrint(selector, { pageSize: 'A4', pageMargin: '10mm' })
 const admitPrintCss = `
   @page { size: A4 portrait; margin: 10mm; }
   * { box-sizing: border-box; }
@@ -419,7 +391,6 @@ function CharacterCertificate({ student, form, school, settings, certificateNumb
     footerLocation: form.characterFooterLocation || location,
   }
   return <article className="formal-certificate character-template">
-    {logo && <div className="cert-watermark" aria-hidden="true"><img src={logo} alt="" /></div>}
     {duplicate && <div className="duplicate-watermark">DUPLICATE</div>}
     <div className="character-top-serial">Serial No: {display.serial}</div>
     <header className="character-certificate-header">
@@ -480,7 +451,6 @@ function TransferCertificate({ student, form, school, settings, certificateNumbe
     ['Name Of Previous School', display.previousSchool],
   ]
   return <article className="formal-certificate tc-template">
-    {logo && <div className="cert-watermark" aria-hidden="true"><img src={logo} alt="" /></div>}
     {duplicate && <div className="duplicate-watermark">DUPLICATE</div>}
     <header className="tc-school-top">
       <h1>{schoolName}</h1>
@@ -528,7 +498,6 @@ function SimpleCertificate({ type, student, form, school, settings, certificateN
     <>We congratulate {p.object} for this achievement and wish {p.object} continued success.</>,
   ]
   return <article className={`formal-certificate simple-template ${type}-template`}>
-    {logo && <div className="cert-watermark" aria-hidden="true"><img src={logo} alt="" /></div>}
     {duplicate && <div className="duplicate-watermark">DUPLICATE</div>}
     <SchoolHeader school={school} settings={settings} student={student} photoUrl={photoUrl} />
     <FormalTitle title={type === 'sports' ? 'CERTIFICATE OF ACHIEVEMENT' : titles[type] || 'SCHOOL CERTIFICATE'} certificateNumber={certificateNumber} issueDate={form.issueDate} />
@@ -734,6 +703,7 @@ function AdmitCardManager({ students, fees, school, settings, examData, onSaveEx
     return admitRowsForStudent(student, examId, examData?.dateSheet || {})
   }
   const selectedStudents = results.filter(student => selected[student.id])
+  useStudentPhotos(selectedStudents.map(student => student.id))
   const generatedStudents = results.filter(student => generatedIds.includes(student.id))
   useEffect(() => {
     if (!pendingPrint) return undefined
@@ -949,6 +919,25 @@ async function imageUrlToDataUrl(url) {
   }
 }
 
+// jsPDF addImage stretches to the given box, so non-square school logos distort.
+// Fit the image inside the box on its natural aspect ratio and centre it instead.
+const imageNaturalSize = dataUrl => new Promise(resolve => {
+  if (!dataUrl) return resolve(null)
+  const image = new Image()
+  image.onload = () => resolve({ width: image.naturalWidth, height: image.naturalHeight })
+  image.onerror = () => resolve(null)
+  image.src = dataUrl
+})
+
+async function fitImageInBox(dataUrl, x, y, boxWidth, boxHeight) {
+  const size = await imageNaturalSize(dataUrl)
+  if (!size || !size.width || !size.height) return { x, y, width: boxWidth, height: boxHeight }
+  const scale = Math.min(boxWidth / size.width, boxHeight / size.height)
+  const width = size.width * scale
+  const height = size.height * scale
+  return { x: x + (boxWidth - width) / 2, y: y + (boxHeight - height) / 2, width, height }
+}
+
 async function downloadCharacterCertificatePdf(student, form, school, settings, certificateNumber, duplicate, photoUrl = '') {
   const { jsPDF } = await import('jspdf')
   const pdf = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' })
@@ -993,17 +982,20 @@ async function downloadCharacterCertificatePdf(student, form, school, settings, 
   pdf.setFont('helvetica', 'bold')
   pdf.setFontSize(11)
   pdf.text(`Serial No: ${display.serial}`, 17, 24)
-  pdf.circle(29, 73, 12)
-  if (logoData) pdf.addImage(logoData, imageFormat(logoData), 17, 61, 24, 24, undefined, 'FAST')
-  pdf.rect(width - 42, 58, 28, 34)
+  pdf.roundedRect(16, 60, 26, 26, 1.5, 1.5)
+  if (logoData) {
+    const box = await fitImageInBox(logoData, 16, 60, 26, 26)
+    pdf.addImage(logoData, imageFormat(logoData), box.x, box.y, box.width, box.height, undefined, 'FAST')
+  }
+  pdf.rect(width - 47, 54, 30, 38)
   if (photoData) {
-    pdf.addImage(photoData, imageFormat(photoData), width - 42, 58, 28, 34, undefined, 'FAST')
+    pdf.addImage(photoData, imageFormat(photoData), width - 47, 54, 30, 38, undefined, 'FAST')
   } else {
     pdf.setFont('helvetica', 'bold')
     pdf.setFontSize(6.5)
     pdf.setTextColor(100, 116, 139)
-    pdf.text('Paste Photo', width - 28, 73, { align: 'center' })
-    pdf.text('Here', width - 28, 77, { align: 'center' })
+    pdf.text('Paste Photo', width - 32, 71, { align: 'center' })
+    pdf.text('Here', width - 32, 75, { align: 'center' })
     pdf.setTextColor(12, 28, 52)
   }
 
@@ -1092,8 +1084,11 @@ async function downloadTransferCertificatePdf(student, form, school, settings, c
   }
 
   pdf.setTextColor(15, 23, 42)
-  pdf.circle(24, 24, 10)
-  if (logoData) pdf.addImage(logoData, imageFormat(logoData), 14, 14, 20, 20, undefined, 'FAST')
+  pdf.roundedRect(14, 14, 20, 20, 1.5, 1.5)
+  if (logoData) {
+    const box = await fitImageInBox(logoData, 14, 14, 20, 20)
+    pdf.addImage(logoData, imageFormat(logoData), box.x, box.y, box.width, box.height, undefined, 'FAST')
+  }
   pdf.rect(width - 37, 14, 25, 30)
   if (photoData) pdf.addImage(photoData, imageFormat(photoData), width - 37, 14, 25, 30, undefined, 'FAST')
   else {
@@ -1199,17 +1194,22 @@ async function downloadCertificatePdf(type, student, form, school, settings, cer
   pdf.setFontSize(8.5)
   pdf.text(settings.address || school.address || '', width / 2, 28, { align: 'center' })
   pdf.text([settings.phone || school.phone, settings.email || school.email].filter(Boolean).join(' | '), width / 2, 33, { align: 'center' })
+  const logoData = await imageUrlToDataUrl(settings.logo || school.logo || '')
+  if (logoData) {
+    const box = await fitImageInBox(logoData, 14, 13, 26, 26)
+    pdf.addImage(logoData, imageFormat(logoData), box.x, box.y, box.width, box.height, undefined, 'FAST')
+  }
   pdf.setDrawColor(51, 51, 51)
   pdf.setLineWidth(0.25)
-  pdf.rect(width - 32, 18, 24.5, 31.5)
+  pdf.rect(width - 44, 13, 30, 38)
   const photoData = await imageUrlToDataUrl(photoUrl || student.photoUrl || '')
   if (photoData) {
-    pdf.addImage(photoData, 'JPEG', width - 32, 18, 24.5, 31.5, undefined, 'FAST')
+    pdf.addImage(photoData, imageFormat(photoData), width - 44, 13, 30, 38, undefined, 'FAST')
   } else {
     pdf.setFontSize(6.5)
     pdf.setTextColor(110, 118, 132)
-    pdf.text('Paste Photo', width - 19.75, 32, { align: 'center' })
-    pdf.text('Here', width - 19.75, 35, { align: 'center' })
+    pdf.text('Paste Photo', width - 29, 30, { align: 'center' })
+    pdf.text('Here', width - 29, 34, { align: 'center' })
   }
   pdf.setFillColor(5, 38, 89)
   pdf.rect(45, 41, 120, 10, 'F')
@@ -1284,6 +1284,7 @@ function CertificateForm({ type, students, certificates, attendance, academics, 
     academicHistory: [],
   })
   const existing = useMemo(() => Object.entries(certificates || {}).map(([id, row]) => ({ id, ...row })).find(row => row.studentId === student?.id && row.certificateType === type && !row.isDuplicate), [certificates, student, type])
+  useStudentPhotos([student?.id])
   const photoUrl = student ? profilePhoto(student) || documents?.[student.id]?.photo?.url || documents?.[student.id]?.photo?.data || '' : ''
   const certificateNumber = saved?.certificateNumber || numberForPreview(type)
   const selectStudent = item => {

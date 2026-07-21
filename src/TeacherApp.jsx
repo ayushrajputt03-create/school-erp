@@ -2,10 +2,11 @@ import React, { useEffect, useMemo, useRef, useState } from 'react'
 import {
   BookOpen, CalendarCheck, ChevronRight, ClipboardList, FileText, GraduationCap,
   Home, LayoutDashboard, LoaderCircle, LogOut, Menu, MessageSquareText, Pencil,
-  Search, User, X, Eye, EyeOff, Check, Clock3, Users, Bell, Save, Camera
+  Search, User, X, Eye, EyeOff, Check, Clock3, Users, Bell, Save, Camera, Umbrella
 } from 'lucide-react'
 import { onAuthStateChanged, signInWithCustomToken, signOut, updatePassword, EmailAuthProvider, reauthenticateWithCredential } from 'firebase/auth'
-import { auth } from './lib/firebase'
+import { ref, onValue, query, orderByChild, startAt, equalTo } from 'firebase/database'
+import { auth, rtdb } from './lib/firebase'
 import DatePicker from './DatePicker'
 import './teacher-app.css'
 
@@ -14,7 +15,7 @@ const databaseUrl = import.meta.env.VITE_FIREBASE_DATABASE_URL?.replace(/\/$/, '
 async function dbRequest(path, token, options = {}) {
   const controller = new AbortController()
   const timeout = setTimeout(() => controller.abort(), 12000)
-  const url = `${databaseUrl}/${path}.json?auth=${encodeURIComponent(token)}`
+  const url = `${databaseUrl}/${path}.json?auth=${encodeURIComponent(token)}${options.query ? `&${options.query}` : ''}`
   try {
     const response = await fetch(url, {
       method: options.method || 'GET',
@@ -56,10 +57,43 @@ function buildStaffProfile(id, e) {
   }
 }
 
+function parseAttendanceToTeacherFormat(raw, studentsData) {
+  const result = {}
+  Object.entries(raw || {}).forEach(([key, record]) => {
+    if (record && typeof record === 'object' && (record.studentId || record.student_id) && record.date) {
+      const studentId = record.studentId || record.student_id
+      const date = record.date
+      const status = record.mark || record.status || 'P'
+      const cls = record.class || ''
+      const sec = record.section || 'A'
+      const className = cls ? `${cls}-${sec}` : ''
+      if (!className || !studentId) return
+      result[date] = result[date] || {}
+      result[date][className] = result[date][className] || {}
+      result[date][className][studentId] = status
+    } else if (record && typeof record === 'object' && !record.studentId && !record.student_id) {
+      Object.entries(record).forEach(([cls, classData]) => {
+        if (typeof classData !== 'object') return
+        result[key] = result[key] || {}
+        result[key][cls] = result[key][cls] || {}
+        Object.entries(classData).forEach(([sid, val]) => {
+          if (typeof val === 'string' && sid !== 'markedBy' && sid !== 'className') result[key][cls][sid] = val
+        })
+      })
+    }
+  })
+  return result
+}
+
 async function loadTeacherSession(token, uid) {
   try {
     const index = await dbRequest(`teachersIndex/${uid}`, token)
     if (!index || !index.schoolId) throw new Error('No staff account found. Contact your school admin.')
+    // Only pull the current month's attendance — the full history can be tens of thousands of
+    // records. Requires "attendance": { ".indexOn": ["date"] } in the database rules.
+    const md = new Date()
+    const monthStart = `${md.getFullYear()}-${String(md.getMonth() + 1).padStart(2, '0')}-01`
+    const attQuery = `orderBy=${encodeURIComponent('"date"')}&startAt=${encodeURIComponent(`"${monthStart}"`)}`
     const [staffData, teacherData, profile, studentsData, hw, noticeData, attData] = await Promise.all([
       dbRequest(`schools/${index.schoolId}/staff/${uid}`, token).catch(() => null),
       dbRequest(`schools/${index.schoolId}/teachers/${uid}`, token).catch(() => null),
@@ -67,7 +101,7 @@ async function loadTeacherSession(token, uid) {
       dbRequest(`schools/${index.schoolId}/students`, token),
       dbRequest(`schools/${index.schoolId}/homework`, token),
       dbRequest(`schools/${index.schoolId}/notices`, token),
-      dbRequest(`schools/${index.schoolId}/attendance`, token),
+      dbRequest(`schools/${index.schoolId}/attendance`, token, { query: attQuery }),
     ])
     const record = staffData || teacherData
     if (!record) throw new Error('Staff profile not found in school data.')
@@ -78,7 +112,7 @@ async function loadTeacherSession(token, uid) {
       students: studentsData || {},
       homework: hw || {},
       notices: noticeData || {},
-      attendance: attData || {},
+      attendance: parseAttendanceToTeacherFormat(attData, studentsData),
     }
   } catch (error) {
     if (/Firebase 401|Firebase 403|teachersIndex|schools\//i.test(error.message || '')) {
@@ -283,10 +317,23 @@ function TeacherAttendance({ teacher, students, attendance, token, schoolId, onS
     setSaving(true)
     try {
       const tok = await auth.currentUser.getIdToken()
-      const payload = { ...marks, markedBy: teacher.uid, markedAt: Date.now(), className: selectedClass }
-      await dbRequest(`schools/${schoolId}/attendance/${date}/${selectedClass}`, tok, { method: 'PUT', body: payload })
+      const { className, section } = classParts(selectedClass)
+      const now = Date.now()
+      const changes = {}
+      Object.entries(marks).forEach(([studentId, status]) => {
+        const id = `${date}_${studentId}`
+        changes[`schools/${schoolId}/attendance/${id}`] = {
+          id, studentId, student_id: studentId,
+          class: className, section: section || 'A',
+          date, status, mark: status,
+          statusText: status === 'P' ? 'Present' : status === 'A' ? 'Absent' : status === 'L' ? 'Leave' : status,
+          markedBy: teacher.uid, marked_by: teacher.uid,
+          created_at: now, updated_at: now, updatedAt: now,
+        }
+      })
+      await dbRequest('', tok, { method: 'PATCH', body: changes })
       setSaved(true)
-      if (onSaved) onSaved(date, selectedClass, payload)
+      if (onSaved) onSaved(date, selectedClass, marks)
     } catch (err) {
       alert('Error saving attendance: ' + err.message)
     } finally { setSaving(false) }
@@ -524,11 +571,57 @@ function TeacherProfile({ teacher, schoolProfile }) {
   </div>
 }
 
+// Read-only by design. Teachers see why a student is marked "Leave" instead of "Absent" without
+// having to ask the admin, but cannot decide anything - there are no action buttons here, and the
+// database rules do not grant teachers write access to leaveRequests either.
+function TeacherLeaveRequests({ leaveRequests, classSections }) {
+  const [status, setStatus] = useState('all')
+  const rows = useMemo(() => Object.values(leaveRequests || {})
+    .flatMap(byClass => Object.entries(byClass || {}).map(([id, row]) => ({ ...row, id })))
+    .sort((a, b) => (b.submittedAt || 0) - (a.submittedAt || 0)), [leaveRequests])
+  const counts = useMemo(() => rows.reduce((all, row) => ({ ...all, [row.status]: (all[row.status] || 0) + 1 }), {}), [rows])
+  const filtered = status === 'all' ? rows : rows.filter(row => row.status === status)
+  const showTabs = rows.length > 10
+  const dayText = value => {
+    if (!value) return '-'
+    const parsed = new Date(value)
+    return Number.isNaN(parsed.getTime()) ? value : parsed.toLocaleDateString('en-IN', { day: '2-digit', month: 'short' })
+  }
+  const range = row => (row.fromDate === row.toDate ? dayText(row.fromDate) : `${dayText(row.fromDate)} - ${dayText(row.toDate)}`)
+
+  return <div className="teacher-page">
+    <h2>Leave Requests</h2>
+    <p className="teacher-subtitle">Leave applied by parents for your classes{classSections.length ? ` (${classSections.join(', ')})` : ''} · view only</p>
+    {showTabs && <div className="teacher-leave-tabs">
+      {[['all', 'All'], ['pending', 'Pending'], ['approved', 'Approved'], ['rejected', 'Rejected']].map(([id, label]) => (
+        <button key={id} className={status === id ? 'active' : ''} onClick={() => setStatus(id)}>
+          {label}{id !== 'all' && counts[id] ? ` (${counts[id]})` : ''}
+        </button>
+      ))}
+    </div>}
+    <div className="teacher-leave-list">
+      {filtered.map(row => <div key={row.id} className="teacher-leave-card">
+        <div className="teacher-leave-head">
+          <div><strong>{row.studentName || 'Student'}</strong><small>{row.classSection}{row.admissionNo ? ` · Adm ${row.admissionNo}` : ''}</small></div>
+          <span className={`teacher-leave-status ${row.status || 'pending'}`}>{row.status || 'pending'}</span>
+        </div>
+        <div className="teacher-leave-dates"><Umbrella size={13} /> {range(row)}</div>
+        <p>{row.reason || '-'}</p>
+        {row.reviewedByName && <small className="teacher-leave-review">
+          {row.status === 'rejected' ? 'Rejected' : 'Approved'} by {row.reviewedByName}{row.reviewNote ? ` — ${row.reviewNote}` : ''}
+        </small>}
+      </div>)}
+      {!filtered.length && <div className="teacher-empty">No {status === 'all' ? '' : status} leave requests yet.</div>}
+    </div>
+  </div>
+}
+
 const teacherNav = [
   { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
   { id: 'attendance', label: 'My Attendance', icon: CalendarCheck },
   { id: 'classes', label: 'My Classes', icon: GraduationCap },
   { id: 'homework', label: 'Homework', icon: BookOpen },
+  { id: 'leave-requests', label: 'Leave Requests', icon: Umbrella },
   { id: 'notices', label: 'Notices', icon: MessageSquareText },
   { id: 'profile', label: 'My Profile', icon: User },
 ]
@@ -543,6 +636,8 @@ export default function TeacherApp() {
   const [attendance, setAttendance] = useState({})
   const [homework, setHomework] = useState({})
   const [notices, setNotices] = useState({})
+  // Keyed by classSection, since each assigned class has its own scoped listener.
+  const [leaveRequests, setLeaveRequests] = useState({})
   const [page, setPage] = useState('dashboard')
   const [loadError, setLoadError] = useState('')
   const [sidebarOpen, setSidebarOpen] = useState(false)
@@ -578,28 +673,59 @@ export default function TeacherApp() {
     return () => { active = false }
   }, [session])
 
-  // Near-real-time sync: silently refresh teacher data on an interval so admin/teacher
-  // changes (homework, notices, attendance) appear without a manual reload. Paused on the
-  // attendance page so a live refresh never clobbers marks the teacher is entering.
+  // Real-time sync via scoped RTDB listeners. Firebase pushes only changed data over a
+  // persistent connection, replacing the old 20s poll that re-downloaded the entire school
+  // (students + homework + notices + full attendance history) every tick — a major bandwidth
+  // cost fix. It also makes teacher-marked attendance appear in the admin panel and student
+  // profile instantly, since both sides now read the same schools/{id}/attendance node live
+  // instead of waiting for the next poll cycle.
+  //
+  // The attendance listener is safe to run on the attendance page: the marking UI keeps its
+  // in-progress marks in its own local state (seeded only when date/class/students change),
+  // so a live push never clobbers marks the teacher is entering.
   useEffect(() => {
-    if (!session || !schoolId || page === 'attendance') return undefined
+    if (!session || !schoolId || !rtdb) return undefined
     let active = true
-    const tick = async () => {
-      try {
-        const token = await session.getIdToken()
-        const bundle = await loadTeacherSession(token, session.uid)
-        if (!active) return
-        setTeacher(bundle.teacher)
-        setSchoolProfile(bundle.profile)
-        setStudents(bundle.students || {})
-        setHomework(bundle.homework || {})
-        setNotices(bundle.notices || {})
-        setAttendance(bundle.attendance || {})
-      } catch { /* ignore transient poll failures; next tick retries */ }
+    const unsubs = []
+    const sub = (path, handler) => {
+      const node = ref(rtdb, `schools/${schoolId}/${path}`)
+      const unsubscribe = onValue(node, snap => { if (active) handler(snap.val()) }, () => { /* permission/transient errors: keep initial snapshot */ })
+      unsubs.push(unsubscribe)
     }
-    const id = setInterval(tick, 20000)
-    return () => { active = false; clearInterval(id) }
-  }, [session, schoolId, page])
+    sub('profile', val => { if (val) setSchoolProfile(val) })
+    sub('students', val => setStudents(val || {}))
+    sub('homework', val => setHomework(val || {}))
+    sub('notices', val => setNotices(val || {}))
+    sub(`staff/${session.uid}`, val => { if (val) setTeacher(buildStaffProfile(session.uid, val)) })
+    // Attendance listener is bounded to the current month so the live subscription never streams
+    // the whole year's history. Requires "attendance": { ".indexOn": ["date"] } in the rules.
+    const md = new Date()
+    const monthStart = `${md.getFullYear()}-${String(md.getMonth() + 1).padStart(2, '0')}-01`
+    const attQuery = query(ref(rtdb, `schools/${schoolId}/attendance`), orderByChild('date'), startAt(monthStart))
+    unsubs.push(onValue(attQuery, snap => { if (active) setAttendance(parseAttendanceToTeacherFormat(snap.val())) }, () => {}))
+    return () => { active = false; unsubs.forEach(fn => fn()) }
+  }, [session, schoolId])
+
+  // Leave requests, scoped to this teacher's own classes. RTDB allows one equalTo per query, so
+  // each assigned class gets its own listener and the results are merged by class. A teacher
+  // therefore never receives a request belonging to a class they do not teach.
+  const myClassSections = useMemo(() => classSectionOptions(teacher, students), [teacher, students])
+  // `students` gets a new object identity on every push, so depend on the resolved class list as
+  // a stable string - otherwise these listeners would tear down and resubscribe constantly.
+  const myClassSectionsKey = myClassSections.join(',')
+  useEffect(() => {
+    if (!session || !schoolId || !rtdb || !myClassSectionsKey) { setLeaveRequests({}); return undefined }
+    let active = true
+    const unsubs = []
+    myClassSectionsKey.split(',').forEach(classSection => {
+      const scoped = query(ref(rtdb, `schools/${schoolId}/leaveRequests`), orderByChild('classSection'), equalTo(classSection))
+      unsubs.push(onValue(scoped, snap => {
+        if (!active) return
+        setLeaveRequests(current => ({ ...current, [classSection]: snap.val() || {} }))
+      }, () => { /* permission/transient errors: keep whatever we already have */ }))
+    })
+    return () => { active = false; unsubs.forEach(fn => fn()) }
+  }, [session, schoolId, myClassSectionsKey])
 
   const doLogout = async () => { await signOut(auth); window.location.href = '/' }
 
@@ -661,6 +787,7 @@ export default function TeacherApp() {
         {page === 'attendance' && <TeacherAttendance teacher={teacher} students={students} attendance={attendance} token={null} schoolId={schoolId} onSaved={(d, c, data) => setAttendance(a => ({ ...a, [d]: { ...(a[d] || {}), [c]: data } }))} />}
         {page === 'classes' && <TeacherClasses teacher={teacher} students={students} />}
         {page === 'homework' && <TeacherHomework teacher={teacher} homework={homework} students={students} token={null} schoolId={schoolId} />}
+        {page === 'leave-requests' && <TeacherLeaveRequests leaveRequests={leaveRequests} classSections={myClassSections} />}
         {page === 'notices' && <TeacherNotices notices={notices} />}
         {page === 'profile' && <TeacherProfile teacher={teacher} schoolProfile={schoolProfile} />}
       </div>

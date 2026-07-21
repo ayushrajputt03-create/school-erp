@@ -13,4 +13,23 @@
 .parent-card-list{display:grid;gap:13px}.parent-card-list article{padding:16px;border-left:5px solid #5483b3}.parent-card-list article h3{margin:5px 0}.parent-card-list article p{color:#334155;line-height:1.55}.parent-card-list article span{display:inline-flex;border-radius:999px;background:#e8f1ff;color:#052659;padding:5px 9px;font-size:11px;font-weight:900}.parent-card-list article small{display:block;color:#64748b;margin:6px 0}.parent-card-list article a,.parent-card-list article button,.transport-card a{display:inline-flex;align-items:center;gap:6px;border:0;border-radius:999px;background:#052659;color:#fff;padding:8px 11px;text-decoration:none;font-weight:900}.parent-notice.urgent,.parent-notice.important{border-left-color:#ef4444}.parent-homework-card.overdue{border-left-color:#ef4444;background:#fff8f8}.transport-card p{display:flex;justify-content:space-between;gap:12px;border-bottom:1px solid #edf2f7;padding-bottom:8px}.parent-empty{padding:40px 20px;text-align:center;color:#64748b}.parent-empty svg{color:#5483b3}.parent-empty strong{display:block;color:#052659;font-size:18px;margin-top:8px}
 .parent-bottom-nav{display:none;position:fixed;bottom:0;left:0;right:0;background:#fff;border-top:1px solid #dbe4f0;z-index:30;padding:7px 6px env(safe-area-inset-bottom);grid-template-columns:repeat(6,1fr);box-shadow:0 -12px 30px rgba(2,16,36,.1)}.parent-bottom-nav button{border:0;background:transparent;color:#64748b;border-radius:12px;padding:8px 3px;display:grid;place-items:center;font-size:10px;font-weight:800}.parent-bottom-nav button.active{background:#e8f1ff;color:#052659}
 @media(max-width:900px){.parent-topbar{padding:10px 12px;flex-wrap:wrap}.parent-school-id{min-width:100%}.parent-topbar select{flex:1}.parent-layout{display:block;width:min(100% - 24px,720px)}.parent-sidebar{display:none}.parent-page-title h1{font-size:24px}.parent-bottom-nav{display:grid}.parent-stat-grid{grid-template-columns:repeat(2,1fr)}.parent-today-list,.parent-quick-grid,.fee-summary{grid-template-columns:1fr}.summary-table{grid-template-columns:1fr}.days div{min-height:54px;padding:5px}.days span{width:22px;height:22px}.parent-student-card{align-items:flex-start}.parent-student-photo.large{width:76px;height:96px}}
-@media print{.parent-topbar,.parent-sidebar,.parent-bottom-nav,.parent-page-title .parent-secondary,.parent-secondary,.parent-primary,.parent-icon{display:none!important}.parent-app{background:#fff;padding:0}.parent-layout{display:block;width:100%;margin:0}.parent-panel,.parent-student-card,.parent-card-list article{box-shadow:none;break-inside:avoid}.parent-content{width:100%}}
+/* Sheet for the tabs that do not fit in the five-slot bottom nav on small screens. */
+.parent-more-overlay{position:fixed;inset:0;background:rgba(2,16,36,.45);border:0;z-index:31}
+.parent-more-sheet{position:fixed;left:0;right:0;bottom:64px;z-index:32;background:#fff;border-top:1px solid #dbe4f0;border-radius:16px 16px 0 0;padding:10px;display:grid;grid-template-columns:1fr 1fr;gap:8px;box-shadow:0 -18px 40px rgba(2,16,36,.18)}
+.parent-more-sheet button{display:flex;align-items:center;gap:9px;border:1px solid #e4ebf5;background:#f8fafd;color:#334155;border-radius:11px;padding:12px;font-family:inherit;font-size:13px;font-weight:700;cursor:pointer;text-align:left}
+.parent-more-sheet button.active{background:#e8f1ff;border-color:#c3d9f5;color:#052659}
+
+@media print{.parent-topbar,.parent-sidebar,.parent-bottom-nav,.parent-more-sheet,.parent-more-overlay,.parent-page-title .parent-secondary,.parent-secondary,.parent-primary,.parent-icon{display:none!important}.parent-app{background:#fff;padding:0}.parent-layout{display:block;width:100%;margin:0}.parent-panel,.parent-student-card,.parent-card-list article{box-shadow:none;break-inside:avoid}.parent-content{width:100%}}
+
+/* Multi-month pending fees breakdown */
+.parent-pending-fees { border: 1px solid #e8b6ae; }
+.parent-pending-fees.clear { border: 1px solid #b9e2c8; }
+.parent-pending-total { display: flex; align-items: baseline; gap: 10px; margin: 6px 0 10px; }
+.parent-pending-total strong { font-size: 22px; font-weight: 800; color: #c0392b; }
+.parent-pending-total span { font-size: 12px; font-weight: 700; color: #a24b3f; text-transform: uppercase; letter-spacing: 0.4px; }
+.parent-pending-fees ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.parent-pending-fees li { display: flex; align-items: center; gap: 10px; padding: 8px 10px; border: 1px solid #f0dcd8; border-radius: 8px; background: #fdf7f6; font-size: 12px; }
+.parent-pending-fees li span { font-weight: 700; color: #052659; min-width: 110px; }
+.parent-pending-fees li em { font-style: normal; color: #8a6d3b; flex: 1; }
+.parent-pending-fees li strong { color: #c0392b; font-weight: 800; }
+.parent-uptodate { font-size: 13px; font-weight: 700; color: #1e7d45; background: #e8f7ee; border-radius: 8px; padding: 10px 12px; }

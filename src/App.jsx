@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react'
+import React, { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import imageCompression from 'browser-image-compression'
 import {
   Bell, BookOpen, BusFront, CalendarCheck, Check, ChevronRight, IndianRupee,
@@ -6,26 +6,41 @@ import {
   MoreHorizontal, Plus, Search, Settings, ShieldCheck, Sparkles, Users, X,
   Eye, Receipt, Save, ClipboardList, Download, Upload, Link2, Cake,
   UserCheck, Clock3, TrendingUp, WalletCards, Printer, FileText, Pencil, Trash2,
-  DatabaseBackup, BriefcaseBusiness, Moon, Sun, Camera, Badge, Umbrella, UserRound
+  DatabaseBackup, BriefcaseBusiness, Moon, Sun, Camera, Badge, Umbrella, UserRound,
+  RotateCcw, AlertTriangle, Archive, QrCode
 } from 'lucide-react'
 import './app.css'
 import AuthScreen from './AuthScreen'
 import SchoolSetup from './SchoolSetup'
-import FeeManager from './FeeManager'
-import BackupCenter from './BackupCenter'
-import TimetableManager from './TimetableManager'
-import EmployeeManager from './EmployeeManager'
-import CertificateManager from './CertificateManager'
-import ReportCardManager from './ReportCardManager'
-import IDCardManager from './IDCardManager'
-import HomeworkManager from './HomeworkManager'
-import TransportManager from './TransportManager'
-import ExpenseManager from './ExpenseManager'
-import LibraryManager from './LibraryManager'
-import AccountsManager from './AccountsManager'
-import LeaveManager from './LeaveManager'
+import { StudentPhotoContext, useStudentPhotos } from './student-photos'
+
+// One screenful of students. Each row can carry ~133KB of photo, so this is the difference
+// between a directory costing a few megabytes and costing tens of them.
+const STUDENT_PAGE_SIZE = 50
+// Every ERP module used to be a static import, so the login screen shipped the whole ERP -
+// a 899KB main chunk. Each of these renders on exactly one page, so load them when that page is
+// opened instead. The heavy PDF/canvas libraries they pull in (jspdf, html2canvas, exceljs) were
+// already dynamically imported, but they were reachable only after this code had downloaded.
+const FeeManager = lazy(() => import('./FeeManager'))
+const BackupCenter = lazy(() => import('./BackupCenter'))
+const StudentLeaveManager = lazy(() => import('./StudentLeaveManager'))
+const AdmissionRequestsManager = lazy(() => import('./AdmissionRequestsManager'))
+const TimetableManager = lazy(() => import('./TimetableManager'))
+const EmployeeManager = lazy(() => import('./EmployeeManager'))
+const CertificateManager = lazy(() => import('./CertificateManager'))
+const ReportCardManager = lazy(() => import('./ReportCardManager'))
+const IDCardManager = lazy(() => import('./IDCardManager'))
+const HomeworkManager = lazy(() => import('./HomeworkManager'))
+const TransportManager = lazy(() => import('./TransportManager'))
+const ExpenseManager = lazy(() => import('./ExpenseManager'))
+const LibraryManager = lazy(() => import('./LibraryManager'))
+const AccountsManager = lazy(() => import('./AccountsManager'))
+const LeaveManager = lazy(() => import('./LeaveManager'))
+const SessionArchive = lazy(() => import('./SessionArchive'))
 import SplashScreen from './SplashScreen'
 import DatePicker from './DatePicker'
+import { getPendingFeesSummary } from './lib/pendingFees'
+import { promotionHistory, sessionsKnownFor, classInSession, sessionOptionsFrom } from './lib/sessionHistory'
 import ParentPortal from './ParentPortal'
 import {
   academicYears,
@@ -40,10 +55,18 @@ import {
   onlyDigits,
   recognitionOptions as schoolRecognitionOptions,
   sectionOptions,
+  sessionMonthNames,
+  sessionStartMonthOf,
+  sessionStartMonthOptions,
+  MONTH_NAMES,
   STREAM_OPTIONS,
 } from './schoolOptions'
 
 const admissionClasses = classOptions.flatMap(cls => sectionOptions.slice(0, cls.match(/^(11|12)$/) ? 1 : 5).map(section => `${cls}-${section}`))
+
+// The dashboard activity feed renders a short list. Building or keeping more than this is wasted
+// work that grows with the school's age rather than with what anyone actually looks at.
+const ACTIVITY_FEED_LIMIT = 50
 
 // Student lifecycle status. Anything without a status is treated as active (legacy records).
 const STUDENT_STATUS_META = {
@@ -57,7 +80,7 @@ const isActiveStudent = student => studentStatusKey(student) === 'active'
 
 import { onAuthStateChanged, signOut } from 'firebase/auth'
 import { deleteObject, getDownloadURL, ref as storageRef, uploadBytes } from 'firebase/storage'
-import { auth, isFirebaseConfigured, storage } from './lib/firebase'
+import { auth, isFirebaseConfigured, storage, firebaseApp, rtdb } from './lib/firebase'
 
 const databaseUrl = import.meta.env.VITE_FIREBASE_DATABASE_URL?.replace(/\/$/, '')
 const useFirebaseStorage = import.meta.env.VITE_USE_FIREBASE_STORAGE === 'true'
@@ -65,7 +88,7 @@ const useFirebaseStorage = import.meta.env.VITE_USE_FIREBASE_STORAGE === 'true'
 async function databaseRequest(path, token, options = {}) {
   const controller = new AbortController()
   const timeout = setTimeout(() => controller.abort(), 12000)
-  const url = `${databaseUrl}/${path ? `${path}.json` : '.json'}?auth=${encodeURIComponent(token)}`
+  const url = `${databaseUrl}/${path ? `${path}.json` : '.json'}?auth=${encodeURIComponent(token)}${options.query ? `&${options.query}` : ''}`
 
   try {
     const response = await fetch(url, {
@@ -245,6 +268,7 @@ async function createSchoolRecord(user, token, profile) {
     schoolContactNo: profile.schoolContactNo || profile.phone?.trim() || '',
     schoolEmail: profile.schoolEmail || profile.email || user.email || '',
     academicYear: profile.academicYear || '2026-27',
+    sessionStartMonth: sessionStartMonthOf(profile),
     createdAt,
     updatedAt: createdAt,
   }
@@ -414,8 +438,11 @@ const nav = [
   { id: 'dashboard', label: 'Command Center', icon: LayoutDashboard },
   { id: 'admissions', label: 'Admissions', icon: ClipboardList },
   { id: 'students', label: 'Students', icon: Users },
+  { id: 'admission-requests', label: 'Admission Requests', icon: QrCode },
+  { id: 'deleted-students', label: 'Deleted Students', icon: Archive },
   { id: 'employees', label: 'Employees', icon: BriefcaseBusiness },
   { id: 'leave', label: 'Leave', icon: Umbrella },
+  { id: 'student-leave', label: 'Student Leave', icon: Umbrella },
   { id: 'attendance', label: 'Attendance', icon: CalendarCheck },
   { id: 'fees', label: 'Fee Management', icon: IndianRupee },
   { id: 'academics', label: 'Timetable', icon: BookOpen },
@@ -449,6 +476,8 @@ function useStoredState(key, initialValue) {
 function StudentSearch({ students, onSelect, prominent = false }) {
   const [query, setQuery] = useState('')
   const results = query.trim() ? students.filter(student => `${student.roll} ${student.name} ${student.phone}`.toLowerCase().includes(query.trim().toLowerCase())).slice(0, 6) : []
+  // Already capped at six, so this only ever pulls a handful of photos.
+  useStudentPhotos(results.map(student => student.id))
   return <div className={`student-quick-search ${prominent ? 'prominent' : ''}`}>
     <Search size={prominent ? 18 : 16} /><input value={query} onChange={event => setQuery(event.target.value)} placeholder="Search admission no., student name or phone" />
     {results.length > 0 && <div className="search-results">{results.map(student => <button key={student.id} onClick={() => { onSelect(student); setQuery('') }}><StudentAvatar student={student} size="search" /><div><strong>{student.name}</strong><small>Adm No: {student.roll}</small><small>Class: {student.className} - Father: {student.fatherName || student.guardian || '-'}</small><small>Phone: {student.phone}</small></div></button>)}</div>}
@@ -462,7 +491,7 @@ function UserAvatar({ profile, className = '' }) {
     : <span className={`avatar tone-blue ${className}`}>{profile.initials}</span>
 }
 
-function Header({ title, subtitle, schoolCode, onMenu, profile, onSignOut, students, onSelectStudent, darkMode, onToggleTheme }) {
+function Header({ title, subtitle, schoolCode, onMenu, profile, onSignOut, students, onSelectStudent, darkMode, onToggleTheme, sessions = [], currentSession, viewSession, onChangeSession }) {
   return (
     <header className="topbar">
       <button className="icon-button mobile-menu" onClick={onMenu} aria-label="Open menu"><Menu size={20} /></button>
@@ -471,6 +500,12 @@ function Header({ title, subtitle, schoolCode, onMenu, profile, onSignOut, stude
         <p>{subtitle}{schoolCode ? ` · Code ${schoolCode}` : ''}</p>
       </div>
       <div className="topbar-actions">
+        {sessions.length > 1 && <select
+          className="session-switcher"
+          aria-label="Academic session"
+          value={viewSession || currentSession}
+          onChange={event => onChangeSession(event.target.value === currentSession ? '' : event.target.value)}
+        >{sessions.map(item => <option key={item} value={item}>{item}{item === currentSession ? ' (current)' : ''}</option>)}</select>}
         <StudentSearch students={students} onSelect={onSelectStudent} />
         <button className="icon-button theme-toggle" onClick={onToggleTheme} aria-label={darkMode ? 'Switch to light mode' : 'Switch to dark mode'} title={darkMode ? 'Light mode' : 'Dark mode'}>{darkMode ? <Sun size={18} /> : <Moon size={18} />}</button>
         <div className="profile">
@@ -570,6 +605,7 @@ function SchoolProfile({ profile, students, staff, save }) {
       <div><span>Total Students</span><strong>{students.length}</strong></div>
       <div><span>Total Teachers</span><strong>{Object.keys(staff || {}).length}</strong></div>
       <div><span>Academic Year</span><strong>{profile.academicYear || '2026-27'}</strong></div>
+      <div><span>Session Starts</span><strong>{MONTH_NAMES[sessionStartMonthOf(profile) - 1]}</strong></div>
       <div><span>School Code</span><strong>{profile.schoolCode || '-'}</strong></div>
     </section>
     <section className="panel school-profile-details">
@@ -592,6 +628,7 @@ function SchoolProfile({ profile, students, staff, save }) {
         <label>UDISE Number<input value={form.udiseNo || ''} onChange={e => setForm({ ...form, udiseNo: e.target.value })} /></label>
         <label>Board<select required value={form.board || 'CBSE'} onChange={e => setForm({ ...form, board: e.target.value })}>{boardOptions.map(item => <option key={item}>{item}</option>)}</select></label>
         <label>Academic Year<select required value={form.academicYear || '2026-27'} onChange={e => setForm({ ...form, academicYear: e.target.value })}>{academicYears.map(item => <option key={item}>{item}</option>)}</select></label>
+        <label>Session Starts In<select value={sessionStartMonthOf(form)} onChange={e => setForm({ ...form, sessionStartMonth: Number(e.target.value) })}>{sessionStartMonthOptions.map(month => <option key={month} value={month}>{MONTH_NAMES[month - 1]}</option>)}</select></label>
         <label>Principal Name<input value={form.principalName || ''} onChange={e => setForm({ ...form, principalName: e.target.value })} /></label>
         <label>School Motto<input value={form.schoolMotto || ''} onChange={e => setForm({ ...form, schoolMotto: e.target.value })} /></label>
         <label>Website<input value={form.schoolWebsite || ''} onChange={e => setForm({ ...form, schoolWebsite: e.target.value })} /></label>
@@ -857,7 +894,7 @@ function Dashboard({ students, notices, fees, attendance, activities, staff, sta
         <div className="panel birthday-panel">
           <div className="panel-header"><div><h3>Birthdays</h3><p>Today and the next 7 days</p></div><Cake size={18} /></div>
           <div className="birthday-block"><span>Birthdays Today</span>{birthdaysToday.map(student => <div className="birthday-person" key={student.id}><span className={`avatar tone-${student.tone}`}>{student.initials}</span><div><strong>{student.name}</strong><small>{student.className}</small></div></div>)}{!birthdaysToday.length && <p>No birthdays today.</p>}</div>
-          <div className="birthday-block"><span>Upcoming</span>{upcomingBirthdays.map(student => <div className="birthday-person" key={student.id}><span className={`avatar tone-${student.tone}`}>{student.initials}</span><div><strong>{student.name}</strong><small>In {birthdayDistance(student.dob)} day{birthdayDistance(student.dob) === 1 ? '' : 's'} Â· {student.className}</small></div></div>)}{!upcomingBirthdays.length && <p>No birthdays in the next 7 days.</p>}</div>
+          <div className="birthday-block"><span>Upcoming</span>{upcomingBirthdays.map(student => <div className="birthday-person" key={student.id}><span className={`avatar tone-${student.tone}`}>{student.initials}</span><div><strong>{student.name}</strong><small>In {birthdayDistance(student.dob)} day{birthdayDistance(student.dob) === 1 ? '' : 's'} · {student.className}</small></div></div>)}{!upcomingBirthdays.length && <p>No birthdays in the next 7 days.</p>}</div>
         </div>
         <div className="panel approval-panel">
           <div className="panel-header"><div><h3>Pending Approvals</h3><p>Items waiting for review</p></div><Clock3 size={18} /></div>
@@ -869,7 +906,7 @@ function Dashboard({ students, notices, fees, attendance, activities, staff, sta
         </div>
         <div className="panel reminder-panel">
           <div className="panel-header"><div><h3>Payment Reminder</h3><p>Top overdue student accounts</p></div><button className="text-button" onClick={() => setPage('fees')}>Open ledger</button></div>
-          <div className="reminder-list">{overdueStudents.map(student => <div key={student.id}><span className={`avatar tone-${student.tone}`}>{student.initials}</span><div><strong>{student.name}</strong><small>{student.roll} Â· {student.className}</small></div><b>{money(outstandingByStudent[student.id])}</b></div>)}{!overdueStudents.length && <div className="empty-state">No recorded overdue balances.</div>}</div>
+          <div className="reminder-list">{overdueStudents.map(student => <div key={student.id}><span className={`avatar tone-${student.tone}`}>{student.initials}</span><div><strong>{student.name}</strong><small>{student.roll} · {student.className}</small></div><b>{money(outstandingByStudent[student.id])}</b></div>)}{!overdueStudents.length && <div className="empty-state">No recorded overdue balances.</div>}</div>
         </div>
         <div className="panel transport-widget">
           <div className="panel-header"><div><h3>Transport</h3><p>Vehicles, routes and document alerts</p></div><button className="text-button" onClick={() => setPage('transport')}>Open</button></div>
@@ -1024,8 +1061,19 @@ function StudentProfile({ student, close, attendance, fees, feeManager, schoolPr
   const [uploading, setUploading] = useState('')
   const [photoDraft, setPhotoDraft] = useState(null)
   const [photoSaving, setPhotoSaving] = useState(false)
+  // The live attendance state is bounded to the current month for cost reasons, but the profile
+  // shows the full month-wise summary and overall %. Fetch this student's complete history once
+  // on open and merge it under the live current-month data (live values win for freshness).
+  const [historyRecords, setHistoryRecords] = useState(null)
+  useEffect(() => {
+    let active = true
+    setHistoryRecords(null)
+    if (student && loadStudentAttendance) loadStudentAttendance(student.id).then(result => { if (active && result) setHistoryRecords(result) })
+    return () => { active = false }
+  }, [student?.id])
   if (!student) return null
-  const records = Object.entries(attendance).reduce((all, [date, marks]) => marks[student.id] ? { ...all, [date]: marks[student.id] } : all, {})
+  const liveRecords = Object.entries(attendance).reduce((all, [date, marks]) => marks[student.id] ? { ...all, [date]: marks[student.id] } : all, {})
+  const records = historyRecords ? { ...historyRecords, ...liveRecords } : liveRecords
   const now = new Date()
   const monthKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`
   const monthDays = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate()
@@ -1038,7 +1086,8 @@ function StudentProfile({ student, close, attendance, fees, feeManager, schoolPr
   }, {})
   const academicYear = schoolProfile?.academicYear || `${now.getFullYear()}-${String(now.getFullYear() + 1).slice(-2)}`
   const startYear = Number(String(academicYear).match(/\d{4}/)?.[0] || now.getFullYear())
-  const feeMonths = ['April','May','June','July','August','September','October','November','December','January','February','March']
+  const sessionStartMonth = sessionStartMonthOf(schoolProfile)
+  const feeMonths = sessionMonthNames(sessionStartMonth)
   const studentFees = Object.values(fees).filter(fee => fee.studentId === student.id)
   const totalPaid = studentFees.filter(fee => fee.status === 'paid').reduce((sum, fee) => sum + Number(fee.amount || 0), 0)
   const structures = Object.values(feeManager?.structures || {})
@@ -1051,8 +1100,11 @@ function StudentProfile({ student, close, attendance, fees, feeManager, schoolPr
         && (!item.section || item.section === student.className.split('-')[1]))
     .reduce((sum, item) => sum + Number(item.amount || 0), 0)
   const pending = studentFees.reduce((sum, fee) => sum + Number(fee.balance || 0), 0)
+  const pendingSummary = getPendingFeesSummary({ student, fees: studentFees, structures: feeManager?.structures, academicYear, sessionStartMonth })
   const results = academics?.[student.id] || {}
   const docs = documents?.[student.id] || {}
+  // The profile is the one screen that always shows a photo, so it asks for its own.
+  useStudentPhotos([student?.id])
   const currentPhoto = student.photoUrl || docs.photo?.url || docs.photo?.data || ''
   const upload = async (type, file) => {
     if (!file) return
@@ -1083,10 +1135,10 @@ function StudentProfile({ student, close, attendance, fees, feeManager, schoolPr
     <section className="profile-cover"><div className="profile-photo-wrap"><label className="profile-photo editable">{photoDraft?.preview || currentPhoto ? <img src={photoDraft?.preview || currentPhoto} alt={student.name} /> : student.initials}<span><Camera size={18} />{photoSaving ? 'Saving...' : 'Change'}</span><input disabled={photoSaving} type="file" accept="image/jpeg,image/jpg,image/png" onChange={async event => { const file = event.target.files?.[0]; event.target.value = ''; if (file) changePhoto(await prepareStudentPhoto(file)) }} /></label>{photoSaving && <small>Uploading photo...</small>}</div><div><span className="admission-badge">Admission Number</span><strong className="admission-number">{student.roll}</strong><h3>{student.name}</h3><p>Class {student.className} · {student.feeGroup}</p>{(photoDraft?.compressedSize || student.photoSize) ? <small className="compression-info inline">Photo: {formatBytes(photoDraft?.compressedSize || student.photoSize)} OK</small> : null}</div><span className={`status ${student.fee.toLowerCase()}`}>{student.fee}</span></section>
     <div className="profile-tabs">{[['personal','Personal Info'],['attendance','Attendance'],['fees','Fees'],['academics','Academics'],['documents','Documents']].map(([id,label]) => <button key={id} className={tab === id ? 'active' : ''} onClick={() => setTab(id)}>{label}</button>)}</div>
     <section className="profile-tab-content" key={tab}>
-      {tab === 'personal' && <dl className="profile-details full-profile-details">{[['Admission Number',student.roll],['Full Name',student.name],['Father Name',student.fatherName],['Mother Name',student.motherName],['Date of Birth',student.dob],['Gender',student.gender],['Phone',student.phone],['Email',student.email],['Address',[student.address,student.city,student.state,student.pincode].filter(Boolean).join(', ')],['Class',student.className.split('-')[0]],['Section',student.className.split('-')[1]],['Fee Group',student.feeGroup],['Admission Date',student.admissionDate],['Aadhaar',student.aadhaar],['PEN ID',student.penId],['APAAR ID',student.apaarId]].map(([label,value]) => <div key={label}><dt>{label}</dt><dd>{value || 'Not provided'}</dd></div>)}</dl>}
-      {tab === 'attendance' && <><div className="profile-metrics"><div><span>Present this month</span><strong>{currentMarks.filter(([,mark])=>mark==='P').length}</strong></div><div><span>Absent this month</span><strong>{currentMarks.filter(([,mark])=>mark==='A').length}</strong></div><div><span>Overall attendance</span><strong>{Object.keys(records).length ? Math.round(Object.values(records).filter(mark=>mark==='P').length/Object.keys(records).length*100) : 0}%</strong></div></div><div className="attendance-calendar"><div className="calendar-title">{now.toLocaleDateString('en-IN',{month:'long',year:'numeric'})}</div><div className="calendar-week">{['Sun','Mon','Tue','Wed','Thu','Fri','Sat'].map(day=><span key={day}>{day}</span>)}</div><div className="calendar-grid">{Array.from({length:new Date(now.getFullYear(),now.getMonth(),1).getDay()}).map((_,i)=><i key={i}/>)}{Array.from({length:monthDays},(_,i)=>{const day=i+1;const mark=records[`${monthKey}-${String(day).padStart(2,'0')}`];return <div key={day} className={mark?`marked ${mark}`:''}><span>{day}</span><b>{mark||'â€”'}</b></div>})}</div></div><div className="panel table-panel profile-table"><table><thead><tr><th>Month</th><th>Present</th><th>Absent</th><th>Leave</th><th>Percentage</th></tr></thead><tbody>{Object.entries(monthSummary).map(([month,marks])=><tr key={month}><td>{new Date(`${month}-01`).toLocaleDateString('en-IN',{month:'long',year:'numeric'})}</td><td>{marks.P}</td><td>{marks.A}</td><td>{marks.L}</td><td>{Math.round(marks.P/(marks.P+marks.A+marks.L)*100)}%</td></tr>)}{!Object.keys(monthSummary).length&&<tr><td colSpan="5"><div className="empty-state">No attendance records yet.</div></td></tr>}</tbody></table></div></>}
-      {tab === 'fees' && <><div className="profile-metrics"><div><span>Total paid</span><strong>{money(totalPaid)}</strong></div><div><span>Recorded balance</span><strong>{money(pending)}</strong></div><div className="due-metric"><span>Monthly fee setup</span><strong>{monthlyFee ? money(monthlyFee) : 'Not set'}</strong></div></div><div className="fee-month-grid">{feeMonths.map((month,index)=>{const monthNo=((index+3)%12)+1;const year=monthNo<4?startYear+1:startYear;const billingMonth=`${year}-${String(monthNo).padStart(2,'0')}`;const fee=studentFees.find(item=>item.billingPeriod===billingMonth||item.billingMonth===billingMonth||item.billingMonth===month);const overdue=monthlyFee>0&&!fee&&new Date(year,monthNo-1,10)<new Date();return <div key={month} className={fee?.status==='paid'?'paid':overdue?'overdue':'pending'}><span>{month}</span><strong>{fee ? money(fee.amount || fee.totalDue) : monthlyFee ? money(monthlyFee) : 'Not set'}</strong><small>{fee?.status==='paid'?'Paid':overdue?'Overdue':monthlyFee?'Pending':'Configure fee'}</small>{!fee&&monthlyFee>0&&<button className="text-button" onClick={()=>onRecordPayment(student.id,monthlyFee,'UPI',billingMonth)}>Record payment</button>}</div>})}</div></>}
-      {tab === 'academics' && <div className="academics-profile"><div className="profile-actions"><button className="secondary-button" onClick={()=>window.print()}><Printer size={16}/> Print report card</button></div>{Object.entries(results).map(([exam,record])=><div className="exam-block" key={exam}><div><h3>{exam}</h3><strong>{record.percentage||0}% Â· Grade {record.grade||'â€”'}</strong></div><table><thead><tr><th>Subject</th><th>Marks</th><th>Maximum</th></tr></thead><tbody>{Object.entries(record.subjects||{}).map(([subject,marks])=><tr key={subject}><td>{subject}</td><td>{marks.obtained}</td><td>{marks.maximum}</td></tr>)}</tbody></table></div>)}{!Object.keys(results).length&&<div className="empty-state large"><FileText size={28}/><strong>No academic results yet</strong><p>Exam-wise marks will appear here after publishing.</p></div>}</div>}
+      {tab === 'personal' && <dl className="profile-details full-profile-details">{[['Admission Number',student.roll],['Full Name',student.name],['Father Name',student.fatherName],['Mother Name',student.motherName],['Date of Birth',student.dob],['Gender',student.gender],['Phone',student.phone],['Email',student.email],['Address',[student.address,student.city,student.state,student.pincode].filter(Boolean).join(', ')],['Class',student.className.split('-')[0]],['Section',student.className.split('-')[1]],['Fee Group',student.feeGroup],['Admission Date',student.admissionDate],['Aadhaar',student.aadhaar],['PEN ID',student.penId],['APAAR ID',student.apaarId],['Academic Session',student.academicSession],['Previous Sessions',sessionsKnownFor(student).filter(item => item !== student.academicSession).map(item => `${item}: Class ${classInSession(student, item) || '—'}`).join(' · ')]].map(([label,value]) => <div key={label}><dt>{label}</dt><dd>{value || 'Not provided'}</dd></div>)}</dl>}
+      {tab === 'attendance' && <><div className="profile-metrics"><div><span>Present this month</span><strong>{currentMarks.filter(([,mark])=>mark==='P').length}</strong></div><div><span>Absent this month</span><strong>{currentMarks.filter(([,mark])=>mark==='A').length}</strong></div><div><span>Overall attendance</span><strong>{Object.keys(records).length ? Math.round(Object.values(records).filter(mark=>mark==='P').length/Object.keys(records).length*100) : 0}%</strong></div></div><div className="attendance-calendar"><div className="calendar-title">{now.toLocaleDateString('en-IN',{month:'long',year:'numeric'})}</div><div className="calendar-week">{['Sun','Mon','Tue','Wed','Thu','Fri','Sat'].map(day=><span key={day}>{day}</span>)}</div><div className="calendar-grid">{Array.from({length:new Date(now.getFullYear(),now.getMonth(),1).getDay()}).map((_,i)=><i key={i}/>)}{Array.from({length:monthDays},(_,i)=>{const day=i+1;const mark=records[`${monthKey}-${String(day).padStart(2,'0')}`];return <div key={day} className={mark?`marked ${mark}`:''}><span>{day}</span><b>{mark||'—'}</b></div>})}</div></div><div className="panel table-panel profile-table"><table><thead><tr><th>Month</th><th>Present</th><th>Absent</th><th>Leave</th><th>Percentage</th></tr></thead><tbody>{Object.entries(monthSummary).map(([month,marks])=><tr key={month}><td>{new Date(`${month}-01`).toLocaleDateString('en-IN',{month:'long',year:'numeric'})}</td><td>{marks.P}</td><td>{marks.A}</td><td>{marks.L}</td><td>{Math.round(marks.P/(marks.P+marks.A+marks.L)*100)}%</td></tr>)}{!Object.keys(monthSummary).length&&<tr><td colSpan="5"><div className="empty-state">No attendance records yet.</div></td></tr>}</tbody></table></div></>}
+      {tab === 'fees' && <><div className="profile-metrics"><div><span>Total paid</span><strong>{money(totalPaid)}</strong></div><div><span>Recorded balance</span><strong>{money(pending)}</strong></div><div className="due-metric"><span>Monthly fee setup</span><strong>{monthlyFee ? money(monthlyFee) : 'Not set'}</strong></div></div>{pendingSummary.pendingMonthsCount > 0 ? <div className="pending-fees-panel"><div className="pending-fees-total"><strong>{money(pendingSummary.totalPendingAmount)}</strong><span>{pendingSummary.pendingMonthsCount} month{pendingSummary.pendingMonthsCount > 1 ? 's' : ''} pending</span></div><ul>{pendingSummary.pendingMonths.map(item => <li key={item.monthKey}><span>{item.month}</span><em>{item.status === 'partial' ? `Partial · paid ${money(item.amountPaid)}` : 'Unpaid'}</em><strong>{money(item.amountDue)}</strong></li>)}</ul></div> : <div className="pending-fees-panel clear"><span className="fee-months-badge clear">Up to date — no pending months</span></div>}<div className="fee-month-grid">{feeMonths.map((month,index)=>{const monthNo=((index+3)%12)+1;const year=monthNo<4?startYear+1:startYear;const billingMonth=`${year}-${String(monthNo).padStart(2,'0')}`;const fee=studentFees.find(item=>item.billingPeriod===billingMonth||item.billingMonth===billingMonth||item.billingMonth===month);const overdue=monthlyFee>0&&!fee&&new Date(year,monthNo-1,10)<new Date();return <div key={month} className={fee?.status==='paid'?'paid':overdue?'overdue':'pending'}><span>{month}</span><strong>{fee ? money(fee.amount || fee.totalDue) : monthlyFee ? money(monthlyFee) : 'Not set'}</strong><small>{fee?.status==='paid'?'Paid':overdue?'Overdue':monthlyFee?'Pending':'Configure fee'}</small>{!fee&&monthlyFee>0&&<button className="text-button" onClick={()=>onRecordPayment(student.id,monthlyFee,'UPI',billingMonth)}>Record payment</button>}</div>})}</div></>}
+      {tab === 'academics' && <div className="academics-profile"><div className="profile-actions"><button className="secondary-button" onClick={()=>window.print()}><Printer size={16}/> Print report card</button></div>{Object.entries(results).map(([exam,record])=><div className="exam-block" key={exam}><div><h3>{exam}</h3><strong>{record.percentage||0}% · Grade {record.grade||'—'}</strong></div><table><thead><tr><th>Subject</th><th>Marks</th><th>Maximum</th></tr></thead><tbody>{Object.entries(record.subjects||{}).map(([subject,marks])=><tr key={subject}><td>{subject}</td><td>{marks.obtained}</td><td>{marks.maximum}</td></tr>)}</tbody></table></div>)}{!Object.keys(results).length&&<div className="empty-state large"><FileText size={28}/><strong>No academic results yet</strong><p>Exam-wise marks will appear here after publishing.</p></div>}</div>}
       {tab === 'documents' && <div className="documents-grid">{[['aadhaar','Aadhaar Card'],['birthCertificate','Birth Certificate'],['previousTc','Previous TC']].map(([type,label])=><div key={type}><FileText size={24}/><strong>{label}</strong><small>{docs[type]?.name||'No file uploaded'}</small><label className="secondary-button">{uploading===type?'Uploading...':'Upload'}<input type="file" accept="image/*,.pdf" onChange={event=>upload(type,event.target.files?.[0])}/></label>{(docs[type]?.url||docs[type]?.data)&&<a className="text-button" href={docs[type].url||docs[type].data} target="_blank" rel="noreferrer" download={docs[type].name}>Download</a>}</div>)}<button className="primary-button download-all" disabled={!Object.keys(docs).length} onClick={()=>Object.values(docs).forEach((doc,index)=>setTimeout(()=>{const link=document.createElement('a');link.href=doc.url||doc.data;link.target='_blank';link.rel='noreferrer';link.download=doc.name;link.click()},index*200))}><Download size={16}/> Download all documents</button></div>}
     </section>
   </div>
@@ -1098,13 +1150,15 @@ function StudentStatusBadge({ student }) {
   return <span className="student-status-badge" style={{ background: meta.bg, color: meta.color }}>{meta.label}</span>
 }
 
-function Students({ students, onAddStudent, onUpdateStudent, onSelectStudent, getNextAdmissionNumber }) {
+function Students({ students, onAddStudent, onUpdateStudent, onSelectStudent, getNextAdmissionNumber, onDeleteStudents, schoolName }) {
   const [search, setSearch] = useState('')
   const [codeSearch, setCodeSearch] = useState('')
   const [filter, setFilter] = useState('All classes')
   const [statusFilter, setStatusFilter] = useState('all')
   const [streamFilter, setStreamFilter] = useState('')
   const [modal, setModal] = useState(null)
+  const [selected, setSelected] = useState(() => new Set())
+  const [deleteTarget, setDeleteTarget] = useState(null)
   const classes = [...new Set(students.map(student => student.className))].sort()
   const seniorFilter = isSeniorClass(String(filter).split('-')[0])
   const filtered = students.filter(s => {
@@ -1118,25 +1172,116 @@ function Students({ students, onAddStudent, onUpdateStudent, onSelectStudent, ge
   const addStudent = student => onAddStudent(student)
   const activeStudents = students.filter(isActiveStudent)
   const dropoutCount = students.filter(s => studentStatusKey(s) === 'dropout').length
+  const filteredIds = filtered.map(s => String(s.id))
+  const allVisibleSelected = filteredIds.length > 0 && filteredIds.every(id => selected.has(id))
+  const toggleOne = id => setSelected(prev => { const next = new Set(prev); const key = String(id); next.has(key) ? next.delete(key) : next.add(key); return next })
+  const toggleAllVisible = () => setSelected(prev => {
+    const next = new Set(prev)
+    if (allVisibleSelected) filteredIds.forEach(id => next.delete(id))
+    else filteredIds.forEach(id => next.add(id))
+    return next
+  })
+  const selectedStudents = students.filter(s => selected.has(String(s.id)))
+  const runDelete = async (ids, reason, isAll) => { await onDeleteStudents(ids, reason, isAll); setSelected(new Set()); setDeleteTarget(null) }
+
+  // Photos are the single heaviest thing this app reads: roughly 133KB of base64 per student.
+  // Rendering every match at once means a directory of 500 pulls tens of megabytes for rows
+  // nobody scrolled to, so the table shows one page at a time and asks for only those photos.
+  // Filtering resets to page one, otherwise a narrowed search can strand you on an empty page.
+  const [page, setPage] = useState(1)
+  const pageCount = Math.max(1, Math.ceil(filtered.length / STUDENT_PAGE_SIZE))
+  const safePage = Math.min(page, pageCount)
+  const visible = filtered.slice((safePage - 1) * STUDENT_PAGE_SIZE, safePage * STUDENT_PAGE_SIZE)
+  useEffect(() => { setPage(1) }, [search, codeSearch, filter, statusFilter, streamFilter])
+  useStudentPhotos(visible.map(s => s.id))
   return <>
-    <div className="section-actions"><div><h2>Student directory</h2><p>Manage profiles, guardians, attendance and fee status.</p></div><button className="primary-button" onClick={() => setModal('add')}><Plus size={17} /> Add student</button></div>
+    <div className="section-actions"><div><h2>Student directory</h2><p>Manage profiles, guardians, attendance and fee status.</p></div><div style={{ display: 'flex', gap: 8 }}><button className="primary-button" onClick={() => setModal('add')}><Plus size={17} /> Add student</button></div></div>
     <div className="mini-stats"><div><span>All students</span><strong>{students.length}</strong></div><div><span>Active</span><strong>{activeStudents.length}</strong></div><div><span>Drop outs</span><strong>{dropoutCount}</strong></div><div><span>Fee defaulters</span><strong>{activeStudents.filter(s => s.fee !== 'Paid').length}</strong></div></div>
     <div className="panel table-panel">
       <div className="table-toolbar" style={{ flexWrap: 'wrap' }}>
         <div className="table-search"><Search size={16} /><input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search student, roll no. or phone" /></div>
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+          {selected.size > 0 && <>
+            <button type="button" className="secondary-button" style={{ color: '#c0392b', borderColor: '#e2b6b1' }} onClick={() => setDeleteTarget({ mode: 'selected', students: selectedStudents })}><Trash2 size={15} /> Delete Selected ({selected.size})</button>
+            <button type="button" className="text-button" onClick={() => setSelected(new Set())}>Clear</button>
+          </>}
           <input value={codeSearch} onChange={e => setCodeSearch(e.target.value)} placeholder="Adm. No." style={{ width: '100px', height: '30px', padding: '0 8px', borderRadius: '6px', border: '1px solid #dfe3ea', fontSize: '10px', background: '#fff' }} />
           <select value={filter} onChange={e => { setFilter(e.target.value); setStreamFilter('') }}><option>All classes</option>{classes.map(c => <option key={c}>{c}</option>)}</select>
           {seniorFilter && <select value={streamFilter} onChange={e => setStreamFilter(e.target.value)}><option value="">All streams</option>{STREAM_OPTIONS.map(s => <option key={s}>{s}</option>)}</select>}
           <select value={statusFilter} onChange={e => setStatusFilter(e.target.value)}><option value="all">All statuses</option><option value="active">Active</option><option value="dropout">Drop Out</option><option value="transfer">Transfer Out</option><option value="passedout">Passed Out</option></select>
         </div>
       </div>
-      <div className="table-scroll"><table><thead><tr><th>Student</th><th>Class</th><th>Guardian</th><th>Attendance</th><th>Fee status</th><th /></tr></thead><tbody>
-        {filtered.map(s => <tr key={s.id} onClick={() => onSelectStudent(s)} className="clickable-row"><td><div className="student-cell"><StudentAvatar student={s} /><div><strong>{s.name} <StudentStatusBadge student={s} /></strong><small>{s.roll}</small></div></div></td><td><span className="class-pill">{s.className}</span>{s.stream && <span className="stream-pill">{s.stream}</span>}</td><td><strong className="regular">{s.guardian}</strong><small className="cell-sub">{s.phone}</small></td><td><div className="attendance-cell"><span>{s.attendance}%</span><div><i style={{width: `${s.attendance}%`}} /></div></div></td><td><span className={`status ${s.fee.toLowerCase()}`}>{s.fee}</span></td><td><div style={{ display: 'flex', gap: '4px', justifyContent: 'flex-end' }} onClick={e => e.stopPropagation()}><button type="button" className="icon-button" onClick={() => onSelectStudent(s)} title={`View ${s.name}`}><Eye size={16} /></button><button type="button" className="icon-button" onClick={() => setModal(s)} title={`Edit ${s.name}`}><Pencil size={16} /></button></div></td></tr>)}
-        {!filtered.length && <tr><td colSpan="6"><div className="empty-state">No students match this search.</div></td></tr>}
+      <div className="table-scroll"><table><thead><tr><th style={{ width: 34 }}><input type="checkbox" checked={allVisibleSelected} onChange={toggleAllVisible} title="Select every student matching the current filters, across all pages" style={{ cursor: 'pointer' }} /></th><th>Student</th><th>Class</th><th>Guardian</th><th>Attendance</th><th>Fee status</th><th /></tr></thead><tbody>
+        {visible.map(s => <tr key={s.id} onClick={() => onSelectStudent(s)} className="clickable-row"><td onClick={e => e.stopPropagation()}><input type="checkbox" checked={selected.has(String(s.id))} onChange={() => toggleOne(s.id)} style={{ cursor: 'pointer' }} /></td><td><div className="student-cell"><StudentAvatar student={s} /><div><strong>{s.name} <StudentStatusBadge student={s} /></strong><small>{s.roll}</small></div></div></td><td><span className="class-pill">{s.className}</span>{s.stream && <span className="stream-pill">{s.stream}</span>}</td><td><strong className="regular">{s.guardian}</strong><small className="cell-sub">{s.phone}</small></td><td><div className="attendance-cell"><span>{s.attendance}%</span><div><i style={{width: `${s.attendance}%`}} /></div></div></td><td><span className={`status ${s.fee.toLowerCase()}`}>{s.fee}</span></td><td><div style={{ display: 'flex', gap: '4px', justifyContent: 'flex-end' }} onClick={e => e.stopPropagation()}><button type="button" className="icon-button" onClick={() => onSelectStudent(s)} title={`View ${s.name}`}><Eye size={16} /></button><button type="button" className="icon-button" onClick={() => setModal(s)} title={`Edit ${s.name}`}><Pencil size={16} /></button><button type="button" className="icon-button danger" onClick={() => setDeleteTarget({ mode: 'selected', students: [s] })} title={`Delete ${s.name}`}><Trash2 size={16} /></button></div></td></tr>)}
+        {!filtered.length && <tr><td colSpan="7"><div className="empty-state">No students match this search.</div></td></tr>}
       </tbody></table></div>
+      {pageCount > 1 && <div className="table-pager">
+        <button type="button" className="secondary-button" disabled={safePage === 1} onClick={() => setPage(safePage - 1)}>Previous</button>
+        <span>Showing {(safePage - 1) * STUDENT_PAGE_SIZE + 1}-{Math.min(safePage * STUDENT_PAGE_SIZE, filtered.length)} of {filtered.length}</span>
+        <button type="button" className="secondary-button" disabled={safePage === pageCount} onClick={() => setPage(safePage + 1)}>Next</button>
+      </div>}
+    </div>
+    <div className="danger-zone">
+      <div><strong><AlertTriangle size={15} /> Danger zone</strong><small>Deletes every student in this school. Records are archived to Deleted Students and can be restored.</small></div>
+      <button type="button" className="primary-button" style={{ background: '#c0392b', borderColor: '#a93226' }} disabled={!students.length} onClick={() => setDeleteTarget({ mode: 'all', students })}><Trash2 size={16} /> Delete All Students</button>
     </div>
     {modal && <StudentModal close={() => setModal(null)} student={modal !== 'add' ? modal : undefined} addStudent={addStudent} updateStudent={onUpdateStudent} getNextAdmissionNumber={getNextAdmissionNumber} />}
+    {deleteTarget && <StudentDeleteModal target={deleteTarget} schoolName={schoolName} onCancel={() => setDeleteTarget(null)} onConfirm={runDelete} />}
+  </>
+}
+
+function StudentDeleteModal({ target, schoolName, onCancel, onConfirm }) {
+  const isAll = target.mode === 'all'
+  const list = target.students || []
+  const [reason, setReason] = useState('')
+  const [typed, setTyped] = useState('')
+  const [busy, setBusy] = useState(false)
+  const nameGateOk = !isAll || (Boolean(schoolName) && typed.trim() === String(schoolName).trim())
+  const submit = async () => {
+    if (!nameGateOk || busy || !list.length) return
+    setBusy(true)
+    try { await onConfirm(list.map(s => s.id), reason.trim(), isAll) }
+    catch (error) { alert(error.message || 'Delete failed'); setBusy(false) }
+  }
+  return <div className="modal-backdrop"><div className="modal" style={{ maxWidth: 520 }}>
+    <div className="modal-header"><div><h3 style={{ color: '#c0392b', display: 'flex', alignItems: 'center', gap: 8 }}><AlertTriangle size={18} /> {isAll ? 'Delete ALL students' : `Delete ${list.length} student${list.length > 1 ? 's' : ''}`}</h3><p>Records are archived to Deleted Students (recoverable). Attendance & fee history stay intact.</p></div><button className="icon-button" onClick={onCancel}><X size={18} /></button></div>
+    <div style={{ padding: '16px 20px', maxHeight: '42vh', overflowY: 'auto' }}>
+      <p style={{ fontSize: 11, color: '#536073', marginBottom: 8 }}><strong>{list.length}</strong> student{list.length > 1 ? 's' : ''} will be moved to the archive:</p>
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 14 }}>{list.slice(0, 60).map(s => <span key={s.id} className="class-pill">{s.name} ({s.roll})</span>)}{list.length > 60 && <span className="class-pill">+{list.length - 60} more</span>}</div>
+      <label style={{ fontSize: 9, fontWeight: 600, color: '#4a5567' }}>Reason (optional)<input value={reason} onChange={e => setReason(e.target.value)} placeholder="e.g. Left school, duplicate record" style={{ width: '100%', height: 34, marginTop: 5, border: '1px solid #dce1e8', borderRadius: 6, padding: '0 10px', fontSize: 10 }} /></label>
+      {isAll && <label style={{ display: 'block', marginTop: 14, fontSize: 9, fontWeight: 600, color: '#c0392b' }}>Type the school name <strong>{schoolName || '(unknown)'}</strong> to confirm<input value={typed} onChange={e => setTyped(e.target.value)} placeholder={schoolName} style={{ width: '100%', height: 36, marginTop: 5, border: '1px solid #e0a0a0', borderRadius: 6, padding: '0 10px', fontSize: 11 }} /></label>}
+    </div>
+    <div className="modal-actions"><button className="secondary-button" onClick={onCancel} disabled={busy}>Cancel</button><button className="primary-button" style={{ background: nameGateOk ? '#c0392b' : '#d9a7a1', borderColor: '#a93226' }} onClick={submit} disabled={!nameGateOk || busy || !list.length}>{busy ? 'Deleting…' : `Confirm Delete${isAll ? ' All' : ''}`}</button></div>
+  </div></div>
+}
+
+function DeletedStudents({ deletedStudents, onRestore, onRestoreAll, onPermanentDelete }) {
+  const [search, setSearch] = useState('')
+  const [permTarget, setPermTarget] = useState(null)
+  const [typed, setTyped] = useState('')
+  const [busy, setBusy] = useState('')
+  const rows = Object.entries(deletedStudents || {}).map(([id, row]) => ({ id, ...row })).sort((a, b) => (b.deletedAt || 0) - (a.deletedAt || 0))
+  const query = search.trim().toLowerCase()
+  const filtered = query ? rows.filter(r => `${r.full_name || r.name || ''} ${r.admission_number || r.id}`.toLowerCase().includes(query)) : rows
+  const fmt = ts => ts ? new Date(ts).toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' }) : '—'
+  const restore = async id => { setBusy(id); try { await onRestore(id) } catch (e) { alert(e.message || 'Restore failed') } finally { setBusy('') } }
+  const restoreAll = async () => { if (!rows.length || !window.confirm(`Restore all ${rows.length} archived students back to the active list?`)) return; setBusy('all'); try { await onRestoreAll() } catch (e) { alert(e.message || 'Restore failed') } finally { setBusy('') } }
+  const permDelete = async () => { if (!permTarget) return; setBusy(permTarget.id); try { await onPermanentDelete(permTarget.id); setPermTarget(null); setTyped('') } catch (e) { alert(e.message || 'Delete failed') } finally { setBusy('') } }
+  return <>
+    <div className="section-actions"><div><h2>Deleted Students</h2><p>Archived records — restore them or permanently remove. Attendance & fee history is preserved either way.</p></div>{rows.length > 0 && <button className="primary-button" disabled={busy === 'all'} onClick={restoreAll}><RotateCcw size={16} /> {busy === 'all' ? 'Restoring…' : `Restore All (${rows.length})`}</button>}</div>
+    <div className="mini-stats"><div><span>Archived students</span><strong>{rows.length}</strong></div></div>
+    <div className="panel table-panel">
+      <div className="table-toolbar"><div className="table-search"><Search size={16} /><input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search archived student" /></div></div>
+      <div className="table-scroll"><table><thead><tr><th>Student</th><th>Class</th><th>Deleted at</th><th>Deleted by</th><th>Reason</th><th /></tr></thead><tbody>
+        {filtered.map(r => <tr key={r.id}><td><div className="student-cell"><div><strong>{r.full_name || r.name || '—'}</strong><small>{r.admission_number || r.id}</small></div></div></td><td><span className="class-pill">{`${r.class_name || r.class || ''}${r.section ? '-' + r.section : ''}` || '—'}</span></td><td><small className="cell-sub">{fmt(r.deletedAt)}</small></td><td><small className="cell-sub">{r.deletedByName || '—'}</small></td><td><small className="cell-sub">{r.deletedReason || '—'}</small></td><td><div style={{ display: 'flex', gap: 4, justifyContent: 'flex-end' }}><button type="button" className="secondary-button" disabled={busy === r.id} onClick={() => restore(r.id)}><RotateCcw size={14} /> Restore</button><button type="button" className="icon-button danger" title="Permanently delete" onClick={() => { setPermTarget(r); setTyped('') }}><Trash2 size={16} /></button></div></td></tr>)}
+        {!filtered.length && <tr><td colSpan="6"><div className="empty-state">No archived students.</div></td></tr>}
+      </tbody></table></div>
+    </div>
+    {permTarget && <div className="modal-backdrop"><div className="modal" style={{ maxWidth: 460 }}>
+      <div className="modal-header"><div><h3 style={{ color: '#c0392b', display: 'flex', alignItems: 'center', gap: 8 }}><AlertTriangle size={18} /> Permanently delete</h3><p>This cannot be undone. The archived record for <strong>{permTarget.full_name || permTarget.name || 'this student'}</strong> will be gone forever.</p></div><button className="icon-button" onClick={() => setPermTarget(null)}><X size={18} /></button></div>
+      <div style={{ padding: '16px 20px' }}><label style={{ fontSize: 9, fontWeight: 600, color: '#c0392b' }}>Type <strong>CONFIRM</strong> to permanently delete<input value={typed} onChange={e => setTyped(e.target.value)} placeholder="CONFIRM" style={{ width: '100%', height: 36, marginTop: 5, border: '1px solid #e0a0a0', borderRadius: 6, padding: '0 10px', fontSize: 11 }} /></label></div>
+      <div className="modal-actions"><button className="secondary-button" onClick={() => setPermTarget(null)}>Cancel</button><button className="primary-button" style={{ background: typed.trim() === 'CONFIRM' ? '#c0392b' : '#d9a7a1', borderColor: '#a93226' }} disabled={typed.trim() !== 'CONFIRM' || busy === permTarget.id} onClick={permDelete}>Permanently Delete</button></div>
+    </div></div>}
   </>
 }
 
@@ -1186,11 +1331,21 @@ function AdmissionForm({ students, onAddStudent, onUpdateStudent, onOpenRegister
   const update = (key, value) => setForm(current => ({ ...current, [key]: value, ...(key === 'dob' ? { ageOn31March: ageOnDate(value) } : {}), ...(key === 'className' ? { stream: isSeniorClass(String(value).split('-')[0]) ? current.stream : '' } : {}) }))
   const toggleDisability = value => setForm(current => ({ ...current, disabilityType: current.disabilityType.includes(value) ? current.disabilityType.filter(item => item !== value) : [...current.disabilityType, value] }))
   const oldMatches = oldSearch.trim() ? students.filter(student => `${student.roll} ${student.name} ${student.phone}`.toLowerCase().includes(oldSearch.toLowerCase())).slice(0, 8) : []
+  // Capped at eight results, so this is a handful of photos at most.
+  useStudentPhotos(oldMatches.map(student => student.id))
   const selectOldStudent = student => {
     setSelectedOldStudent(student)
     const { className, section } = splitClassSection(student.className)
+    // Re-admitting an old student means a new session, so prefill the next class in
+    // the ladder (Playway...UKG, 1...12). Same-session re-entry keeps the class, and
+    // class 12 has nowhere to go. The operator can still change the dropdown.
+    const ladderIndex = classOptions.indexOf(String(className))
+    const isNewSession = String(student.academicSession || '') !== String(form.academicSession || '')
+    const promotedClass = isNewSession && ladderIndex >= 0 && ladderIndex < classOptions.length - 1
+      ? classOptions[ladderIndex + 1]
+      : className
     setOldSearch(`${student.roll} - ${student.name}`)
-    setForm(current => ({ ...current, ...student, admissionType: 'old', className: `${className}-${section || 'A'}`, roll: String(student.roll), academicSession: current.academicSession, admissionDate: today(), confirmDetails: false }))
+    setForm(current => ({ ...current, ...student, admissionType: 'old', className: `${promotedClass}-${section || 'A'}`, stream: isSeniorClass(promotedClass) ? student.stream || '' : '', roll: String(student.roll), academicSession: current.academicSession, admissionDate: today(), confirmDetails: false }))
     setPhoto(student.photoUrl ? { preview: student.photoUrl, compressedSize: student.photoSize || 0 } : null)
   }
   const submit = async event => {
@@ -1212,7 +1367,7 @@ function AdmissionForm({ students, onAddStudent, onUpdateStudent, onOpenRegister
     setSaving(true)
     setSubmitError('')
     try {
-      const payload = { ...form, newAdmission: form.admissionType === 'new', phone: form.fatherPhone || form.phone, guardian: form.guardian || form.fatherName, parentLoginPhone: form.fatherPhone || form.phone, aadhaar: formatAadhaar(form.aadhaar), photoFile: photo?.file || null, photoPreview: photo?.preview || '', photoOriginalSize: photo?.originalSize || 0, photoCompressedSize: photo?.compressedSize || 0 }
+      const payload = { ...form, newAdmission: form.admissionType === 'new', phone: form.fatherPhone || form.phone, guardian: form.guardian || form.fatherName, parentLoginPhone: form.fatherPhone || form.phone, aadhaar: formatAadhaar(form.aadhaar), photoFile: photo?.file || null, photoPreview: photo?.preview || '', photoOriginalSize: photo?.originalSize || 0, photoCompressedSize: photo?.compressedSize || 0, sessionHistory: promotionHistory(selectedOldStudent, form) }
       const admissionNo = form.admissionType === 'old' && selectedOldStudent
         ? (await onUpdateStudent(selectedOldStudent.id, payload), selectedOldStudent.roll)
         : await onAddStudent(payload)
@@ -1281,21 +1436,35 @@ td.lbl{color:#333;width:130px;font-weight:600}
         if (!file) return
         event.target.value = ''
 
-        // Flexible header aliases → internal field keys
+        // Flexible header aliases → internal field keys. Keys here are in the SAME compact form
+        // produced by normalizeHeader() below (lowercase, every non-alphanumeric stripped), so
+        // "Mobile No.", "mobile_no" and "Mobile  No" all collapse to "mobileno" and match once.
+        // Father and Guardian are deliberately kept as SEPARATE keys — mapping both onto one key
+        // made whichever column appeared last silently overwrite the other.
         const HEADER_MAP = {
-          name: 'name', fullname: 'name', studentname: 'name', 'student name': 'name', 'full name': 'name', 'student full name': 'name',
-          class: 'className', classname: 'className', 'class name': 'className', grade: 'className', standard: 'className', 'class/section': 'className',
+          name: 'name', fullname: 'name', studentname: 'name', studentfullname: 'name', nameofstudent: 'name',
+          class: 'className', classname: 'className', grade: 'className', standard: 'className', classsection: 'className',
           section: 'section',
-          guardian: 'guardian', guardianname: 'guardian', 'guardian name': 'guardian',
-          father: 'guardian', fathername: 'guardian', 'father name': 'guardian', 'fathers name': 'guardian',
+          rollnumber: 'rollNumber', rollno: 'rollNumber', roll: 'rollNumber',
+          admissionnumber: 'roll', admissionno: 'roll', admno: 'roll', admissionnu: 'roll',
+          guardian: 'guardian', guardianname: 'guardian', nameofguardian: 'guardian',
+          father: 'fatherName', fathername: 'fatherName', fathersname: 'fatherName', nameoffather: 'fatherName',
+          mother: 'motherName', mothername: 'motherName', mothersname: 'motherName', nameofmother: 'motherName',
           phone: 'phone', mobile: 'phone', contact: 'phone', mobileno: 'phone', phoneno: 'phone',
-          guardianphone: 'phone', 'guardian phone': 'phone', fatherphone: 'phone', 'father phone': 'phone',
-          admissiondate: 'admissionDate', 'admission date': 'admissionDate', dateofadmission: 'admissionDate',
-          dob: 'dob', dateofbirth: 'dob', 'date of birth': 'dob', birthdate: 'dob', 'birth date': 'dob',
+          mobilenumber: 'phone', phonenumber: 'phone', contactno: 'phone', contactnumber: 'phone',
+          guardianphone: 'guardianPhone', guardianmobile: 'guardianPhone', guardiancontact: 'guardianPhone',
+          fatherphone: 'fatherPhone', fathermobile: 'fatherPhone', fathercontact: 'fatherPhone',
+          motherphone: 'motherPhone', mothermobile: 'motherPhone',
+          admissiondate: 'admissionDate', dateofadmission: 'admissionDate', doa: 'admissionDate',
+          dob: 'dob', dateofbirth: 'dob', birthdate: 'dob', birthday: 'dob',
           gender: 'gender', sex: 'gender',
-          email: 'email', emailid: 'email', 'email id': 'email',
-          address: 'address',
-          admissionscheme: 'admissionScheme', 'admission scheme': 'admissionScheme', category: 'admissionScheme',
+          email: 'email', emailid: 'email', emailaddress: 'email',
+          address: 'address', fulladdress: 'address', residentialaddress: 'address',
+          city: 'city', state: 'state', district: 'district', pincode: 'pincode', pin: 'pincode',
+          aadhaar: 'aadhaar', aadhar: 'aadhaar', aadhaarno: 'aadhaar', aadharno: 'aadhaar',
+          bloodgroup: 'bloodGroup', religion: 'religion', caste: 'caste', nationality: 'nationality',
+          stream: 'stream',
+          admissionscheme: 'admissionScheme', category: 'admissionScheme',
         }
 
         // Convert Excel date serial (Windows epoch: Dec 30 1899) to YYYY-MM-DD
@@ -1308,9 +1477,34 @@ td.lbl{color:#333;width:130px;font-weight:600}
           return `${y}-${m}-${day}`
         }
 
-        const normalizeHeader = h => String(h || '').toLowerCase().replace(/[^a-z0-9 /]/g, '').trim()
+        // Strip EVERY non-alphanumeric character so spacing/punctuation variants of the same
+        // header ("Mobile No.", "mobile_no", "Mobile  No") all normalize to one lookup key.
+        const normalizeHeader = h => String(h || '').toLowerCase().replace(/[^a-z0-9]/g, '')
+
+        // RFC-4180 CSV reader. The old code did lines.split('\n') + line.split(','), which broke
+        // on any value containing a comma (addresses like "Delhi, India") — every column after it
+        // shifted by one, so names landed in the father column, father in mobile, and so on.
+        // This handles quoted fields, escaped "" quotes, and newlines inside quoted values.
+        const parseCsvText = text => {
+          const rows = []
+          let row = [], cur = '', inQuotes = false
+          for (let i = 0; i < text.length; i++) {
+            const ch = text[i]
+            if (inQuotes) {
+              if (ch === '"') {
+                if (text[i + 1] === '"') { cur += '"'; i++ } else inQuotes = false
+              } else cur += ch
+            } else if (ch === '"') inQuotes = true
+            else if (ch === ',') { row.push(cur); cur = '' }
+            else if (ch === '\n') { row.push(cur); rows.push(row); row = []; cur = '' }
+            else if (ch !== '\r') cur += ch
+          }
+          if (cur !== '' || row.length) { row.push(cur); rows.push(row) }
+          return rows.filter(r => r.some(c => String(c).trim()))
+        }
 
         let parsed = []
+        let headerReport = ''
         try {
           if (file.name.toLowerCase().endsWith('.xlsx')) {
             // — Excel file path —
@@ -1319,48 +1513,79 @@ td.lbl{color:#333;width:130px;font-weight:600}
             await wb.xlsx.load(await file.arrayBuffer())
             const ws = wb.worksheets[0]
             if (!ws) throw new Error('No worksheets found in this Excel file.')
+            const cellText = cell => {
+              let val = cell.value
+              if (val && typeof val === 'object' && val.result !== undefined) val = val.result
+              if (val && typeof val === 'object' && val.richText !== undefined) val = val.richText.map(rt => rt.text).join('')
+              if (val && typeof val === 'object' && val.text !== undefined) val = val.text
+              return val
+            }
+            // Real school sheets usually carry a merged title row ("Student's Detail - ...")
+            // above the actual headers, so assuming row 1 broke every such file with
+            // "No valid rows found". Scan the first rows and use the one that matches
+            // the most known header names as the header row.
+            let headerRowNum = 1, bestScore = 0
+            for (let r = 1; r <= Math.min(10, ws.rowCount); r++) {
+              let score = 0
+              ws.getRow(r).eachCell(cell => { if (HEADER_MAP[normalizeHeader(cellText(cell))]) score++ })
+              if (score > bestScore) { bestScore = score; headerRowNum = r }
+            }
             const headers = {}
-            ws.getRow(1).eachCell((cell, col) => {
-              const raw = cell.value && typeof cell.value === 'object' && cell.value.richText
-                ? cell.value.richText.map(rt => rt.text).join('')
-                : cell.value
-              headers[col] = normalizeHeader(raw)
+            const rawHeaders = []
+            ws.getRow(headerRowNum).eachCell((cell, col) => {
+              headers[col] = normalizeHeader(cellText(cell))
+              rawHeaders.push(String(cellText(cell) ?? '').trim())
             })
+            headerReport = rawHeaders.map(h => `"${h}"${HEADER_MAP[normalizeHeader(h)] ? '' : ' (not recognized)'}`).join(', ')
+            console.log('[Import] Excel header row', headerRowNum, Object.entries(headers).map(([col, h]) => `col${col}:${h}->${HEADER_MAP[h] || 'IGNORED'}`))
             ws.eachRow((row, rowNum) => {
-              if (rowNum === 1) return
+              if (rowNum <= headerRowNum) return
               const obj = {}
               row.eachCell((cell, col) => {
                 const h = headers[col]
                 const key = h ? HEADER_MAP[h] : undefined
                 if (!key) return
                 let val = cell.value
-                // Unwrap formula result / rich text
+                // Unwrap formula result / rich text / hyperlink
                 if (val && typeof val === 'object' && val.result !== undefined) val = val.result
                 if (val && typeof val === 'object' && val.richText !== undefined) val = val.richText.map(rt => rt.text).join('')
+                if (val && typeof val === 'object' && val.text !== undefined) val = val.text
+                let out
                 if (val instanceof Date) {
                   const y = val.getFullYear(), m = String(val.getMonth() + 1).padStart(2, '0'), d = String(val.getDate()).padStart(2, '0')
-                  obj[key] = `${y}-${m}-${d}`
+                  out = `${y}-${m}-${d}`
                 } else if ((key === 'admissionDate' || key === 'dob') && typeof val === 'number') {
-                  obj[key] = excelSerialToDate(val)
+                  out = excelSerialToDate(val)
                 } else {
-                  obj[key] = String(val ?? '').trim()
+                  out = String(val ?? '').trim()
                 }
+                // First non-empty column wins, so a later blank column can never wipe a real value.
+                if (out && !obj[key]) obj[key] = out
               })
               if (obj.name?.trim() || obj.className?.trim()) parsed.push(obj)
             })
           } else {
             // — CSV file path —
-            const text = await file.text()
-            const lines = text.split(/\r?\n/).filter(l => l.trim())
-            if (!lines.length) throw new Error('The CSV file is empty.')
-            const headers = lines[0].split(',').map(normalizeHeader)
-            for (let i = 1; i < lines.length; i++) {
-              const cols = lines[i].split(',').map(c => c.trim())
-              if (cols.every(c => !c)) continue
+            const table = parseCsvText(await file.text())
+            if (!table.length) throw new Error('The CSV file is empty.')
+            // Same title-row tolerance as the Excel path: the header line is the row
+            // matching the most known header names, not necessarily the first line.
+            let headerIdx = 0, bestScore = 0
+            for (let i = 0; i < Math.min(10, table.length); i++) {
+              const score = table[i].reduce((n, c) => n + (HEADER_MAP[normalizeHeader(c)] ? 1 : 0), 0)
+              if (score > bestScore) { bestScore = score; headerIdx = i }
+            }
+            const headers = table[headerIdx].map(normalizeHeader)
+            headerReport = table[headerIdx].map(h => `"${String(h).trim()}"${HEADER_MAP[normalizeHeader(h)] ? '' : ' (not recognized)'}`).join(', ')
+            console.log('[Import] CSV header row', headerIdx + 1, headers.map((h, i) => `${i}:${h}->${HEADER_MAP[h] || 'IGNORED'}`))
+            for (let i = headerIdx + 1; i < table.length; i++) {
+              const cols = table[i]
               const obj = {}
               headers.forEach((h, idx) => {
                 const key = HEADER_MAP[h]
-                if (key && cols[idx] !== undefined) obj[key] = cols[idx]
+                const value = String(cols[idx] ?? '').trim()
+                // First non-empty column wins, so a later blank column can never wipe a real value.
+                if (key && value && !obj[key]) obj[key] = value
               })
               if (obj.name?.trim() || obj.className?.trim()) parsed.push(obj)
             }
@@ -1372,27 +1597,49 @@ td.lbl{color:#333;width:130px;font-weight:600}
         }
 
         if (!parsed.length) {
-          alert('No valid rows found. Make sure your file has "Name" and "Class" columns.')
+          alert(`No valid rows found. Make sure your file has "Name" and "Class" columns.${headerReport ? `\n\nHeaders detected in your file: ${headerReport}` : ''}`)
           return
         }
+
+        console.log('[Import] First parsed row', parsed[0], `(${parsed.length} rows total)`)
 
         let success = 0, failed = 0
         for (const row of parsed) {
           try {
             const className = row.section ? `${row.className}-${row.section}` : row.className
-            await onAddStudent({
+            // Father and Guardian are one identity in this app (see studentToRow), so whichever
+            // column the sheet provided fills both. Same for the contact number.
+            const contactName = row.fatherName || row.guardian || ''
+            const contactPhone = row.phone || row.fatherPhone || row.guardianPhone || ''
+            const payload = {
               name: row.name || '',
               className: className || '',
-              guardian: row.guardian || '',
-              phone: row.phone || '',
+              guardian: contactName,
+              fatherName: contactName,
+              motherName: row.motherName || '',
+              phone: contactPhone,
+              fatherPhone: contactPhone,
+              motherPhone: row.motherPhone || '',
+              rollNumber: row.rollNumber || '',
               dob: row.dob || '',
               gender: row.gender || '',
               email: row.email || '',
               address: row.address || '',
+              city: row.city || '',
+              state: row.state || '',
+              district: row.district || '',
+              pincode: row.pincode || '',
+              aadhaar: row.aadhaar || '',
+              bloodGroup: row.bloodGroup || '',
+              religion: row.religion || '',
+              caste: row.caste || '',
+              stream: row.stream || '',
               admissionDate: row.admissionDate || today(),
               admissionScheme: row.admissionScheme || 'General',
               newAdmission: true,
-            })
+            }
+            if (success === 0 && failed === 0) console.log('[Import] First row mapped to form', payload)
+            await onAddStudent(payload)
             success++
           } catch (rowErr) {
             console.error('[Import] Row failed', row, rowErr)
@@ -1454,10 +1701,24 @@ td.lbl{color:#333;width:130px;font-weight:600}
 }
 
 function StudentRegisterTable({ students }) {
+  // Paged for the same reason as the directory: one row can carry ~133KB of photo, and this
+  // register happily lists the whole school. Only the page on screen asks for its photos.
+  const [page, setPage] = useState(1)
+  const pageCount = Math.max(1, Math.ceil(students.length / STUDENT_PAGE_SIZE))
+  const safePage = Math.min(page, pageCount)
+  const visible = students.slice((safePage - 1) * STUDENT_PAGE_SIZE, safePage * STUDENT_PAGE_SIZE)
+  useEffect(() => { setPage(1) }, [students.length])
+  useStudentPhotos(visible.map(student => student.id))
   return <div className="panel table-panel"><div className="table-scroll"><table><thead><tr><th>Student</th><th>Admission No.</th><th>Class</th><th>Father</th><th>Mobile</th><th>Admission</th><th>Status</th></tr></thead><tbody>
-    {students.map(student => <tr key={student.id}><td><div className="student-cell"><StudentAvatar student={student} /><strong>{student.name}</strong></div></td><td>{student.roll}</td><td>{student.className}</td><td>{student.fatherName || student.guardian}</td><td>{student.phone}</td><td>{student.admissionType}</td><td><span className={`status ${student.active ? 'paid' : 'overdue'}`}>{student.active ? 'Active' : 'Inactive'}</span></td></tr>)}
+    {visible.map(student => <tr key={student.id}><td><div className="student-cell"><StudentAvatar student={student} /><strong>{student.name}</strong></div></td><td>{student.roll}</td><td>{student.className}</td><td>{student.fatherName || student.guardian}</td><td>{student.phone}</td><td>{student.admissionType}</td><td><span className={`status ${student.active ? 'paid' : 'overdue'}`}>{student.active ? 'Active' : 'Inactive'}</span></td></tr>)}
     {!students.length && <tr><td colSpan="7"><div className="empty-state">No students found.</div></td></tr>}
-  </tbody></table></div></div>
+  </tbody></table></div>
+  {pageCount > 1 && <div className="table-pager">
+    <button type="button" className="secondary-button" disabled={safePage === 1} onClick={() => setPage(safePage - 1)}>Previous</button>
+    <span>Showing {(safePage - 1) * STUDENT_PAGE_SIZE + 1}-{Math.min(safePage * STUDENT_PAGE_SIZE, students.length)} of {students.length}</span>
+    <button type="button" className="secondary-button" disabled={safePage === pageCount} onClick={() => setPage(safePage + 1)}>Next</button>
+  </div>}
+  </div>
 }
 
 function AdmissionRegister({ students, compact = false }) {
@@ -1655,7 +1916,7 @@ function PaymentModal({ students, close, onRecordPayment }) {
   return <div className="modal-backdrop"><form className="modal" onSubmit={submit}>
     <div className="modal-header"><div><h3>Record fee payment</h3><p>Create a receipt and update the student ledger.</p></div><button type="button" className="icon-button" onClick={close}><X size={19} /></button></div>
     <div className="form-grid">
-      <label className="full">Student<select required value={form.studentId} onChange={e => setForm({ ...form, studentId: e.target.value })}>{pending.map(student => <option value={student.id} key={student.id}>{student.name} Â· {student.roll}</option>)}</select></label>
+      <label className="full">Student<select required value={form.studentId} onChange={e => setForm({ ...form, studentId: e.target.value })}>{pending.map(student => <option value={student.id} key={student.id}>{student.name} · {student.roll}</option>)}</select></label>
       <label>Amount<input required type="number" min="1" value={form.amount} onChange={e => setForm({ ...form, amount: e.target.value })} /></label>
       <label>Payment method<select value={form.method} onChange={e => setForm({ ...form, method: e.target.value })}><option>UPI</option><option>Cash</option><option>Card</option><option>Bank transfer</option></select></label>
     </div>
@@ -1673,7 +1934,7 @@ function LegacyFees({ students, fees, onRecordPayment }) {
     <div className="section-actions"><div><h2>Fee management</h2><p>Track collections, pending dues and receipts.</p></div><button className="primary-button" onClick={() => setModal(true)} disabled={!students.some(student => student.fee !== 'Paid')}><Plus size={17} /> Record payment</button></div>
     <section className="stat-grid fee-stats"><Stat label="Total billed" value={money(total)} note="Current billing cycle" icon={IndianRupee} color="blue" /><Stat label="Collected" value={money(collected)} note={`${total ? Math.round(collected/total*100) : 0}% collection rate`} icon={Check} color="green" trend /><Stat label="Pending" value={money(Math.max(0, total-collected))} note={`${students.filter(s => s.fee !== 'Paid').length} student accounts`} icon={Bell} color="orange" /></section>
     <div className="panel table-panel"><div className="table-toolbar"><div><strong>Student fee ledger</strong><small>Monthly tuition fee</small></div><div className="table-search"><Search size={16} /><input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search ledger" /></div></div><div className="table-scroll"><table><thead><tr><th>Student</th><th>Invoice</th><th>Amount</th><th>Paid on</th><th>Status</th><th>Action</th></tr></thead><tbody>
-      {filtered.map(s => { const fee = fees[`${s.id}_2026-06`]; return <tr key={s.id}><td><div className="student-cell"><span className={`avatar tone-${s.tone}`}>{s.initials}</span><div><strong>{s.name}</strong><small>{s.className}</small></div></div></td><td>{fee?.invoiceNumber || `INV-202606-${s.roll.replace(/\D/g, '').slice(-4)}`}</td><td><strong>{money(fee?.amount || 18500)}</strong></td><td>{fee?.paidAt ? new Date(fee.paidAt).toLocaleDateString('en-IN') : 'â€”'}</td><td><span className={`status ${s.fee.toLowerCase()}`}>{s.fee}</span></td><td>{s.fee !== 'Paid' ? <button className="text-button" onClick={() => onRecordPayment(s.id, 18500, 'UPI')}>Mark paid</button> : <button className="text-button muted" title={fee?.method || 'Payment received'}><Receipt size={14} /> Receipt</button>}</td></tr> })}
+      {filtered.map(s => { const fee = fees[`${s.id}_2026-06`]; return <tr key={s.id}><td><div className="student-cell"><span className={`avatar tone-${s.tone}`}>{s.initials}</span><div><strong>{s.name}</strong><small>{s.className}</small></div></div></td><td>{fee?.invoiceNumber || `INV-202606-${s.roll.replace(/\D/g, '').slice(-4)}`}</td><td><strong>{money(fee?.amount || 18500)}</strong></td><td>{fee?.paidAt ? new Date(fee.paidAt).toLocaleDateString('en-IN') : '—'}</td><td><span className={`status ${s.fee.toLowerCase()}`}>{s.fee}</span></td><td>{s.fee !== 'Paid' ? <button className="text-button" onClick={() => onRecordPayment(s.id, 18500, 'UPI')}>Mark paid</button> : <button className="text-button muted" title={fee?.method || 'Payment received'}><Receipt size={14} /> Receipt</button>}</td></tr> })}
       {!filtered.length && <tr><td colSpan="6"><div className="empty-state">No ledger entries match this search.</div></td></tr>}
     </tbody></table></div></div>
     {modal && <PaymentModal students={students} close={() => setModal(false)} onRecordPayment={onRecordPayment} />}
@@ -1710,8 +1971,8 @@ function WeeklyPlanner({ timetableData, onSavePeriod }) {
   const days = ['Monday','Tuesday','Wednesday','Thursday','Friday']
   return <>
     <div className="section-actions"><div><h2>Academic planner</h2><p>Class timetable and teaching schedule for this week.</p></div><button className="primary-button" onClick={() => setEditing({})}><Plus size={17} /> Add period</button></div>
-    <div className="academic-banner"><div><span className="eyebrow">Current term</span><h3>Term I Â· 2026-27</h3><p>72 instructional days Â· 4 assessments planned</p></div><div className="term-progress"><span>Term progress <strong>38%</strong></span><div className="progress"><i style={{width:'38%'}} /></div></div></div>
-    <div className="panel timetable-panel"><div className="panel-header"><div><h3>Weekly timetable</h3><p>Class {className} Â· Click any period to edit</p></div><select value={className} onChange={e => setClassName(e.target.value)}>{classes.map(item => <option key={item}>{item}</option>)}</select></div><div className="table-scroll"><table className="timetable"><thead><tr><th>Time</th>{days.map(d => <th key={d}>{d}</th>)}</tr></thead><tbody>{times.map(time => <tr key={time}><td><strong>{time}</strong></td>{days.map((day, i) => { const period = periods.find(item => item.time === time && item.day === day); return <td key={day}>{period ? <button className="period-button" onClick={() => setEditing(period)}><span className={`subject s${i}`}>{period.subject}</span><small>{period.teacher} Â· {period.room}</small></button> : <button className="empty-period" onClick={() => setEditing({ day, time })}>+ Add</button>}</td> })}</tr>)}</tbody></table>{!times.length && <div className="empty-state">No periods yet. Add the first period for {className}.</div>}</div></div>
+    <div className="academic-banner"><div><span className="eyebrow">Current term</span><h3>Term I · 2026-27</h3><p>72 instructional days · 4 assessments planned</p></div><div className="term-progress"><span>Term progress <strong>38%</strong></span><div className="progress"><i style={{width:'38%'}} /></div></div></div>
+    <div className="panel timetable-panel"><div className="panel-header"><div><h3>Weekly timetable</h3><p>Class {className} · Click any period to edit</p></div><select value={className} onChange={e => setClassName(e.target.value)}>{classes.map(item => <option key={item}>{item}</option>)}</select></div><div className="table-scroll"><table className="timetable"><thead><tr><th>Time</th>{days.map(d => <th key={d}>{d}</th>)}</tr></thead><tbody>{times.map(time => <tr key={time}><td><strong>{time}</strong></td>{days.map((day, i) => { const period = periods.find(item => item.time === time && item.day === day); return <td key={day}>{period ? <button className="period-button" onClick={() => setEditing(period)}><span className={`subject s${i}`}>{period.subject}</span><small>{period.teacher} · {period.room}</small></button> : <button className="empty-period" onClick={() => setEditing({ day, time })}>+ Add</button>}</td> })}</tr>)}</tbody></table>{!times.length && <div className="empty-state">No periods yet. Add the first period for {className}.</div>}</div></div>
     {editing && <PeriodModal initial={editing.subject ? editing : { day: editing.day || 'Monday', time: editing.time || '08:00', subject: '', teacher: '', room: '' }} className={className} close={() => setEditing(null)} onSave={onSavePeriod} />}
   </>
 }
@@ -1752,27 +2013,38 @@ function Notices({ notices, onAddNotice }) {
 
 const tones = ['blue', 'violet', 'green', 'orange', 'cyan', 'pink']
 
+// A base64 data: URL sitting in a student row is the expensive case we are moving out of the
+// students node. Anything else (an https Storage URL, or empty) stays on the row as-is.
+const isInlinePhoto = value => typeof value === 'string' && value.startsWith('data:')
+
 function studentFromRow(row, index) {
   const fullName = row.full_name || row.name || row.fullName || ''
   const className = row.class_name || row.class || row.className || ''
   const section = row.section || 'A'
   const initials = fullName ? fullName.split(/\s+/).map(part => part[0]).slice(0, 2).join('').toUpperCase() : '?'
   const classLabel = `${className}-${section}`
+  // CANONICAL identity for the parent/guardian. "Guardian" (list, edit modal) and "Father Name"
+  // (profile, ID card, certificates) are the SAME person in this app, but they used to read from
+  // different stored fields with different priorities (guardian_name vs father_name), so a record
+  // whose two fields drifted showed two different names. Derive both from one priority order here
+  // so every surface renders the same value. Same for the contact phone.
+  const guardianName = row.father_name || row.fatherName || row.guardian_name || row.guardianName || ''
+  const contactPhone = row.father_phone || row.fatherPhone || row.guardian_phone || row.guardianPhone || row.parent_login_phone || row.phone || ''
   return {
     id: row.id,
     name: fullName,
     roll: row.admission_number || row.admissionNo || row.roll || '',
     admissionNo: row.admission_number || row.admissionNo || row.roll || '',
     className: classLabel,
-    guardian: row.guardian_name || row.fatherName || row.father_name || 'Not provided',
-    phone: row.guardian_phone || row.fatherPhone || row.father_phone || row.phone || 'Not provided',
+    guardian: guardianName || 'Not provided',
+    phone: contactPhone || 'Not provided',
     attendance: row.attendance_rate || 100,
     fee: row.fee_status || 'Pending',
     createdAt: row.createdAt || 0,
     admissionScheme: row.admission_scheme || 'General',
     admissionDate: row.admission_date || '',
     admissionType: row.admission_type || 'New',
-    fatherName: row.father_name || row.guardian_name || '',
+    fatherName: guardianName,
     motherName: row.mother_name || '',
     gender: row.gender || '',
     dob: row.date_of_birth || '',
@@ -1786,6 +2058,9 @@ function studentFromRow(row, index) {
     apaarId: row.apaar_id || '',
     feeGroup: row.fee_group || 'Standard',
     academicSession: row.academic_session || row.academicSession || '',
+    sessionHistory: Array.isArray(row.session_history) ? row.session_history
+      : Array.isArray(row.sessionHistory) ? row.sessionHistory
+      : [],
     rollNumber: row.roll_number || row.rollNumber || '',
     bloodGroup: row.blood_group || row.bloodGroup || '',
     height: row.height || '',
@@ -1810,7 +2085,7 @@ function studentFromRow(row, index) {
     disabilityRemarks: row.disability_remarks || row.disabilityRemarks || '',
     fatherOccupation: row.father_occupation || row.fatherOccupation || '',
     fatherQualification: row.father_qualification || row.fatherQualification || '',
-    fatherPhone: row.father_phone || row.fatherPhone || row.guardian_phone || '',
+    fatherPhone: contactPhone,
     fatherEmail: row.father_email || row.fatherEmail || '',
     fatherAadhaar: row.father_aadhaar || row.fatherAadhaar || '',
     motherOccupation: row.mother_occupation || row.motherOccupation || '',
@@ -1841,7 +2116,13 @@ function studentFromRow(row, index) {
     documents: row.documents || {},
     parentLoginPhone: row.parent_login_phone || row.parentLoginPhone || row.guardian_phone || '',
     parentPasswordDOB: row.parent_password_dob !== false,
+    // Show whatever the row actually has, base64 included. Blanking inline photos here assumed
+    // the migration had already copied them to studentPhotos/{schoolId}/{studentId} - when it had
+    // not, every photo simply vanished from the UI. The row stays the source of truth until the
+    // migration has genuinely moved the bytes; only then (photo_url empty, photo_inline true)
+    // does ensureStudentPhotos() take over and fetch them on demand.
     photoUrl: row.photo_url || row.photoURL || row.photo || row.image_url || '',
+    photoInline: row.photo_inline === true,
     photoPath: row.photo_path || row.photoPath || '',
     photoSize: row.photo_size || row.photoSize || 0,
     photoUpdatedAt: row.photo_updated_at || row.photoUpdatedAt || 0,
@@ -1854,19 +2135,24 @@ function studentFromRow(row, index) {
 
 function studentToRow(student) {
   const [className, section = 'A'] = String(student.className || '').split('-')
+  // Write the guardian/father name (and phone) to BOTH legacy field pairs from a single canonical
+  // value so guardian_name === father_name and guardian_phone === father_phone always. This is the
+  // write-side half of the consolidation done in studentFromRow — no surface can drift after a save.
+  const nameCanon = student.fatherName || student.guardian || ''
+  const phoneCanon = student.phone || student.fatherPhone || student.guardianPhone || ''
   return {
     full_name: student.name,
     admission_number: String(student.roll),
     class_name: className,
     section,
-    guardian_name: student.guardian || '',
-    guardian_phone: student.phone || '',
+    guardian_name: nameCanon,
+    guardian_phone: phoneCanon,
     attendance_rate: Number(student.attendance || 0),
     fee_status: student.fee || 'Pending',
     admission_scheme: student.admissionScheme || 'General',
     admission_date: student.admissionDate || '',
     admission_type: student.admissionType || 'New',
-    father_name: student.fatherName || '',
+    father_name: nameCanon,
     mother_name: student.motherName || '',
     gender: student.gender || '',
     date_of_birth: student.dob || '',
@@ -1880,6 +2166,10 @@ function studentToRow(student) {
     apaar_id: student.apaarId || '',
     fee_group: student.feeGroup || 'Standard',
     academic_session: student.academicSession || '',
+    // Snapshot of the classes this student sat in during earlier sessions. Append-only:
+    // the promotion flow adds one entry and nothing ever rewrites it, because the live
+    // record only keeps the CURRENT class and that history cannot be recovered later.
+    session_history: Array.isArray(student.sessionHistory) ? student.sessionHistory : [],
     roll_number: student.rollNumber || '',
     blood_group: student.bloodGroup || '',
     height: student.height || '',
@@ -1904,7 +2194,7 @@ function studentToRow(student) {
     disability_remarks: student.disabilityRemarks || '',
     father_occupation: student.fatherOccupation || '',
     father_qualification: student.fatherQualification || '',
-    father_phone: student.fatherPhone || student.phone || '',
+    father_phone: phoneCanon,
     father_email: student.fatherEmail || '',
     father_aadhaar: student.fatherAadhaar || '',
     mother_occupation: student.motherOccupation || '',
@@ -1934,7 +2224,14 @@ function studentToRow(student) {
     documents: student.documents || {},
     parent_login_phone: student.parentLoginPhone || student.fatherPhone || student.phone || '',
     parent_password_dob: student.parentPasswordDOB !== false,
+    // Preserve whatever photo the caller holds, base64 included. Blanking inline photos here
+    // destroyed them: updateStudent PUTs this whole row, so editing any unrelated field on a
+    // student whose photo had not been migrated yet wrote photo_url as '' and lost the image.
+    // Only the migration (which copies the bytes out first, in the same atomic write) and the
+    // explicit photo-upload paths are allowed to clear this field - and they overwrite
+    // row.photo_url after calling this function.
     photo_url: student.photoUrl || '',
+    photo_inline: Boolean(student.photoInline),
     photo_path: student.photoPath || '',
     photo_size: Number(student.photoSize || 0),
     photo_updated_at: student.photoUpdatedAt || 0,
@@ -2010,11 +2307,16 @@ function useSchoolWorkspace(session) {
   const [parentMessages, setParentMessages] = useState({})
   const [parentNotifications, setParentNotifications] = useState({})
   const [certificateRequests, setCertificateRequests] = useState({})
+  const [leaveRequests, setLeaveRequests] = useState({})
+  // Only pending admission requests are subscribed. Approved/rejected history is fetched on
+  // demand when that tab is opened, so a school with years of applications never streams them.
+  const [admissionRequests, setAdmissionRequests] = useState({})
   const [approvals, setApprovals] = useState({ fees: {}, leaves: {} })
   const [expenses, setExpenses] = useState({})
   const [academics, setAcademics] = useState({})
   const [documents, setDocuments] = useState({})
   const [certificates, setCertificates] = useState({})
+  const [deletedStudents, setDeletedStudents] = useState({})
   const [certificateSettings, setCertificateSettings] = useState({})
   const [examData, setExamData] = useState({ exams: {}, dateSheet: {}, admitCards: {} })
   const [reportData, setReportData] = useState({ exams: {}, marks: {}, reports: {} })
@@ -2069,6 +2371,31 @@ function useSchoolWorkspace(session) {
       return null
     }
 
+    // The school node used to be downloaded whole on every login - full-year attendance, every
+    // student row, every certificate - and then the live listeners below immediately downloaded
+    // the same nodes AGAIN, doubling egress on every session. When the SDK listeners are
+    // available they are the sole supplier of those nodes, so the bootstrap fetches only the
+    // small pieces it actually inspects (profile, subscription, counters) plus the modules that
+    // have no listener, and the heavy nodes are downloaded exactly once, by the listener.
+    const LISTENERLESS_NODES = ['subscription', 'staffCount', 'admissionSequenceVersion', 'timetable', 'timetableRecords', 'library', 'accounts', 'enquiries', 'employeeManager', 'parentMessages', 'parentNotifications', 'certificateRequests', 'approvals', 'studentAcademics', 'studentDocuments', 'exams', 'dateSheet', 'admitCards', 'reportExams', 'reportMarks', 'reportCards', 'idCards', 'idCardSettings', 'backupSettings']
+    async function fetchScopedSchool(schoolId, token) {
+      const profile = await fetchPrimarySchool(`schools/${schoolId}/profile`, token)
+      if (profile === undefined) return undefined
+      // No profile means first-time setup, a legacy migration, or a failed read - every one of
+      // those paths inspects the whole school object, so hand them the original full fetch.
+      if (!profile) return fetchPrimarySchool(`schools/${schoolId}`, token)
+      const values = await Promise.all(LISTENERLESS_NODES.map(node => safeRequest(`schools/${schoolId}/${node}`, token)))
+      const school = { profile }
+      LISTENERLESS_NODES.forEach((node, index) => {
+        if (values[index] !== null && values[index] !== undefined) school[node] = values[index]
+      })
+      // Students and the request queues are deliberately NOT fetched here - their listeners
+      // are the single supplier, so each is downloaded exactly once per login. If a listener
+      // fails to deliver, the watchdog in the listener effect below REST-fetches the missing
+      // nodes once, so the screen can still never present as empty.
+      return school
+    }
+
     async function load() {
       setWorkspace(current => ({ ...current, loading: true, error: '' }))
       try {
@@ -2077,7 +2404,10 @@ function useSchoolWorkspace(session) {
         let schoolId = ownSchoolId
         let workspaceRole = 'Owner'
         let canMaintainWorkspace = true
-        let school = await fetchPrimarySchool(`schools/${schoolId}`, token)
+        // The live listeners re-download students/attendance/fees/etc. moments after this
+        // fetch, so when the SDK is available the bootstrap skips those nodes entirely.
+        const canUseListeners = isFirebaseConfigured && Boolean(firebaseApp)
+        let school = canUseListeners ? await fetchScopedSchool(schoolId, token) : await fetchPrimarySchool(`schools/${schoolId}`, token)
         if (!active) return
         const pendingProfile = JSON.parse(localStorage.getItem('northstar-pending-school-profile') || 'null')
         const legacyUser = await safeRequest(`users/${session.uid}`, token)
@@ -2138,7 +2468,12 @@ function useSchoolWorkspace(session) {
         if (school === undefined) return
 
         if (!school?.profile) {
-          if (primaryFailed) {
+          // A registered user must never be bounced to the setup screen just because the primary
+          // read came back empty (propagation blip, cleared localStorage after logout, etc.).
+          // localStorage is cleared on logout, so also trust durable server signals that this
+          // user has registered before: their users/{uid}.schoolId or a teachersIndex entry.
+          const hadSchoolBefore = localStorage.getItem('northstar-school-id') || legacyUser?.schoolId || teacherIndex?.schoolId
+          if (primaryFailed || hadSchoolBefore) {
             if (active) setWorkspace(current => ({ ...current, loading: false, schoolId, needsSetup: false, error: 'We could not reach your school workspace. Please check your connection and reload — your data is safe.' }))
             return
           }
@@ -2213,12 +2548,23 @@ function useSchoolWorkspace(session) {
           return dates
         }, {})
         const nextFees = feeData || {}
+        // Each source is trimmed to the newest few BEFORE its rows are turned into activity
+        // objects. Previously every record in the school became an activity - a year of
+        // attendance alone is tens of thousands of objects allocated on every single load,
+        // sorted, and then kept in state forever, when the feed only ever renders a handful.
+        // Trimming first means the work is bounded by the feed size, not by the school's age.
+        const newestBy = (entries, at) => entries
+          .map(entry => ({ entry, at: at(entry) || 0 }))
+          .filter(item => item.at)
+          .sort((a, b) => b.at - a.at)
+          .slice(0, ACTIVITY_FEED_LIMIT)
+          .map(item => item.entry)
         const nextActivities = [
-          ...studentRows.map(row => ({ id: `student-${row.id}`, title: 'Student admitted', detail: `${row.full_name || row.name || ''} joined Class ${row.class_name || row.class || ''}-${row.section || 'A'}`, at: row.createdAt || 0, icon: '+' })),
-          ...Object.entries(nextFees).map(([id, row]) => ({ id: `fee-${id}`, title: 'Fee payment received', detail: `${money(row.amount)} via ${row.method || 'payment'}`, at: row.paidAt || row.updatedAt || 0, icon: 'â‚¹' })),
-          ...noticeRows.map(row => ({ id: `notice-${row.id}`, title: 'Notice published', detail: row.title, at: row.publishAt || 0, icon: 'N' })),
-          ...Object.entries(attendanceData || {}).map(([id, row]) => ({ id: `attendance-${id}`, title: 'Attendance updated', detail: `${row.date} attendance marked`, at: row.updatedAt || 0, icon: 'âœ“' })),
-        ].filter(item => item.at).sort((a, b) => b.at - a.at)
+          ...newestBy(studentRows, row => row.createdAt).map(row => ({ id: `student-${row.id}`, title: 'Student admitted', detail: `${row.full_name || row.name || ''} joined Class ${row.class_name || row.class || ''}-${row.section || 'A'}`, at: row.createdAt || 0, icon: '+' })),
+          ...newestBy(Object.entries(nextFees), ([, row]) => row.paidAt || row.updatedAt).map(([id, row]) => ({ id: `fee-${id}`, title: 'Fee payment received', detail: `${money(row.amount)} via ${row.method || 'payment'}`, at: row.paidAt || row.updatedAt || 0, icon: '₹' })),
+          ...newestBy(noticeRows, row => row.publishAt).map(row => ({ id: `notice-${row.id}`, title: 'Notice published', detail: row.title, at: row.publishAt || 0, icon: 'N' })),
+          ...newestBy(Object.entries(attendanceData || {}), ([, row]) => row.updatedAt).map(([id, row]) => ({ id: `attendance-${id}`, title: 'Attendance updated', detail: `${row.date} attendance marked`, at: row.updatedAt || 0, icon: '✓' })),
+        ].sort((a, b) => b.at - a.at).slice(0, ACTIVITY_FEED_LIMIT)
         setStudents(studentRows.map(studentFromRow))
         setNotices(noticeRows.map(noticeFromRow))
         setFees(nextFees)
@@ -2238,6 +2584,10 @@ function useSchoolWorkspace(session) {
         setParentMessages(school?.parentMessages || {})
         setParentNotifications(school?.parentNotifications || {})
         setCertificateRequests(school?.certificateRequests || {})
+    setLeaveRequests(school?.leaveRequests || {})
+        // The admissions state holds the pending queue only (the listener subscribes to a
+        // status === 'pending' query), so filter the bootstrap rows the same way.
+        setAdmissionRequests(Object.fromEntries(Object.entries(school?.admissionRequests || {}).filter(([, row]) => row?.status === 'pending')))
         setApprovals({ fees: school?.approvals?.fees || {}, leaves: school?.approvals?.leaves || {} })
         setExpenses(school?.expenses || {})
         setAcademics(school?.studentAcademics || {})
@@ -2276,6 +2626,205 @@ function useSchoolWorkspace(session) {
     return () => { active = false; controller.abort() }
   }, [session, setAttendance, setEnquiries, setFees, setNotices, setStudents, setTimetableData, workspaceVersion])
 
+  useEffect(() => {
+    if (!isFirebaseConfigured || !firebaseApp || !workspace.schoolId || workspace.needsSetup || workspace.loading) return
+    const schoolId = workspace.schoolId
+    let cancelled = false
+    const unsubs = []
+
+    // Fail-safe watchdog: students and the two request queues are the nodes the school cannot
+    // appear to lose - an empty student list reads as data loss and an empty queue silently
+    // hides real applications. If their listeners have not delivered a first snapshot shortly
+    // after mount (stale-chunk import failure, blocked websocket, query error), fetch each
+    // missing node once over REST. In the healthy path the listeners land first and this
+    // fetches nothing, keeping the single-download login.
+    const delivered = new Set()
+    const watchdog = setTimeout(async () => {
+      const missing = ['students', 'leaveRequests', 'admissionRequests'].filter(node => !delivered.has(node))
+      if (!missing.length) return
+      console.error(`[listeners] no live snapshot after 8s for: ${missing.join(', ')} - fetching once via REST`)
+      try {
+        const token = await session.getIdToken()
+        const values = await Promise.all(missing.map(node => databaseRequest(`schools/${schoolId}/${node}`, token).catch(() => null)))
+        if (cancelled) return
+        missing.forEach((node, index) => {
+          if (delivered.has(node)) return
+          const value = values[index] || {}
+          if (node === 'students') setStudents(Object.entries(value).map(([id, row]) => ({ id, ...row })).sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0)).map(studentFromRow))
+          if (node === 'leaveRequests') setLeaveRequests(value)
+          if (node === 'admissionRequests') setAdmissionRequests(Object.fromEntries(Object.entries(value).filter(([, row]) => row?.status === 'pending')))
+        })
+      } catch (error) {
+        console.error('[listeners] REST fail-safe fetch failed:', error?.message)
+      }
+    }, 8000)
+    unsubs.push(() => clearTimeout(watchdog))
+
+    import('firebase/database').then(({ ref: dbRef, onValue, off, getDatabase, query, orderByChild, startAt, equalTo }) => {
+      if (cancelled) return
+      let rtdb
+      try { rtdb = getDatabase(firebaseApp) } catch (error) {
+        console.error('[listeners] getDatabase failed - live updates are OFF for this session:', error?.message)
+        return
+      }
+
+      function listen(path, handler) {
+        const r = dbRef(rtdb, path)
+        onValue(r, handler, { onlyOnce: false })
+        unsubs.push(() => off(r, 'value', handler))
+      }
+
+      // Attendance can grow to tens of thousands of records over a school year. The live
+      // dashboard only needs the current month, so subscribe to a date-bounded query instead
+      // of the whole node — this keeps the continuous listener payload small. Full history for
+      // student profiles and backups is fetched on demand elsewhere (see loadStudentAttendance
+      // and createBackupPayload). Requires "attendance": { ".indexOn": ["date"] } in the rules.
+      function listenFromDate(path, childKey, startValue, handler) {
+        const q = query(dbRef(rtdb, path), orderByChild(childKey), startAt(startValue))
+        onValue(q, handler, { onlyOnce: false })
+        unsubs.push(() => off(q, 'value', handler))
+      }
+
+      let nameMigrationRan = false
+      listen(`schools/${schoolId}/students`, snap => {
+        delivered.add('students')
+        const data = snap.val() || {}
+        const rows = Object.entries(data).map(([id, row]) => ({ id, ...row })).sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0))
+        setStudents(rows.map(studentFromRow))
+        // One-time reconciliation: old records whose guardian_name/father_name (or the two phone
+        // fields) drifted apart get merged to a single canonical value in the database, so the raw
+        // stored data matches what every screen now shows. Runs once per load and only writes the
+        // rows that are actually inconsistent — a clean workspace produces zero writes.
+        if (!nameMigrationRan) {
+          nameMigrationRan = true
+          reconcileStudentIdentity(schoolId, data)
+          backfillParentStudentIndex(schoolId, data)
+          // Photo migration is ON. It used to be off because moving photos out of the row made
+          // every list fall back to initials; the directory, admission register, both searches,
+          // the old-student picker and the profile now request photos through useStudentPhotos,
+          // so that trade is gone. Photos are ~133KB of base64 each and the students node is
+          // read in full on every load, which makes them the largest read in the app.
+          //
+          // Runs for the school account only (see the guard in migrateInlinePhotos), once -
+          // it is idempotent, so a migrated workspace performs zero writes on later loads.
+          const PHOTO_MIGRATION_ENABLED = true
+          if (PHOTO_MIGRATION_ENABLED) migrateInlinePhotos(schoolId, data)
+        }
+      })
+
+      listen(`schools/${schoolId}/deletedStudents`, snap => {
+        setDeletedStudents(snap.val() || {})
+      })
+
+      const monthStartDate = new Date()
+      const monthStart = `${monthStartDate.getFullYear()}-${String(monthStartDate.getMonth() + 1).padStart(2, '0')}-01`
+      listenFromDate(`schools/${schoolId}/attendance`, 'date', monthStart, snap => {
+        const data = snap.val() || {}
+        const byDate = Object.values(data).reduce((dates, record) => {
+          const studentId = record.studentId || record.student_id
+          if (!studentId || !record.date) return dates
+          dates[record.date] ||= {}
+          dates[record.date][studentId] = normalizeAttendanceStatus(record.mark || record.status)
+          return dates
+        }, {})
+        setAttendance(byDate)
+      })
+
+      listen(`schools/${schoolId}/fees`, snap => {
+        setFees(snap.val() || {})
+      })
+
+      listen(`schools/${schoolId}/notices`, snap => {
+        const data = snap.val() || {}
+        const rows = Object.entries(data).map(([id, row]) => ({ id, ...row })).sort((a, b) => (b.publishAt || 0) - (a.publishAt || 0))
+        setNotices(rows.map(noticeFromRow))
+      })
+
+      listen(`schools/${schoolId}/staff`, snap => {
+        setStaff(snap.val() || {})
+      })
+
+      listen(`schools/${schoolId}/staffAttendance`, snap => {
+        setStaffAttendance(snap.val() || {})
+      })
+
+      listen(`schools/${schoolId}/leave`, snap => {
+        setLeave(snap.val() || {})
+      })
+
+      listen(`schools/${schoolId}/parents`, snap => {
+        setParents(snap.val() || {})
+      })
+
+      listen(`schools/${schoolId}/leaveRequests`, snap => {
+        delivered.add('leaveRequests')
+        setLeaveRequests(snap.val() || {})
+      })
+
+      // Scoped to pending only - the queue the admin actually acts on. Requires
+      // "admissionRequests": { ".indexOn": ["status"] } in the rules.
+      const pendingAdmissions = query(dbRef(rtdb, `schools/${schoolId}/admissionRequests`), orderByChild('status'), equalTo('pending'))
+      // A failed query must not present as an empty queue - "no applications" and "the query
+      // broke" look identical on screen and that ambiguity already cost a day of debugging.
+      // If the indexed query errors (e.g. .indexOn dropped by a console rules edit), fall back
+      // to reading the node whole and filtering here.
+      onValue(pendingAdmissions, snap => { delivered.add('admissionRequests'); setAdmissionRequests(snap.val() || {}) }, error => {
+        console.warn('[admissions] pending query failed, falling back to full read:', error?.message)
+        const fallbackRef = dbRef(rtdb, `schools/${schoolId}/admissionRequests`)
+        const fallbackHandler = snap => {
+          delivered.add('admissionRequests')
+          const all = snap.val() || {}
+          setAdmissionRequests(Object.fromEntries(Object.entries(all).filter(([, row]) => row?.status === 'pending')))
+        }
+        onValue(fallbackRef, fallbackHandler, () => {})
+        unsubs.push(() => off(fallbackRef, 'value', fallbackHandler))
+      })
+      unsubs.push(() => off(pendingAdmissions, 'value'))
+
+      listen(`schools/${schoolId}/certificates`, snap => {
+        setCertificates(snap.val() || {})
+      })
+
+      listen(`schools/${schoolId}/certificateSettings`, snap => {
+        setCertificateSettings(snap.val() || {})
+      })
+
+      listen(`schools/${schoolId}/homework`, snap => {
+        setHomework(snap.val() || {})
+      })
+
+      listen(`schools/${schoolId}/transport`, snap => {
+        setTransport(snap.val() || { routes: {}, vehicles: {}, drivers: {}, allocations: {}, fees: {}, attendance: {}, settings: {} })
+      })
+
+      listen(`schools/${schoolId}/expenses`, snap => {
+        setExpenses(snap.val() || {})
+      })
+
+      listen(`schools/${schoolId}/feeManager`, snap => {
+        const data = snap.val() || {}
+        setFeeManager({
+          groups: data.groups || {},
+          structures: data.structures || {},
+          fines: data.fines || {},
+          settings: data.settings || {},
+          deleted: data.deleted || {},
+        })
+      })
+
+      listen(`schools/${schoolId}/profile`, snap => {
+        const profile = snap.val()
+        if (profile) setWorkspace(current => ({ ...current, schoolProfile: profile, schoolName: profile.schoolName || current.schoolName }))
+      })
+    }).catch(error => {
+      // A failed dynamic import (typically a stale tab loading a chunk that no longer exists
+      // after a deploy) means NO listener attaches and every live surface silently freezes.
+      console.error('[listeners] firebase/database failed to load - live updates are OFF for this session:', error?.message)
+    })
+
+    return () => { cancelled = true; unsubs.forEach(fn => fn()) }
+  }, [workspace.schoolId, workspace.needsSetup, workspace.loading])
+
   const createSchoolWorkspace = async profile => {
     const token = await session.getIdToken()
     await createSchoolRecord(session, token, profile)
@@ -2297,6 +2846,160 @@ function useSchoolWorkspace(session) {
     } catch {
       return { path: '', url: await fileToDataUrl(file), size: file.size, updatedAt: Date.now(), fallback: true }
     }
+  }
+
+  // One-time data migration: merge legacy split guardian_name/father_name (and the two phone
+  // fields) into a single canonical value for every existing student. Only the rows that are
+  // actually inconsistent get written, via one atomic multi-path PATCH. Idempotent — once the
+  // stored data is consistent this produces no writes on subsequent loads.
+  const reconcileStudentIdentity = async (schoolId, data) => {
+    if (developmentDemo || !session) return
+    const patch = {}
+    Object.entries(data || {}).forEach(([id, row]) => {
+      if (!row || typeof row !== 'object') return
+      const nameCanon = row.father_name || row.fatherName || row.guardian_name || row.guardianName || ''
+      const phoneCanon = row.father_phone || row.fatherPhone || row.guardian_phone || row.guardianPhone || row.parent_login_phone || row.phone || ''
+      const base = `schools/${schoolId}/students/${id}`
+      if (nameCanon) {
+        if ((row.guardian_name || '') !== nameCanon) patch[`${base}/guardian_name`] = nameCanon
+        if ((row.father_name || '') !== nameCanon) patch[`${base}/father_name`] = nameCanon
+      }
+      if (phoneCanon) {
+        if ((row.guardian_phone || '') !== phoneCanon) patch[`${base}/guardian_phone`] = phoneCanon
+        if ((row.father_phone || '') !== phoneCanon) patch[`${base}/father_phone`] = phoneCanon
+      }
+    })
+    const paths = Object.keys(patch)
+    if (!paths.length) return
+    try {
+      const token = await session.getIdToken()
+      await databaseRequest('', token, { method: 'PATCH', body: patch })
+      console.log(`[student-identity-migration] reconciled ${paths.length} field(s) across drifted student records`)
+    } catch (error) {
+      console.warn('[student-identity-migration] skipped:', error.message)
+    }
+  }
+
+  // Photos are fetched one student at a time and cached for the session, then merged into the
+  // students state as photoUrl. Every existing consumer (StudentAvatar, ID cards, certificates,
+  // report cards) keeps reading student.photoUrl and needs no change - the value simply arrives
+  // a moment later than the rest of the row.
+  // useCallback matters here, not as micro-optimisation: this function is the value of
+  // StudentPhotoContext and a dependency of useStudentPhotos. As a fresh reference each render it
+  // changed the context on every render (re-rendering every consumer) and re-fired the hook's
+  // effect every render. Only the photo cache stopped that from becoming a real request loop.
+  const photoCacheRef = useRef({})
+  const ensureStudentPhotos = useCallback(async (studentIds = []) => {
+    if (developmentDemo || !session || !workspace.schoolId) return
+    const ids = [...new Set((studentIds || []).map(String).filter(Boolean))]
+    const missing = ids.filter(id => photoCacheRef.current[id] === undefined)
+    if (!missing.length) return
+    const token = await session.getIdToken().catch(() => null)
+    if (!token) return
+    const results = await Promise.all(missing.map(async id => {
+      const value = await databaseRequest(`studentPhotos/${workspace.schoolId}/${id}`, token).catch(() => null)
+      return [id, typeof value === 'string' ? value : '']
+    }))
+    results.forEach(([id, value]) => { photoCacheRef.current[id] = value })
+    const found = Object.fromEntries(results.filter(([, value]) => value))
+    if (!Object.keys(found).length) return
+    setStudents(current => current.map(item => found[item.id] ? { ...item, photoUrl: found[item.id] } : item))
+  }, [developmentDemo, session, workspace.schoolId, setStudents])
+
+  // Backfill for records created before the index existed: build
+  // parentStudentIndex/{phone}/{studentId} so parent login can resolve a phone to its children
+  // without reading the students node, and create parent accounts for phones that have none yet.
+  // Idempotent - only missing entries are written, so a backfilled school produces zero writes.
+  // Existing parent records are never overwritten; ensureParent still merges children on login.
+  const backfillParentStudentIndex = async (schoolId, data) => {
+    if (developmentDemo || !session) return
+    const rows = Object.entries(data || {}).filter(([, row]) => row && typeof row === 'object')
+    if (!rows.length) return
+    const token = await session.getIdToken().catch(() => null)
+    if (!token) return
+    const [existingIndex, existingParents] = await Promise.all([
+      databaseRequest(`schools/${schoolId}/parentStudentIndex`, token).catch(() => null),
+      databaseRequest(`schools/${schoolId}/parents`, token).catch(() => null),
+    ])
+    const index = existingIndex || {}
+    const knownParents = existingParents || {}
+    const changes = {}
+    const draftParents = {}
+    rows.forEach(([studentId, raw]) => {
+      const phone = parentIdOf(raw.parent_login_phone || raw.father_phone || raw.guardian_phone || raw.phone)
+      if (!phone || phone.length !== 10) return
+      if (index[phone]?.[studentId] !== true) changes[`schools/${schoolId}/parentStudentIndex/${phone}/${studentId}`] = true
+      // Accumulate across siblings: buildParentAccount merges each child into the same map, so a
+      // phone with several children ends up with all of them and no duplicates.
+      if (!knownParents[phone]) {
+        draftParents[phone] = buildParentAccount(draftParents[phone] || {}, studentId, studentFromRow({ id: studentId, ...raw }, 0), workspace.schoolProfile)
+      }
+    })
+    Object.entries(draftParents).forEach(([phone, parentRow]) => { changes[`schools/${schoolId}/parents/${phone}`] = parentRow })
+    const paths = Object.keys(changes)
+    if (!paths.length) return
+    let written = 0
+    for (let start = 0; start < paths.length; start += 100) {
+      const slice = paths.slice(start, start + 100)
+      const patch = Object.fromEntries(slice.map(path => [path, changes[path]]))
+      try {
+        await databaseRequest('', token, { method: 'PATCH', body: patch })
+        written += slice.length
+      } catch (error) {
+        console.warn(`[parent-index] batch failed (${slice.length} entr(ies)):`, error.message)
+      }
+    }
+    console.log(`[parent-index] backfilled ${written}/${paths.length} entr(ies) across ${rows.length} student(s)`)
+  }
+
+  // One-time migration: lift base64 photos out of students/{id}/photo_url into
+  // studentPhotos/{schoolId}/{id}. Batched, because a single PATCH carrying hundreds of ~133KB
+  // data URLs would be tens of megabytes and fail. Idempotent - once moved, no rows match.
+  const migrateInlinePhotos = async (schoolId, data) => {
+    if (developmentDemo || !session) return
+    // studentPhotos/$schoolId is writable by the school account and super admins only - teachers
+    // can read it but not write. Without this guard every teacher login would retry the whole
+    // migration and upload megabytes that the rules then reject.
+    if (session.uid !== schoolId) return
+    const rows = Object.entries(data || {}).filter(([, row]) => row && typeof row === 'object')
+    const candidates = rows.filter(([, row]) => isInlinePhoto(row.photo_url))
+    // Always report, even when there is nothing to do. Returning silently made it impossible to
+    // tell "ran and found nothing" apart from "never ran", which is the first thing anyone asks.
+    const alreadyMoved = rows.filter(([, row]) => row.photo_inline === true).length
+    const onStorage = rows.filter(([, row]) => row.photo_url && !isInlinePhoto(row.photo_url)).length
+    const noPhoto = rows.length - candidates.length - alreadyMoved - onStorage
+    console.log(`[photo-migration] scanned ${rows.length} student(s): ${candidates.length} inline to move, ${alreadyMoved} already moved, ${onStorage} on storage URL, ${noPhoto} without a photo`)
+    if (!candidates.length) return
+    // Must match the .validate cap on studentPhotos/$schoolId/$studentId. A multi-path PATCH is
+    // atomic, so a single oversized photo would reject its whole batch; drop those instead of
+    // poisoning the batch. Normal photos are ~133KB of base64 (compressPhoto caps at 100KB).
+    const MAX_PHOTO_CHARS = 400000
+    const moves = candidates.filter(([, row]) => row.photo_url.length < MAX_PHOTO_CHARS)
+    const oversized = candidates.length - moves.length
+    if (oversized) console.warn(`[photo-migration] ${oversized} photo(s) exceed ${MAX_PHOTO_CHARS} chars and were left in place`)
+    let moved = 0
+    let failed = 0
+    const token = await session.getIdToken().catch(() => null)
+    if (!token) return
+    for (let start = 0; start < moves.length; start += 15) {
+      const batch = moves.slice(start, start + 15)
+      const patch = {}
+      batch.forEach(([id, row]) => {
+        patch[`studentPhotos/${schoolId}/${id}`] = row.photo_url
+        patch[`schools/${schoolId}/students/${id}/photo_url`] = ''
+        patch[`schools/${schoolId}/students/${id}/photo_inline`] = true
+      })
+      // Per-batch, so one rejected batch cannot abort the rest. Each PATCH writes the new copy
+      // and clears the old one together, so a failure leaves that student exactly as it was.
+      try {
+        await databaseRequest('', token, { method: 'PATCH', body: patch })
+        moved += batch.length
+      } catch (error) {
+        failed += batch.length
+        console.warn(`[photo-migration] batch failed (${batch.length} photo(s)):`, error.message)
+      }
+    }
+    console.log(`[photo-migration] moved ${moved} inline photo(s) out of the students node${failed ? `, ${failed} failed` : ''}${oversized ? `, ${oversized} oversized skipped` : ''}`)
   }
 
   const addStudent = async student => {
@@ -2324,9 +3027,12 @@ function useSchoolWorkspace(session) {
       createdAt: Date.now(),
       updatedAt: Date.now(),
     }
+    let inlinePhoto = ''
     if (student.photoFile) {
       const photo = await uploadStudentPhotoFile(student.photoFile, assignedNumber, token, '', student.photoPreview || '')
-      row.photo_url = photo.url
+      inlinePhoto = isInlinePhoto(photo.url) ? photo.url : ''
+      row.photo_url = inlinePhoto ? '' : photo.url
+      row.photo_inline = Boolean(inlinePhoto)
       row.photo_path = photo.path
       row.photo_size = photo.size
       row.photo_updated_at = photo.updatedAt
@@ -2344,10 +3050,18 @@ function useSchoolWorkspace(session) {
     } : null
     await databaseRequest('', token, { method: 'PATCH', body: {
       [`schools/${workspace.schoolId}/students/${studentId}`]: row,
+      ...(inlinePhoto ? { [`studentPhotos/${workspace.schoolId}/${studentId}`]: inlinePhoto } : {}),
+      // Phone -> child index. Parent login resolves children from this (and from the parent
+      // account) instead of scanning the whole students node. Written in the same atomic PATCH
+      // as the student, so the two can never disagree.
+      ...(parentPhone ? { [`schools/${workspace.schoolId}/parentStudentIndex/${parentPhone}/${studentId}`]: true } : {}),
       ...(parentRow ? { [`schools/${workspace.schoolId}/parents/${parentPhone}`]: parentRow } : {}),
       ...(parentNotification ? { [`schools/${workspace.schoolId}/parentNotifications/${parentNotification.id}`]: parentNotification } : {}),
     } })
-    setStudents(current => [studentFromRow({ id: studentId, ...row }, current.length), ...current])
+    if (inlinePhoto) photoCacheRef.current[studentId] = inlinePhoto
+    // studentFromRow already carries row.photo_url (a storage URL, or base64 that has not been
+    // migrated yet); only override when we hold inline bytes that were written out separately.
+    setStudents(current => [{ ...studentFromRow({ id: studentId, ...row }, current.length), ...(inlinePhoto ? { photoUrl: inlinePhoto } : {}) }, ...current])
     if (parentRow) setParents(current => ({ ...current, [parentPhone]: parentRow }))
     if (parentNotification) setParentNotifications(current => ({ ...current, [parentNotification.id]: parentNotification }))
     setActivities(current => [{ id: `student-${studentId}`, title: 'Student admitted', detail: `${student.name} joined Class ${student.className}`, at: row.createdAt, icon: '+' }, ...current])
@@ -2358,23 +3072,56 @@ function useSchoolWorkspace(session) {
     const existing = students.find(item => item.id === studentId)
     if (!existing) throw new Error('Student not found.')
     const updated = { ...existing, ...updates, roll: existing.roll, admissionNo: existing.admissionNo || existing.roll }
+    // The edit modal exposes a single "Guardian name" field (-> guardian_name), but the profile/
+    // info screen shows "Father Name" (read from father_name first). Keep the two in sync so an
+    // edit shows up everywhere instead of the stale value winning.
+    if (updates.guardian !== undefined && updates.guardian !== '') updated.fatherName = updates.guardian
+    if (updates.fatherName !== undefined && updates.fatherName !== '') updated.guardian = updates.fatherName
+    const newPhone = updates.fatherPhone || updates.phone || ''
+    if (newPhone) {
+      updated.parentLoginPhone = newPhone
+      if (!updates.fatherPhone) updated.fatherPhone = newPhone
+    }
     const row = studentToRow(updated)
     row.admission_number = String(existing.roll)
     row.updatedAt = Date.now()
+    let inlinePhoto = ''
     if (updates.photoFile) {
       const token = developmentDemo ? null : await session.getIdToken()
       const photo = await uploadStudentPhotoFile(updates.photoFile, existing.roll, token, existing.photoPath, updates.photoPreview || existing.photoUrl || '')
-      row.photo_url = photo.url
+      inlinePhoto = isInlinePhoto(photo.url) ? photo.url : ''
+      row.photo_url = inlinePhoto ? '' : photo.url
+      row.photo_inline = Boolean(inlinePhoto)
       row.photo_path = photo.path
       row.photo_size = photo.size
       row.photo_updated_at = photo.updatedAt
     }
+    // A PUT replaces the row, so re-assert the inline marker for a student whose photo was
+    // migrated earlier and is not part of this edit - otherwise the flag would be dropped.
+    if (!updates.photoFile && existing.photoInline) row.photo_inline = true
+    // Past-session classes cannot be recreated once lost, and this PUT replaces the whole row.
+    // Never let an update that carries no history (or a shorter one) shrink what is stored.
+    const storedHistory = Array.isArray(existing.sessionHistory) ? existing.sessionHistory : []
+    if (!Array.isArray(row.session_history) || row.session_history.length < storedHistory.length) {
+      row.session_history = storedHistory
+    }
     if (!developmentDemo) {
       const token = await session.getIdToken()
       await databaseRequest(`schools/${workspace.schoolId}/students/${studentId}`, token, { method: 'PUT', body: row })
+      if (inlinePhoto) {
+        await databaseRequest(`studentPhotos/${workspace.schoolId}/${studentId}`, token, { method: 'PUT', body: inlinePhoto }).catch(() => {})
+        photoCacheRef.current[studentId] = inlinePhoto
+      }
       const parentPhone = parentIdOf(row.parent_login_phone || row.father_phone || row.guardian_phone)
+      // If the contact number changed, the old phone must stop pointing at this child, otherwise
+      // the previous number could still resolve it at parent login.
+      const previousPhone = parentIdOf(existing.parentLoginPhone || existing.fatherPhone || existing.phone || existing.guardianPhone || '')
+      if (previousPhone && previousPhone !== parentPhone) {
+        await databaseRequest(`schools/${workspace.schoolId}/parentStudentIndex/${previousPhone}/${studentId}`, token, { method: 'DELETE' }).catch(() => {})
+      }
       if (parentPhone) {
         try {
+          await databaseRequest(`schools/${workspace.schoolId}/parentStudentIndex/${parentPhone}/${studentId}`, token, { method: 'PUT', body: true })
           const existingParent = await databaseRequest(`schools/${workspace.schoolId}/parents/${parentPhone}`, token).catch(() => null)
           const parentRow = buildParentAccount(existingParent || {}, studentId, { ...updated, phone: parentPhone }, workspace.schoolProfile)
           await databaseRequest(`schools/${workspace.schoolId}/parents/${parentPhone}`, token, { method: 'PUT', body: parentRow })
@@ -2382,9 +3129,149 @@ function useSchoolWorkspace(session) {
         } catch (_) {}
       }
     }
-    setStudents(current => current.map((item, index) => item.id === studentId ? studentFromRow({ id: studentId, ...row }, index) : item))
+    // Prefer the row's own photo; fall back to bytes we already hold for a student whose photo
+    // lives in studentPhotos, so an unrelated edit never blanks the image on screen.
+    const localPhoto = inlinePhoto || photoCacheRef.current[studentId] || existing.photoUrl || ''
+    setStudents(current => current.map((item, index) => {
+      if (item.id !== studentId) return item
+      const next = studentFromRow({ id: studentId, ...row }, index)
+      return next.photoUrl ? next : { ...next, photoUrl: localPhoto }
+    }))
     setActivities(current => [{ id: `student-update-${studentId}-${Date.now()}`, title: 'Student updated', detail: `${updated.name} moved to Class ${updated.className}`, at: row.updatedAt, icon: 'U' }, ...current])
     return updated
+  }
+
+  // Soft-delete: archive each student's full record to deletedStudents/{id} (with who/when/why),
+  // remove it from the active students node, and write one audit log entry. Historical
+  // attendance/fees/marks/certificates are deliberately left untouched so past reports and
+  // receipts stay valid — those surfaces already key off student IDs that simply no longer
+  // resolve in the active list. `isAll` distinguishes a "delete every student" action for audit.
+  const deleteStudents = async (studentIds = [], reason = '', isAll = false) => {
+    const ids = [...new Set((studentIds || []).map(String).filter(Boolean))]
+    if (!ids.length) return
+    const stamp = Date.now()
+    const performedBy = session?.uid || 'demo'
+    const performedByName = session?.displayName || session?.email || 'Admin'
+    const auditId = `audit_${stamp}_${Math.random().toString(36).slice(2, 8)}`
+    const action = isAll ? 'student_delete_all' : ids.length === 1 ? 'student_delete' : 'student_bulk_delete'
+    // Fetch raw rows once for exact-fidelity archival (falls back to in-memory row in demo mode).
+    // Only the rows being deleted are fetched - the whole node (with every inline photo) is
+    // downloaded only for a delete-all, where every row is needed anyway.
+    let rawStudents = {}
+    if (!developmentDemo) {
+      const token = await session.getIdToken()
+      if (isAll) {
+        rawStudents = await databaseRequest(`schools/${workspace.schoolId}/students`, token).catch(() => ({})) || {}
+      } else {
+        const fetched = await Promise.all(ids.map(id => databaseRequest(`schools/${workspace.schoolId}/students/${id}`, token).catch(() => null)))
+        fetched.forEach((row, index) => { if (row) rawStudents[ids[index]] = row })
+      }
+    }
+    const deletedSet = new Set(ids)
+    const archived = {}
+    const changes = {}
+    const parentTouched = {}
+    ids.forEach(id => {
+      const raw = rawStudents[id] || studentToRow(students.find(item => String(item.id) === id) || { id })
+      const record = { ...raw, id, deletedAt: stamp, deletedBy: performedBy, deletedByName: performedByName, deletedReason: reason || '' }
+      archived[id] = record
+      changes[`schools/${workspace.schoolId}/deletedStudents/${id}`] = record
+      changes[`schools/${workspace.schoolId}/students/${id}`] = null
+      const parentId = parentIdOf(raw.parent_login_phone || raw.father_phone || raw.guardian_phone || raw.phone)
+      if (parentId && parentId.length === 10) {
+        parentTouched[parentId] = true
+        // Drop the phone -> child index too, otherwise that number would still resolve a deleted
+        // child at parent login and recreate an account for it.
+        changes[`schools/${workspace.schoolId}/parentStudentIndex/${parentId}/${id}`] = null
+      }
+    })
+    // Parent cleanup: unlink each deleted child from its parent. If the parent has no other
+    // active child left, remove the whole parent record (their portal login goes with the
+    // last child). Multi-child parents are preserved with the remaining children.
+    const parentRemovals = []
+    Object.keys(parentTouched).forEach(parentId => {
+      const parent = parents[parentId]
+      if (!parent) return
+      const remaining = Object.keys(parent.students || {}).filter(Boolean).filter(childId => !deletedSet.has(String(childId)))
+      if (!remaining.length) {
+        changes[`schools/${workspace.schoolId}/parents/${parentId}`] = null
+        parentRemovals.push({ parentId, removed: true })
+      } else {
+        changes[`schools/${workspace.schoolId}/parents/${parentId}/students`] = Object.fromEntries(remaining.map(childId => [childId, true]))
+        changes[`schools/${workspace.schoolId}/parents/${parentId}/updatedAt`] = stamp
+        parentRemovals.push({ parentId, removed: false, remaining })
+      }
+    })
+    changes[`schools/${workspace.schoolId}/auditLogs/${auditId}`] = { action, studentIds: ids, performedBy, performedByName, timestamp: stamp, count: ids.length }
+    if (!developmentDemo) {
+      const token = await session.getIdToken()
+      await databaseRequest('', token, { method: 'PATCH', body: changes })
+    }
+    setStudents(current => current.filter(item => !ids.includes(String(item.id))))
+    setDeletedStudents(current => ({ ...current, ...archived }))
+    setParents(current => {
+      const next = { ...current }
+      parentRemovals.forEach(({ parentId, removed, remaining }) => {
+        if (removed) delete next[parentId]
+        else if (next[parentId]) next[parentId] = { ...next[parentId], students: Object.fromEntries(remaining.map(childId => [childId, true])), updatedAt: stamp }
+      })
+      return next
+    })
+    setActivities(current => [{ id: auditId, title: 'Students archived', detail: `${ids.length} student${ids.length > 1 ? 's' : ''} moved to Deleted Students`, at: stamp, icon: '🗑' }, ...current])
+  }
+
+  const deleteAllStudents = (reason = '') => deleteStudents(students.map(item => item.id), reason, true)
+
+  // Restore: move the archived record back to the active students node (stripping delete metadata)
+  // and remove it from deletedStudents. Reverses a soft-delete with the original data intact.
+  const restoreStudent = async studentId => {
+    const id = String(studentId)
+    const record = deletedStudents[id]
+    if (!record) return
+    const { deletedAt, deletedBy, deletedByName, deletedReason, ...raw } = record
+    raw.updatedAt = Date.now()
+    if (!developmentDemo) {
+      const token = await session.getIdToken()
+      await databaseRequest('', token, { method: 'PATCH', body: {
+        [`schools/${workspace.schoolId}/students/${id}`]: raw,
+        [`schools/${workspace.schoolId}/deletedStudents/${id}`]: null,
+      } })
+    }
+    setDeletedStudents(current => { const next = { ...current }; delete next[id]; return next })
+    setStudents(current => [studentFromRow({ ...raw, id }, current.length), ...current])
+    setActivities(current => [{ id: `restore-${id}-${Date.now()}`, title: 'Student restored', detail: `${raw.full_name || raw.name || 'Student'} moved back to active list`, at: Date.now(), icon: '↩' }, ...current])
+  }
+
+  // Restore every archived student back to the active list in one batched write.
+  const restoreAllStudents = async () => {
+    const entries = Object.entries(deletedStudents || {})
+    if (!entries.length) return
+    const changes = {}
+    const restoredRows = []
+    entries.forEach(([id, record]) => {
+      const { deletedAt, deletedBy, deletedByName, deletedReason, ...raw } = record
+      raw.updatedAt = Date.now()
+      changes[`schools/${workspace.schoolId}/students/${id}`] = raw
+      changes[`schools/${workspace.schoolId}/deletedStudents/${id}`] = null
+      restoredRows.push(studentFromRow({ ...raw, id }, 0))
+    })
+    if (!developmentDemo) {
+      const token = await session.getIdToken()
+      await databaseRequest('', token, { method: 'PATCH', body: changes })
+    }
+    setDeletedStudents({})
+    setStudents(current => [...restoredRows, ...current])
+    setActivities(current => [{ id: `restore-all-${Date.now()}`, title: 'Students restored', detail: `${restoredRows.length} student${restoredRows.length > 1 ? 's' : ''} moved back to active list`, at: Date.now(), icon: '↩' }, ...current])
+  }
+
+  // Permanent delete: the ONLY place a record leaves deletedStudents for good.
+  const permanentDeleteStudent = async studentId => {
+    const id = String(studentId)
+    if (!developmentDemo) {
+      const token = await session.getIdToken()
+      await databaseRequest(`schools/${workspace.schoolId}/deletedStudents/${id}`, token, { method: 'DELETE' })
+    }
+    setDeletedStudents(current => { const next = { ...current }; delete next[id]; return next })
   }
 
   const updateStudentPhoto = async (studentId, photoFile, previewUrl = '') => {
@@ -2398,25 +3285,224 @@ function useSchoolWorkspace(session) {
     }
     const token = await session.getIdToken()
     const photo = await uploadStudentPhotoFile(photoFile, student.roll, token, student.photoPath, previewUrl || student.photoUrl || '')
+    // Firebase Storage is unavailable on the Spark plan, so uploadStudentPhotoFile falls back to
+    // a base64 data URL. Those bytes go to studentPhotos/{schoolId}/{id}, never onto the row.
+    const inline = isInlinePhoto(photo.url)
     await databaseRequest('', token, { method: 'PATCH', body: {
-      [`schools/${workspace.schoolId}/students/${studentId}/photo_url`]: photo.url,
+      [`schools/${workspace.schoolId}/students/${studentId}/photo_url`]: inline ? '' : photo.url,
+      [`schools/${workspace.schoolId}/students/${studentId}/photo_inline`]: inline,
       [`schools/${workspace.schoolId}/students/${studentId}/photo_path`]: photo.path,
       [`schools/${workspace.schoolId}/students/${studentId}/photo_size`]: photo.size,
       [`schools/${workspace.schoolId}/students/${studentId}/photo_updated_at`]: photo.updatedAt,
       [`schools/${workspace.schoolId}/students/${studentId}/updatedAt`]: photo.updatedAt,
+      ...(inline ? { [`studentPhotos/${workspace.schoolId}/${studentId}`]: photo.url } : {}),
     } })
+    photoCacheRef.current[studentId] = inline ? photo.url : ''
     setStudents(current => current.map(item => item.id === studentId ? { ...item, photoUrl: photo.url, photoPath: photo.path, photoSize: photo.size, photoUpdatedAt: photo.updatedAt } : item))
     return photo
+  }
+
+  // Approving an admission request creates the student through addStudent - the same function the
+  // manual Admission module uses. Deliberately not a second create-student path: duplicated field
+  // mapping is what produced the guardian/father-name mismatch this app already had to fix.
+  const approveAdmissionRequest = async requestId => {
+    const request = admissionRequests[requestId]
+    if (!request) throw new Error('Admission request not found.')
+    const admissionNumber = await addStudent({
+      name: request.studentName,
+      className: `${request.classAppliedFor}-A`,
+      fatherName: request.fatherName || '',
+      motherName: request.motherName || '',
+      guardian: request.fatherName || '',
+      phone: request.parentPhone || '',
+      fatherPhone: request.parentPhone || '',
+      parentLoginPhone: request.parentPhone || '',
+      dob: request.dob || '',
+      gender: request.gender || '',
+      email: request.parentEmail || '',
+      address: request.address || '',
+      previousSchool: request.previousSchool || '',
+      admissionDate: today(),
+      admissionScheme: 'General',
+      newAdmission: true,
+    })
+    const stamp = Date.now()
+    const reviewed = {
+      status: 'approved',
+      reviewedAt: stamp,
+      reviewedBy: session?.uid || 'demo',
+      reviewedByName: session?.displayName || session?.email || 'Admin',
+      admissionNumber: String(admissionNumber),
+    }
+    if (!developmentDemo) {
+      const token = await session.getIdToken()
+      const auditId = `audit_${stamp}_${Math.random().toString(36).slice(2, 8)}`
+      await databaseRequest('', token, { method: 'PATCH', body: {
+        ...Object.fromEntries(Object.entries(reviewed).map(([key, value]) => [`schools/${workspace.schoolId}/admissionRequests/${requestId}/${key}`, value])),
+        [`schools/${workspace.schoolId}/auditLogs/${auditId}`]: {
+          id: auditId,
+          action: 'admission_approved',
+          requestId,
+          admissionNumber: String(admissionNumber),
+          studentName: request.studentName || '',
+          performedBy: reviewed.reviewedBy,
+          performedByName: reviewed.reviewedByName,
+          timestamp: stamp,
+        },
+      } })
+    }
+    // The pending listener drops it on the next push; clear locally so the row leaves at once.
+    setAdmissionRequests(current => { const next = { ...current }; delete next[requestId]; return next })
+    return admissionNumber
+  }
+
+  const rejectAdmissionRequest = async (requestId, note = '') => {
+    const request = admissionRequests[requestId]
+    if (!request) throw new Error('Admission request not found.')
+    const stamp = Date.now()
+    const reviewed = {
+      status: 'rejected',
+      reviewedAt: stamp,
+      reviewedBy: session?.uid || 'demo',
+      reviewedByName: session?.displayName || session?.email || 'Admin',
+      rejectionNote: String(note || '').trim().slice(0, 300),
+    }
+    if (!developmentDemo) {
+      const token = await session.getIdToken()
+      await databaseRequest('', token, { method: 'PATCH', body: Object.fromEntries(
+        Object.entries(reviewed).map(([key, value]) => [`schools/${workspace.schoolId}/admissionRequests/${requestId}/${key}`, value]),
+      ) })
+    }
+    setAdmissionRequests(current => { const next = { ...current }; delete next[requestId]; return next })
+  }
+
+  // History is read only when the admin opens that tab, never subscribed.
+  const loadAdmissionHistory = async status => {
+    if (developmentDemo) return {}
+    const token = await session.getIdToken()
+    return await databaseRequest(`schools/${workspace.schoolId}/admissionRequests`, token, {
+      query: `orderBy=${encodeURIComponent('"status"')}&equalTo=${encodeURIComponent(`"${status}"`)}`,
+    }).catch(() => ({})) || {}
+  }
+
+  // Every date covered by an approved leave, so attendance can be marked for the whole range.
+  // Sundays are skipped - marking a non-working day would invent an attendance record that would
+  // otherwise never exist and would drag the student's percentage down. Capped so a mistyped
+  // range cannot write thousands of records.
+  const leaveDatesInRange = (fromDate, toDate) => {
+    // Built from the Y-M-D parts rather than new Date(string): that parses as UTC midnight but
+    // getDate()/getDay() read local time, which shifts every date by a day for anyone behind UTC.
+    const parse = value => {
+      const [year, month, day] = String(value || '').split('-').map(Number)
+      if (!year || !month || !day) return null
+      const date = new Date(year, month - 1, day)
+      return Number.isNaN(date.getTime()) ? null : date
+    }
+    const start = parse(fromDate)
+    const end = parse(toDate) || start
+    if (!start || !end || end < start) return []
+    const dates = []
+    for (const cursor = new Date(start); cursor <= end && dates.length < 60; cursor.setDate(cursor.getDate() + 1)) {
+      if (cursor.getDay() === 0) continue
+      dates.push(`${cursor.getFullYear()}-${String(cursor.getMonth() + 1).padStart(2, '0')}-${String(cursor.getDate()).padStart(2, '0')}`)
+    }
+    return dates
+  }
+
+  // Admin decision on a parent's student leave request. Writes the decision and notifies the
+  // parent in one atomic PATCH, so a parent can never see a status without its notification.
+  // Approving also marks attendance as L across the requested dates - without that the approval
+  // changed nothing the teacher or the register could see, which is the whole point of it.
+  const decideLeaveRequest = async (requestId, decision, note = '') => {
+    const request = leaveRequests[requestId]
+    if (!request) throw new Error('Leave request not found.')
+    if (decision !== 'approved' && decision !== 'rejected') throw new Error('Invalid decision.')
+    const stamp = Date.now()
+    const reviewed = {
+      status: decision,
+      reviewedAt: stamp,
+      reviewedBy: session?.uid || 'demo',
+      reviewedByName: session?.displayName || session?.email || 'Admin',
+      reviewNote: String(note || '').trim().slice(0, 300),
+    }
+    if (developmentDemo) {
+      setLeaveRequests(current => ({ ...current, [requestId]: { ...request, ...reviewed } }))
+      return
+    }
+    const token = await session.getIdToken()
+    const notificationId = `notif_${stamp}_${Math.random().toString(36).slice(2, 8)}`
+    const dates = request.fromDate === request.toDate ? request.fromDate : `${request.fromDate} to ${request.toDate}`
+    // Mark the register in the same write as the decision, so an approval can never exist without
+    // the attendance that justifies it. Overwrites an existing mark on purpose: a student marked
+    // absent before the leave was approved should end up as leave.
+    const markedDates = decision === 'approved' && request.studentId ? leaveDatesInRange(request.fromDate, request.toDate) : []
+    const [markClass, markSection = ''] = String(request.classSection || '').split('-')
+    const attendanceChanges = Object.fromEntries(markedDates.map(date => {
+      const id = `${date}_${request.studentId}`
+      return [`schools/${workspace.schoolId}/attendance/${id}`, {
+        id,
+        studentId: request.studentId,
+        student_id: request.studentId,
+        class: markClass || '',
+        section: markSection,
+        date,
+        status: 'L',
+        statusText: 'leave',
+        mark: 'L',
+        markedBy: session?.uid || 'demo',
+        marked_by: session?.uid || 'demo',
+        leaveRequestId: requestId,
+        created_at: stamp,
+        updated_at: stamp,
+        updatedAt: stamp,
+      }]
+    }))
+    await databaseRequest('', token, { method: 'PATCH', body: {
+      ...attendanceChanges,
+      ...Object.fromEntries(Object.entries(reviewed).map(([key, value]) => [`schools/${workspace.schoolId}/leaveRequests/${requestId}/${key}`, value])),
+      ...(request.parentId ? { [`schools/${workspace.schoolId}/parentNotifications/${notificationId}`]: {
+        id: notificationId,
+        parentId: request.parentId,
+        title: `Leave request ${decision}`,
+        message: `${request.studentName || 'Your child'}'s leave for ${dates} was ${decision}.${reviewed.reviewNote ? ` Note: ${reviewed.reviewNote}` : ''}`,
+        type: 'leave',
+        isRead: false,
+        createdAt: stamp,
+      } } : {}),
+    } })
+    setLeaveRequests(current => ({ ...current, [requestId]: { ...request, ...reviewed } }))
+    // The attendance listener is bounded to the current month, so dates outside it arrive only in
+    // the database. Merge locally too, and the register reflects the approval immediately.
+    if (markedDates.length) {
+      setAttendance(current => {
+        const next = { ...current }
+        markedDates.forEach(date => { next[date] = { ...(next[date] || {}), [request.studentId]: 'L' } })
+        return next
+      })
+    }
+    setActivities(current => [{
+      id: `leave-${requestId}-${stamp}`,
+      title: `Leave ${decision}`,
+      detail: `${request.studentName || 'Student'} · ${dates}${markedDates.length ? ` · ${markedDates.length} day(s) marked L` : ''}`,
+      at: stamp,
+      icon: 'L',
+    }, ...current])
+    return { markedDates: markedDates.length }
   }
 
   async function getNextAdmissionNumber() {
     if (developmentDemo) return Math.max(0, ...students.map(student => admissionValue(student.roll))) + 1
     const token = await session.getIdToken()
-    const [fresh, counter] = await Promise.all([
-      databaseRequest(`schools/${workspace.schoolId}/students`, token),
-      databaseRequest(`schools/${workspace.schoolId}/admissionCounter`, token),
-    ])
-    return Math.max(Number(counter?.lastIssued || 0), ...Object.values(fresh || {}).map(row => admissionValue(row.admission_number))) + 1
+    // This only previews the next number in the Add Student form — reserveAdmissionNumber() is
+    // what atomically assigns it on save. admissionCounter is kept current by that reservation
+    // (and seeded by the bootstrap migration), so downloading the entire students node on every
+    // modal open just to recompute a number we already store was pure egress.
+    const counter = await databaseRequest(`schools/${workspace.schoolId}/admissionCounter`, token).catch(() => null)
+    const lastIssued = Number(counter?.lastIssued || 0)
+    if (lastIssued > 0) return lastIssued + 1
+    // Counter not seeded yet (fresh or legacy workspace) — fall back to a one-time scan.
+    const fresh = await databaseRequest(`schools/${workspace.schoolId}/students`, token).catch(() => null)
+    return Math.max(0, ...Object.values(fresh || {}).map(row => admissionValue(row.admission_number))) + 1
   }
 
   const recordPayment = async (studentId, amount = 0, method = 'UPI', billingMonth = today().slice(0, 7)) => {
@@ -2435,7 +3521,29 @@ function useSchoolWorkspace(session) {
     }
     setFees(current => ({ ...current, [invoiceId]: row }))
     setStudents(current => current.map(student => student.id === studentId ? { ...student, fee: 'Paid' } : student))
-    setActivities(current => [{ id: `fee-${invoiceId}`, title: 'Fee payment received', detail: `${money(amount)} via ${method}`, at: paidAt, icon: 'â‚¹' }, ...current])
+    setActivities(current => [{ id: `fee-${invoiceId}`, title: 'Fee payment received', detail: `${money(amount)} via ${method}`, at: paidAt, icon: '₹' }, ...current])
+  }
+
+  // Receipt numbers must never repeat - a school's books depend on them being unique.
+  // Deriving the next one from the fees held in memory races when two people submit at the
+  // same moment (both read the same maximum and both write it back), and it would break
+  // outright the day the fees listener stops loading every past session. Reserve the number
+  // through an atomic counter in the database instead.
+  //
+  // The seed floor is the highest number already issued as far as this client can see. The
+  // transaction only ever moves the counter forward, so a stale or missing counter can never
+  // hand out a number that an existing receipt already uses.
+  const reserveReceiptSequence = async seedFloor => {
+    if (developmentDemo || !rtdb) return seedFloor + 1
+    const { ref: dbRef, runTransaction } = await import('firebase/database')
+    const counter = dbRef(rtdb, `schools/${workspace.schoolId}/feeManager/receiptCounter`)
+    const result = await runTransaction(counter, current => Math.max(Number(current) || 0, seedFloor) + 1)
+    const reserved = Number(result.snapshot?.val())
+    // Failing loudly beats issuing a number that might already be on another receipt.
+    if (!result.committed || !Number.isFinite(reserved)) {
+      throw new Error('Could not reserve a receipt number. Check your connection and submit again.')
+    }
+    return reserved
   }
 
   const submitFeeReceipt = async receipt => {
@@ -2447,7 +3555,7 @@ function useSchoolWorkspace(session) {
     const settings = feeManager.settings?.config || {}
     const prefix = settings.prefix || `RCP-${new Date().getFullYear()}`
     const existingNumbers = Object.values(fees).map(item => Number(String(item.receiptNumber || '').match(/(\d+)$/)?.[1] || 0))
-    const sequence = Math.max(Number(settings.start || 1) - 1, ...existingNumbers) + 1
+    const sequence = await reserveReceiptSequence(Math.max(Number(settings.start || 1) - 1, ...existingNumbers))
     const receiptNumber = `${prefix}-${String(sequence).padStart(5, '0')}`
     const row = {
       ...receipt,
@@ -2472,7 +3580,7 @@ function useSchoolWorkspace(session) {
     }
     setFees(current => ({ ...current, [receiptId]: row }))
     setStudents(current => current.map(student => student.id === receipt.studentId ? { ...student, fee: row.status === 'paid' ? 'Paid' : 'Pending', feeGroup: receipt.feeGroup } : student))
-    setActivities(current => [{ id: `fee-${receiptId}`, title: 'Fee receipt submitted', detail: `${receiptNumber} Â· ${money(row.amount)}`, at: paidAt, icon: 'â‚¹' }, ...current])
+    setActivities(current => [{ id: `fee-${receiptId}`, title: 'Fee receipt submitted', detail: `${receiptNumber} · ${money(row.amount)}`, at: paidAt, icon: '₹' }, ...current])
     if (row.status === 'partial') setApprovals(current => ({ ...current, fees: { ...(current.fees || {}), [receiptId]: { receiptId, studentId: receipt.studentId, studentName: receipt.studentName, receiptNumber, amount: row.amount, balance: receipt.balance, discount: receipt.discount || 0, status: 'pending', createdAt: paidAt } } }))
     return { id: receiptId, ...row }
   }
@@ -2579,12 +3687,107 @@ function useSchoolWorkspace(session) {
     setFeeManager(current => ({ ...current, [section]: { ...(current[section] || {}), [id]: row } }))
   }
 
-  const createBackupPayload = () => {
+  // One-time fetch of a single student's full attendance history for the profile view (which
+  // shows the month-wise summary and overall %). Queries by the studentId index so only that
+  // student's records download, not the whole node. The live listener stays month-bounded.
+  const loadStudentAttendance = async studentId => {
+    if (developmentDemo || !studentId) {
+      const records = {}
+      Object.entries(attendance).forEach(([date, marks]) => { if (marks[studentId]) records[date] = marks[studentId] })
+      return records
+    }
+    try {
+      const token = await session.getIdToken()
+      const data = await databaseRequest(`schools/${workspace.schoolId}/attendance`, token, { query: `orderBy=${encodeURIComponent('"studentId"')}&equalTo=${encodeURIComponent(`"${studentId}"`)}` })
+      const records = {}
+      Object.values(data || {}).forEach(record => {
+        const sid = record.studentId || record.student_id
+        if (String(sid) !== String(studentId) || !record.date) return
+        records[record.date] = normalizeAttendanceStatus(record.mark || record.status)
+      })
+      return records
+    } catch {
+      return null
+    }
+  }
+
+  // The live attendance listener is bounded to the current month, so a past session has
+  // nothing in memory at all. Fetch just that session's window on demand - only when the
+  // archive's attendance tab is actually opened - rather than widening the live listener
+  // and paying for a year of records on every page load.
+  const loadSessionAttendance = async (startDate, endDate) => {
+    if (!startDate || !endDate) return null
+    if (developmentDemo) {
+      return Object.fromEntries(Object.entries(attendance).filter(([date]) => date >= startDate && date <= endDate))
+    }
+    try {
+      const token = await session.getIdToken()
+      const query = `orderBy=${encodeURIComponent('"date"')}&startAt=${encodeURIComponent(`"${startDate}"`)}&endAt=${encodeURIComponent(`"${endDate}"`)}`
+      const data = await databaseRequest(`schools/${workspace.schoolId}/attendance`, token, { query })
+      return Object.values(data || {}).reduce((dates, record) => {
+        const studentId = record.studentId || record.student_id
+        if (!studentId || !record.date) return dates
+        dates[record.date] ||= {}
+        dates[record.date][studentId] = normalizeAttendanceStatus(record.mark || record.status)
+        return dates
+      }, {})
+    } catch {
+      return null
+    }
+  }
+
+  const createBackupPayload = async () => {
     const studentRows = Object.fromEntries(students.map(student => [student.id, studentToRow(student)]))
-    const attendanceRows = {}
-    Object.entries(attendance).forEach(([date, marks]) => Object.entries(marks).forEach(([studentId, status]) => {
-      attendanceRows[`${date}_${studentId}`] = { studentId, date, status, markedBy: session?.uid || 'backup', updatedAt: Date.now() }
-    }))
+
+    // Once photos live in studentPhotos/{schoolId}/{id}, the in-memory student only carries the
+    // bytes if some screen happened to load them - which is at most one page of the directory.
+    // Writing that straight to a backup would silently export blank photos for everyone else, so
+    // re-inline them here from the source. Restore then puts them back on the row and the
+    // migration moves them out again, which keeps the v1 backup format working unchanged.
+    if (!developmentDemo) {
+      try {
+        const token = await session.getIdToken()
+        const stored = await databaseRequest(`studentPhotos/${workspace.schoolId}`, token)
+        if (stored && typeof stored === 'object') {
+          Object.entries(studentRows).forEach(([id, row]) => {
+            if (!row.photo_url && typeof stored[id] === 'string' && stored[id]) row.photo_url = stored[id]
+          })
+        }
+      } catch { /* network issue - the rest of the backup is still worth producing */ }
+    }
+    // Backups must contain the FULL attendance history, not just the current month the live
+    // listener now holds. Fetch the entire attendance node once at export time.
+    const attendanceFromState = () => {
+      const rows = {}
+      Object.entries(attendance).forEach(([date, marks]) => Object.entries(marks).forEach(([studentId, status]) => {
+        rows[`${date}_${studentId}`] = { studentId, date, status, markedBy: session?.uid || 'backup', updatedAt: Date.now() }
+      }))
+      return rows
+    }
+    let attendanceRows = {}
+    if (developmentDemo) {
+      attendanceRows = attendanceFromState()
+    } else {
+      try {
+        const token = await session.getIdToken()
+        const full = await databaseRequest(`schools/${workspace.schoolId}/attendance`, token)
+        if (full && typeof full === 'object') attendanceRows = full
+      } catch { /* network issue — fall through to in-memory current-month data */ }
+      if (!Object.keys(attendanceRows).length) attendanceRows = attendanceFromState()
+    }
+
+    // Same reasoning for fees. Today the listener still holds every receipt, but a backup that
+    // silently drops financial history is the kind of loss nobody notices until a restore, so
+    // read the node straight from the source rather than trusting whatever is in memory.
+    // The in-memory copy stays as the fallback: a partial backup beats a failed one.
+    let feeRows = fees
+    if (!developmentDemo) {
+      try {
+        const token = await session.getIdToken()
+        const full = await databaseRequest(`schools/${workspace.schoolId}/fees`, token)
+        if (full && typeof full === 'object' && Object.keys(full).length) feeRows = full
+      } catch { /* network issue - fall through to the in-memory copy */ }
+    }
     return {
       format: 'northstar-school-backup',
       version: 1,
@@ -2592,7 +3795,7 @@ function useSchoolWorkspace(session) {
       exportedAt: new Date().toISOString(),
       data: {
         students: studentRows,
-        fees,
+        fees: feeRows,
         attendance: attendanceRows,
         notices: Object.fromEntries(notices.map(notice => [notice.id, {
           title: notice.title, body: notice.detail, category: notice.type, priority: notice.priority,
@@ -2892,7 +4095,7 @@ function useSchoolWorkspace(session) {
       }
     }
     setStaff(current => ({ ...current, [id]: row }))
-    setActivities(current => [{ id: `employee-${id}-${Date.now()}`, title: existing ? 'Employee updated' : 'Employee added', detail: `${form.firstName} ${form.lastName} Â· ${employeeCode}`, at: row.updatedAt, icon: 'E' }, ...current])
+    setActivities(current => [{ id: `employee-${id}-${Date.now()}`, title: existing ? 'Employee updated' : 'Employee added', detail: `${form.firstName} ${form.lastName} · ${employeeCode}`, at: row.updatedAt, icon: 'E' }, ...current])
     return employeeCode
   }
 
@@ -2987,7 +4190,7 @@ function useSchoolWorkspace(session) {
       await databaseRequest(`schools/${workspace.schoolId}/timetableRecords/${id}`, token, { method: 'PUT', body: row })
     }
     setTimetableRecords(current => ({ ...current, [id]: row }))
-    setActivities(current => [{ id: `timetable-${id}-${Date.now()}`, title: form.id ? 'Timetable edited' : 'Timetable uploaded', detail: `${row.title} Â· Class ${row.className}-${row.section}`, at: Date.now(), icon: 'T' }, ...current])
+    setActivities(current => [{ id: `timetable-${id}-${Date.now()}`, title: form.id ? 'Timetable edited' : 'Timetable uploaded', detail: `${row.title} · Class ${row.className}-${row.section}`, at: Date.now(), icon: 'T' }, ...current])
   }
 
   const deleteTimetableRecord = async record => {
@@ -3409,7 +4612,7 @@ function useSchoolWorkspace(session) {
       await databaseRequest(`schools/${workspace.schoolId}/certificates/${id}`, token, { method: 'PUT', body: row })
     }
     setCertificates(current => ({ ...current, [id]: row }))
-    setActivities(current => [{ id, title: 'Certificate generated', detail: `${certificateNumber} Â· ${certificate.certificateType}`, at: createdAt, icon: 'C' }, ...current])
+    setActivities(current => [{ id, title: 'Certificate generated', detail: `${certificateNumber} · ${certificate.certificateType}`, at: createdAt, icon: 'C' }, ...current])
     return { id, ...row }
   }
 
@@ -3515,9 +4718,13 @@ function useSchoolWorkspace(session) {
   }
 
   const deleteCertificate = async id => {
-    if (!window.confirm('Delete this certificate register entry?')) return
+    if (!window.confirm('Delete this certificate register entry? A copy will be archived for your records.')) return
+    const archived = certificates[id]
     if (!developmentDemo) {
       const token = await session.getIdToken()
+      if (archived) {
+        await databaseRequest(`schools/${workspace.schoolId}/certificatesDeleted/${id}`, token, { method: 'PUT', body: { ...archived, deletedAt: Date.now() } }).catch(() => {})
+      }
       await databaseRequest(`schools/${workspace.schoolId}/certificates/${id}`, token, { method: 'DELETE' })
     }
     setCertificates(current => {
@@ -3668,7 +4875,24 @@ function useSchoolWorkspace(session) {
     return logo
   }
 
-  return { students, notices, fees, feeManager, attendance, timetableData, timetableRecords, homework, transport, library, accounts, leave, parents, parentMessages, parentNotifications, certificateRequests, enquiries, staff, staffAttendance, employeeConfig, approvals, expenses, academics, documents, certificates, certificateSettings, examData, reportData, idCards, idCardSettings, activities, backupSettings, workspace, createSchoolWorkspace, getNextAdmissionNumber, addStudent, updateStudent, updateStudentPhoto, recordPayment, submitFeeReceipt, saveFeeGroup, deleteFeeGroup, saveFeeStructure, deleteFeeStructure, deleteFeeReceipt, restoreFeeReceipt, decideFeeApproval, saveFeeManagerConfig, createBackupPayload, restoreBackup, saveBackupSettings, saveSchoolProfile, saveParentAccount, addNotice, saveAttendance, saveEmployeeConfig, deleteEmployeeConfig, saveEmployee, deleteEmployee, saveStaffAttendance, savePeriod, saveTimetableRecord, deleteTimetableRecord, saveHomework, deleteHomework, markHomeworkDone, markHomeworkSeen, saveTransportItem, deleteTransportItem, saveExpenseItem, deleteExpenseItem, saveLibraryItem, deleteLibraryItem, saveAccountsItem, deleteAccountsItem, saveLeaveItem, deleteLeaveItem, saveEnquiry, uploadStudentDocument, saveCertificate, saveCertificateSettings, saveExamRecord, saveDateSheetRow, deleteDateSheetRow, saveAdmitCards, deleteCertificate, updateCertificateStatus, saveReportExam, deleteReportExam, saveReportMarks, saveReportCard, updateReportCard, saveIdCardSettings, saveIdCard, deleteIdCard, uploadIdCardLogo, developmentDemo }
+  // The dashboard feed derives its student/fee/notice entries from live state instead of the
+  // login fetch - the scoped bootstrap no longer downloads those nodes, and the listeners that
+  // do deliver them keep this feed current for free. Session actions (the setActivities
+  // prepends) win over a derived row with the same id.
+  const feedActivities = useMemo(() => {
+    const derived = [
+      ...students.slice(0, ACTIVITY_FEED_LIMIT).map(row => ({ id: `student-${row.id}`, title: 'Student admitted', detail: `${row.name} joined Class ${row.className}`, at: row.createdAt || 0, icon: '+' })),
+      ...Object.entries(fees).map(([id, row]) => ({ id: `fee-${id}`, title: 'Fee payment received', detail: `${money(row.amount)} via ${row.method || 'payment'}`, at: row.paidAt || row.updatedAt || 0, icon: '₹' })),
+      ...notices.slice(0, ACTIVITY_FEED_LIMIT).map(row => ({ id: `notice-${row.id}`, title: 'Notice published', detail: row.title, at: row.publishAt || 0, icon: 'N' })),
+    ]
+    const byId = new Map()
+    for (const item of [...activities, ...derived]) {
+      if (item.at && !byId.has(item.id)) byId.set(item.id, item)
+    }
+    return [...byId.values()].sort((a, b) => b.at - a.at).slice(0, ACTIVITY_FEED_LIMIT)
+  }, [students, fees, notices, activities])
+
+  return { students, notices, fees, feeManager, attendance, timetableData, timetableRecords, homework, transport, library, accounts, leave, parents, parentMessages, parentNotifications, certificateRequests, leaveRequests, decideLeaveRequest, admissionRequests, approveAdmissionRequest, rejectAdmissionRequest, loadAdmissionHistory, enquiries, staff, staffAttendance, employeeConfig, approvals, expenses, academics, documents, certificates, certificateSettings, examData, reportData, idCards, idCardSettings, activities: feedActivities, backupSettings, workspace, createSchoolWorkspace, getNextAdmissionNumber, addStudent, updateStudent, updateStudentPhoto, ensureStudentPhotos, deletedStudents, deleteStudents, deleteAllStudents, restoreStudent, restoreAllStudents, permanentDeleteStudent, recordPayment, submitFeeReceipt, saveFeeGroup, deleteFeeGroup, saveFeeStructure, deleteFeeStructure, deleteFeeReceipt, restoreFeeReceipt, decideFeeApproval, saveFeeManagerConfig, createBackupPayload, restoreBackup, saveBackupSettings, saveSchoolProfile, saveParentAccount, addNotice, saveAttendance, saveEmployeeConfig, deleteEmployeeConfig, saveEmployee, deleteEmployee, saveStaffAttendance, savePeriod, saveTimetableRecord, deleteTimetableRecord, saveHomework, deleteHomework, markHomeworkDone, markHomeworkSeen, saveTransportItem, deleteTransportItem, saveExpenseItem, deleteExpenseItem, saveLibraryItem, deleteLibraryItem, saveAccountsItem, deleteAccountsItem, saveLeaveItem, deleteLeaveItem, saveEnquiry, uploadStudentDocument, loadStudentAttendance, loadSessionAttendance, saveCertificate, saveCertificateSettings, saveExamRecord, saveDateSheetRow, deleteDateSheetRow, saveAdmitCards, deleteCertificate, updateCertificateStatus, saveReportExam, deleteReportExam, saveReportMarks, saveReportCard, updateReportCard, saveIdCardSettings, saveIdCard, deleteIdCard, uploadIdCardLogo, developmentDemo }
 }
 
 export default function App() {
@@ -3681,6 +4905,11 @@ export default function App() {
   const [selectedStudent, setSelectedStudent] = useState(null)
   const [editingStudent, setEditingStudent] = useState(null)
   const [darkMode, setDarkMode] = useState(() => localStorage.getItem('northstar-theme') === 'dark')
+  // Which session the workspace is being viewed as. Empty means "the live one" - the normal
+  // app. Anything else swaps the content area for a read-only archive, so no write path in
+  // the ERP can ever run while a past session is on screen. Deliberately not persisted:
+  // a reload must always land you back on the current session.
+  const [viewSession, setViewSession] = useState('')
 
   useEffect(() => {
     localStorage.setItem('northstar-theme', darkMode ? 'dark' : 'light')
@@ -3725,6 +4954,38 @@ export default function App() {
 
   const data = useSchoolWorkspace(session)
 
+  // Student photos no longer ride along in the students node, so pull the one we are about to
+  // show. StudentProfile re-derives its student from data.students, so the image appears as soon
+  // as this resolves. Opening a profile costs one ~133KB fetch instead of every list render
+  // carrying every photo.
+  useEffect(() => {
+    if (selectedStudent?.id) data.ensureStudentPhotos?.([selectedStudent.id])
+  }, [selectedStudent?.id])
+
+  // Code splitting keeps the first paint small, but it also means the first visit to a module
+  // shows the Suspense spinner while its chunk downloads. Once the workspace is up and the
+  // browser is idle, warm every module chunk in the background so that first visit is instant
+  // too. requestIdleCallback means this never competes with work the user is waiting on, and it
+  // only runs for a signed-in workspace - the login screen still ships nothing extra.
+  useEffect(() => {
+    if (!session || data.workspace.loading || data.workspace.needsSetup) return undefined
+    const warm = () => {
+      Promise.all([
+        import('./FeeManager'), import('./CertificateManager'), import('./ReportCardManager'),
+        import('./IDCardManager'), import('./EmployeeManager'), import('./LeaveManager'),
+        import('./TimetableManager'), import('./HomeworkManager'), import('./TransportManager'),
+        import('./ExpenseManager'), import('./LibraryManager'), import('./AccountsManager'),
+        import('./BackupCenter'), import('./StudentLeaveManager'), import('./AdmissionRequestsManager'),
+      ]).catch(() => { /* a failed prefetch is harmless; the real import retries on navigation */ })
+    }
+    if ('requestIdleCallback' in window) {
+      const id = window.requestIdleCallback(warm, { timeout: 4000 })
+      return () => window.cancelIdleCallback(id)
+    }
+    const timer = setTimeout(warm, 2500)
+    return () => clearTimeout(timer)
+  }, [session, data.workspace.loading, data.workspace.needsSetup])
+
   if (window.location.pathname.startsWith('/parent')) return <ParentPortal />
   if (!isFirebaseConfigured && import.meta.env.VITE_APP_ENV === 'production') {
     return <main className="setup-error"><ShieldCheck size={30} /><h1>Secure setup required</h1><p>Firebase environment variables are missing. Configure the deployment before launch.</p></main>
@@ -3732,10 +4993,9 @@ export default function App() {
   if (authLoading) return <SplashScreen persistent />
   if (isFirebaseConfigured && !session) return <AuthScreen />
 
-  if (data.workspace.needsSetup) return <SchoolSetup user={session} onSubmit={data.createSchoolWorkspace} />
-  if (loginSplash) return <SplashScreen onComplete={() => { setLoginSplash(false); setPage('dashboard') }} />
-  if (data.workspace.loading) return <SplashScreen persistent />
+  if (data.workspace.loading || loginSplash) return <SplashScreen persistent={data.workspace.loading} onComplete={loginSplash ? () => { setLoginSplash(false); setPage('dashboard') } : undefined} />
   if (data.workspace.error) return <main className="setup-error"><ShieldCheck size={30} /><h1>Workspace unavailable</h1><p>{data.workspace.error}</p><div style={{ display: 'flex', gap: 10 }}><button className="primary-button" onClick={() => window.location.reload()}>Reload</button><button className="secondary-button" onClick={() => signOut(auth)}>Sign out</button></div></main>
+  if (data.workspace.needsSetup) return <SchoolSetup user={session} onSubmit={data.createSchoolWorkspace} />
 
   const userName = session?.displayName || session?.email?.split('@')[0] || 'Demo Admin'
   const profile = {
@@ -3749,9 +5009,12 @@ export default function App() {
   const screens = {
     dashboard: <Dashboard students={data.students} notices={data.notices} fees={data.fees} attendance={data.attendance} activities={data.activities} staff={data.staff} staffAttendance={data.staffAttendance} employeeConfig={data.employeeConfig} approvals={data.approvals} expenses={data.expenses} transport={data.transport} library={data.library} leaveData={data.leave} setPage={setPage} onSelectStudent={setSelectedStudent} />,
     admissions: <Admissions students={data.students} enquiries={data.enquiries} onAddStudent={data.addStudent} onUpdateStudent={data.updateStudent} onSaveEnquiry={data.saveEnquiry} getNextAdmissionNumber={data.getNextAdmissionNumber} school={data.workspace.schoolProfile} />,
-    students: <Students students={data.students} onAddStudent={data.addStudent} onUpdateStudent={data.updateStudent} onSelectStudent={setSelectedStudent} getNextAdmissionNumber={data.getNextAdmissionNumber} />,
+    students: <Students students={data.students} onAddStudent={data.addStudent} onUpdateStudent={data.updateStudent} onSelectStudent={setSelectedStudent} getNextAdmissionNumber={data.getNextAdmissionNumber} onDeleteStudents={data.deleteStudents} schoolName={data.workspace.schoolName} />,
+    'deleted-students': <DeletedStudents deletedStudents={data.deletedStudents} onRestore={data.restoreStudent} onRestoreAll={data.restoreAllStudents} onPermanentDelete={data.permanentDeleteStudent} />,
     employees: <EmployeeManager staff={data.staff} attendance={data.staffAttendance} config={data.employeeConfig} saveConfig={data.saveEmployeeConfig} deleteConfig={data.deleteEmployeeConfig} saveEmployee={data.saveEmployee} deleteEmployee={data.deleteEmployee} saveAttendance={data.saveStaffAttendance} />,
     leave: <LeaveManager staff={data.staff} config={data.employeeConfig} leave={data.leave} saveLeaveItem={data.saveLeaveItem} deleteLeaveItem={data.deleteLeaveItem} saveStaffAttendance={data.saveStaffAttendance} />,
+    'admission-requests': <AdmissionRequestsManager schoolId={data.workspace.schoolId} schoolName={data.workspace.schoolName} pendingRequests={data.admissionRequests} onApprove={data.approveAdmissionRequest} onReject={data.rejectAdmissionRequest} onLoadHistory={data.loadAdmissionHistory} role={data.workspace.role} />,
+    'student-leave': <StudentLeaveManager leaveRequests={data.leaveRequests} onDecide={data.decideLeaveRequest} role={data.workspace.role} />,
     attendance: <Attendance students={data.students} attendance={data.attendance} onSaveAttendance={data.saveAttendance} />,
     fees: <FeeManager students={data.students} fees={data.fees} feeManager={data.feeManager} approvals={data.approvals.fees || {}} schoolProfile={data.workspace.schoolProfile} onSubmitFee={data.submitFeeReceipt} onSaveGroup={data.saveFeeGroup} onDeleteGroup={data.deleteFeeGroup} onSaveStructure={data.saveFeeStructure} onDeleteStructure={data.deleteFeeStructure} onDeleteReceipt={data.deleteFeeReceipt} onRestoreReceipt={data.restoreFeeReceipt} onDecideApproval={data.decideFeeApproval} onSaveConfig={data.saveFeeManagerConfig} onOpenProfile={setSelectedStudent} />,
     academics: <Academics timetableData={data.timetableData} timetableRecords={data.timetableRecords} students={data.students} onSavePeriod={data.savePeriod} onSaveTimetable={data.saveTimetableRecord} onDeleteTimetable={data.deleteTimetableRecord} />,
@@ -3768,6 +5031,15 @@ export default function App() {
     'school-profile': <SchoolProfile profile={data.workspace.schoolProfile} students={data.students} staff={data.staff} save={data.saveSchoolProfile} />,
     backup: <BackupCenter students={data.students} fees={data.fees} attendance={data.attendance} settings={data.backupSettings} createBackup={data.createBackupPayload} restoreBackup={data.restoreBackup} saveSettings={data.saveBackupSettings} role={data.workspace.role} />,
   }
+  // The session switcher only lists sessions the workspace actually has records for, so a
+  // brand new school sees no dropdown at all and nothing about its screens changes.
+  // Deliberately not memoised: this sits after the loading/setup early returns, so a hook here
+  // would break the rules of hooks. It is a single linear pass over students and runs in well
+  // under a millisecond even for a few thousand records.
+  const currentSession = data.workspace.schoolProfile.academicYear || '2026-27'
+  const sessionOptions = sessionOptionsFrom(data.students, currentSession)
+  const archiveSession = viewSession && viewSession !== currentSession ? viewSession : ''
+
   const logout = async () => {
     localStorage.removeItem('northstar-school-id')
     localStorage.removeItem('northstar-pending-school-profile')

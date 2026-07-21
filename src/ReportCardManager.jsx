@@ -1,10 +1,18 @@
 import React, { useEffect, useMemo, useState } from 'react'
+import { useStudentPhotos } from './student-photos'
 import {
   BarChart3, CheckCircle2, Download, Edit2, Eye, FileText, Lock, Plus,
   Printer, Save, Search, Trash2, Trophy, Unlock, Users,
 } from 'lucide-react'
 import DatePicker from './DatePicker'
+import { safePrint as sharedSafePrint } from './print-utils'
+import { REPORT_TEMPLATES, templateById } from './reportCardTemplates'
 import './ReportCardManager.css'
+
+// Remembered per browser rather than written to the school record: picking a design is a
+// preview preference, and storing it would mean a schema change on live data for something
+// nobody needs shared. The default is 'classic', the design this module has always printed.
+const TEMPLATE_KEY = 'northstar-report-template'
 
 const examPresets = [
   'Unit Test 1', 'Unit Test 2', 'Unit Test 3', 'Periodic Test 1 (PT-1)', 'Periodic Test 2 (PT-2)',
@@ -36,20 +44,7 @@ function defaultExam(id = '') {
 }
 
 function safePrint(selector) {
-  document.body.classList.add('report-printing')
-  document.querySelectorAll('.report-print-target').forEach(node => node.classList.remove('report-print-target'))
-  const target = document.querySelector(selector)
-  target?.classList.add('report-print-target')
-  const cleanup = () => {
-    document.body.classList.remove('report-printing')
-    target?.classList.remove('report-print-target')
-    window.removeEventListener('afterprint', cleanup)
-  }
-  window.addEventListener('afterprint', cleanup, { once: true })
-  setTimeout(() => {
-    window.print()
-    setTimeout(cleanup, 2500)
-  }, 450)
+  sharedSafePrint(selector, { pageSize: 'A4', pageMargin: '10mm', delay: 450 })
 }
 
 async function downloadReportPdf(filename = 'report-card.pdf') {
@@ -158,6 +153,7 @@ function MarksEntry({ students, reportData, onSaveMarks, onSaveReport }) {
   const [className, setClassName] = useState('')
   const [section, setSection] = useState('')
   const [student, setStudent] = useState(null)
+  useStudentPhotos([student?.id])
   const [record, setRecord] = useState(null)
   const [saving, setSaving] = useState(false)
   const [message, setMessage] = useState('')
@@ -273,10 +269,53 @@ function ReportCardPaper({ student, exam, record, school, classRecords }) {
   </article>
 }
 
+function TemplatePicker({ value, onChange }) {
+  const families = [...new Set(REPORT_TEMPLATES.map(item => item.family))]
+  return <div className="rt-picker">
+    <label style={{ fontSize: 8, fontWeight: 700, color: '#536073' }}>Report Card Design</label>
+    {families.map(family => <div key={family}>
+      <small style={{ display: 'block', margin: '2px 0 5px', fontSize: 8, color: '#8792a6', fontWeight: 700 }}>{family}</small>
+      <div className="rt-picker-grid">{REPORT_TEMPLATES.filter(item => item.family === family).map(item => <button
+        type="button" key={item.id} className={value === item.id ? 'active' : ''} onClick={() => onChange(item.id)}
+      >
+        <i className={`rt-swatch rt-swatch-${item.id}`} />
+        {item.label}
+        {item.id === 'classic' && <small>Default</small>}
+      </button>)}</div>
+    </div>)}
+    <p className="rt-picker-note">
+      Kids designs show the same marks as stars. Sections some designs have but this ERP does not
+      record — co-scholastic grades, house names and working-day counts — are left out rather than
+      filled with placeholder values.
+    </p>
+  </div>
+}
+
+// Chooses which design renders. 'classic' keeps the original ReportCardPaper untouched, so a
+// school that never opens the picker prints exactly what it printed before.
+function ReportCardSurface({ templateId, student, exam, record, school, classRecords }) {
+  const template = templateById(templateId)
+  if (!template.Component) return <ReportCardPaper student={student} exam={exam} record={record} school={school} classRecords={classRecords} />
+  const { Component } = template
+  return <Component
+    school={school}
+    student={student}
+    exam={exam}
+    record={record}
+    summary={calculateReport(exam, record, classRecords)}
+    parts={classParts(student.className)}
+    photo={profilePhoto(student)}
+    logo={school.logo || school.logoURL || ''}
+  />
+}
+
 function ReportGenerator({ students, school, reportData, onSaveReport, onUpdateReport }) {
   const exams = Object.values(reportData.exams || {})
   const [examId, setExamId] = useState(exams[0]?.id || '')
   const [student, setStudent] = useState(null)
+  const [templateId, setTemplateId] = useState(() => localStorage.getItem(TEMPLATE_KEY) || 'classic')
+  useEffect(() => { localStorage.setItem(TEMPLATE_KEY, templateId) }, [templateId])
+  useStudentPhotos([student?.id])
   const [generated, setGenerated] = useState(null)
   const [loading, setLoading] = useState(false)
   const [message, setMessage] = useState('')
@@ -310,12 +349,13 @@ function ReportGenerator({ students, school, reportData, onSaveReport, onUpdateR
       <div className="panel-header"><div><h3>Report Card Generator</h3><p>Generate one student or bulk class-wise report cards.</p></div></div>
       <label>Select Exam<select value={examId} onChange={event => { setExamId(event.target.value); setStudent(null); setGenerated(null); setMessage('') }}>{exams.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
       <StudentPicker students={students} value={student} onSelect={value => { setStudent(value); setGenerated(null); setMessage('') }} />
+      <TemplatePicker value={templateId} onChange={setTemplateId} />
       <button className="primary-button" disabled={loading || !student} onClick={generate}><FileText size={15} /> {loading ? 'Generating...' : 'Generate Result'}</button>
       {message && <div className={`report-message ${message.startsWith('Generation failed') ? 'error' : 'ok'}`}>{message}</div>}
       <div className="report-actions"><button className="secondary-button" disabled={!record} onClick={() => safePrint('.report-card-paper')}><Printer size={15} /> Print Report Card</button><button className="secondary-button" disabled={!record} onClick={() => downloadReportPdf(`${student?.name || 'student'}-report-card.pdf`)}><Download size={15} /> Download PDF</button><button className="secondary-button" disabled={!record} onClick={() => safePrint('.report-card-paper')}><Users size={15} /> Bulk Print Class</button><button className="secondary-button" disabled={!record} onClick={() => downloadReportPdf('bulk-report-cards.pdf')}><Download size={15} /> Bulk PDF</button></div>
       {record && <div className="report-admin-controls"><button onClick={() => onUpdateReport(key, { status: 'published' })}><Eye size={14} /> Publish</button><button onClick={() => onUpdateReport(key, { status: 'draft' })}><Unlock size={14} /> Unpublish</button><button onClick={() => onUpdateReport(key, { locked: true })}><Lock size={14} /> Lock</button><button onClick={() => onUpdateReport(key, { locked: false })}><Unlock size={14} /> Unlock</button></div>}
     </section>
-    <section className="report-preview-wrap">{record && student ? <ReportCardPaper student={student} exam={exam} record={record} school={school} classRecords={classRows} /> : <div className="empty-state large"><FileText size={30} /><strong>No report selected</strong><p>First save marks, select student, then click Generate Result.</p></div>}</section>
+    <section className="report-preview-wrap">{record && student ? <ReportCardSurface templateId={templateId} student={student} exam={exam} record={record} school={school} classRecords={classRows} /> : <div className="empty-state large"><FileText size={30} /><strong>No report selected</strong><p>First save marks, select student, then click Generate Result.</p></div>}</section>
   </div>
 }
 

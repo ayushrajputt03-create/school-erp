@@ -32,7 +32,32 @@ export const CLASS_LIST = classOptions
 export const STREAM_OPTIONS = ['Science', 'Commerce', 'Arts']
 export const isSeniorClass = cls => cls === '11' || cls === '12'
 export const sectionOptions = ['A', 'B', 'C', 'D', 'E']
-export const academicYears = ['2026-27', '2027-28', '2028-29', '2029-30']
+
+export const MONTH_NAMES = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December']
+// Most Indian schools open the session in April, but some start in March. Stored on the
+// school profile as a 1-indexed month so the raw database value reads naturally (4 = April).
+export const DEFAULT_SESSION_START_MONTH = 4
+export const sessionStartMonthOptions = [3, 4, 5, 6]
+// Profiles saved before this setting existed have no sessionStartMonth, so they must keep
+// behaving exactly as before - April.
+export const sessionStartMonthOf = profile => {
+  const month = Number(profile?.sessionStartMonth)
+  return Number.isInteger(month) && month >= 1 && month <= 12 ? month : DEFAULT_SESSION_START_MONTH
+}
+// The twelve months of a session in order, e.g. April..March or March..February.
+export const sessionMonthNames = startMonth => {
+  const start = (Number(startMonth) || DEFAULT_SESSION_START_MONTH) - 1
+  return Array.from({ length: 12 }, (_, offset) => MONTH_NAMES[(start + offset) % 12])
+}
+// Generated rather than hardcoded so the list never runs out and always contains whatever
+// session a school already has saved. Covers the previous sessions too, which the session
+// switcher needs in order to look back.
+export const academicYearsAround = (year = new Date().getFullYear(), back = 5, forward = 5) =>
+  Array.from({ length: back + forward + 1 }, (_, index) => {
+    const start = year - back + index
+    return `${start}-${String(start + 1).slice(-2)}`
+  })
+export const academicYears = academicYearsAround()
 export const feeGroups = ['Regular', 'RTE', 'EWS', 'DG', 'Staff Ward', 'Sibling', 'Scholarship', 'No Fee', 'Custom']
 
 export const generateSchoolCode = schoolName => {

@@ -18,10 +18,31 @@ export default function BackupCenter({ students, fees, attendance, settings, cre
   const [message, setMessage] = useState('')
   const [emailSettings, setEmailSettings] = useState(settings)
   const admin = role === 'Owner' || role === 'Administrator'
-  const attendanceRows = Object.entries(attendance).flatMap(([date, marks]) => Object.entries(marks).map(([studentId, status]) => ({ date, studentId, status })))
+  // Live attendance state is bounded to the current month (see fix #2); count its marks for the
+  // stat card. Full history is still exported via createBackup() in exportExcel/exportJson.
+  const attendanceCount = Object.values(attendance || {}).reduce((sum, marks) => sum + Object.keys(marks || {}).length, 0)
 
-  const exportJson = () => {
-    const payload = createBackup()
+  // Read-only. Answers one question before the fees listener can safely be date-bounded:
+  // does every stored receipt carry a timestamp to bound on? A bounded query silently skips
+  // rows whose ordered field is missing, so a single dateless receipt would quietly vanish
+  // from pending totals. This writes nothing - it reads the same payload a backup reads.
+  // Counts the fees already held in memory - no network call at all. That is exactly the right
+  // source here: the question being answered is whether the CURRENTLY UNBOUNDED listener's rows
+  // all carry a date, and while it is unbounded this state is the complete set. An earlier
+  // version routed this through createBackup(), which downloads the whole attendance node too -
+  // a needless bill on every click.
+  const [health, setHealth] = useState(null)
+  const runHealthCheck = () => {
+    const rows = Object.values(fees || {})
+    setHealth({
+      total: rows.length,
+      missingPaidAt: rows.filter(row => !row.paidAt).length,
+      dateless: rows.filter(row => !row.paidAt && !row.receiptDate && !row.billingPeriod && !row.date).length,
+    })
+  }
+
+  const exportJson = async () => {
+    const payload = await createBackup()
     downloadBlob(new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' }), backupName('json'))
     setMessage('Full restore backup downloaded.')
   }
@@ -29,6 +50,9 @@ export default function BackupCenter({ students, fees, attendance, settings, cre
   const exportExcel = async () => {
     setBusy('excel')
     try {
+      // createBackup() fetches the full attendance history, so the workbook covers every month.
+      const payload = await createBackup()
+      const attendanceRows = Object.values(payload.data.attendance || {}).map(record => ({ date: record.date, studentId: record.studentId || record.student_id, status: record.status || record.mark }))
       const ExcelJS = (await import('exceljs')).default
       const workbook = new ExcelJS.Workbook()
       workbook.creator = 'Northstar School OS'
@@ -86,7 +110,7 @@ export default function BackupCenter({ students, fees, attendance, settings, cre
       if (payload?.format !== 'northstar-school-backup' || payload?.version !== 1 || !payload?.data || typeof payload.data !== 'object') throw new Error('Please select a valid NXT School ERP JSON backup file.')
       const confirmed = window.confirm(`Restore backup from ${new Date(payload.exportedAt).toLocaleString('en-IN')}?\n\nCurrent Students, Fees and Attendance will be replaced.`)
       if (!confirmed) return
-      exportJson()
+      await exportJson()
       await restoreBackup(payload)
       setMessage('Backup restored successfully. A safety copy of the previous data was downloaded first.')
     } catch (error) {
@@ -113,7 +137,7 @@ export default function BackupCenter({ students, fees, attendance, settings, cre
     <section className="backup-stats">
       <div><span>Students</span><strong>{students.length}</strong></div>
       <div><span>Fee records</span><strong>{Object.keys(fees).length}</strong></div>
-      <div><span>Attendance records</span><strong>{attendanceRows.length}</strong></div>
+      <div><span>Attendance (this month)</span><strong>{attendanceCount}</strong></div>
       <div><span>Last email backup</span><strong>{settings.lastSentAt ? new Date(settings.lastSentAt).toLocaleDateString('en-IN') : 'Not sent'}</strong></div>
     </section>
 
@@ -127,6 +151,18 @@ export default function BackupCenter({ students, fees, attendance, settings, cre
         <div className="backup-icon json"><FileJson size={23} /></div>
         <div><h3>Full Restore Backup</h3><p>Complete JSON copy including notices, timetable, documents and fee settings.</p></div>
         <button className="secondary-button" disabled={!admin} onClick={exportJson}><Download size={15} /> Download .json</button>
+      </section>
+      <section className="panel backup-card">
+        <div className="backup-icon json"><DatabaseBackup size={23} /></div>
+        <div><h3>Fee Data Health Check</h3><p>Checks whether every stored receipt carries a date. Reads loaded data only — no download, nothing changed.</p></div>
+        <button className="secondary-button" disabled={!admin} onClick={runHealthCheck}><Check size={15} /> Run check</button>
+        {health && (health.error
+          ? <p className="health-result bad">{health.error}</p>
+          : <p className={`health-result ${health.missingPaidAt || health.dateless ? 'bad' : 'good'}`}>
+              Fee records: <strong>{health.total}</strong><br />
+              Missing paidAt: <strong>{health.missingPaidAt}</strong><br />
+              No date at all: <strong>{health.dateless}</strong>
+            </p>)}
       </section>
       <section className="panel backup-card restore-card">
         <div className="backup-icon restore"><RotateCcw size={23} /></div>

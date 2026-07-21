@@ -3,9 +3,10 @@ import {
   Bell, BookOpen, BusFront, CalendarDays, CheckCircle2, ChevronLeft, ChevronRight,
   Download, Eye, EyeOff, FileText, GraduationCap, Home, LogOut, Mail, Menu,
   MessageSquareText, Phone, Printer, RefreshCw, Save, ShieldCheck, UserRound,
-  WalletCards, XCircle,
+  Umbrella, WalletCards, XCircle,
 } from 'lucide-react'
 import './ParentPortal.css'
+import { getPendingFeesSummary } from './lib/pendingFees'
 
 const tabs = [
   ['dashboard', 'Home', Home],
@@ -17,6 +18,7 @@ const tabs = [
   ['transport', 'Transport', BusFront],
   ['timetable', 'Timetable', CalendarDays],
   ['certificates', 'Certificates', FileText],
+  ['leave', 'Leave', Umbrella],
   ['contact', 'Contact', Phone],
   ['profile', 'Profile', UserRound],
 ]
@@ -196,7 +198,9 @@ function AttendancePage({ data }) {
 
 function FeesPage({ data }) {
   const stats = getStats(data)
+  const pendingSummary = getPendingFeesSummary({ student: data.selectedStudent, fees: data.fees, structures: data.feeStructures, academicYear: data.school?.academicYear, sessionStartMonth: data.school?.sessionStartMonth })
   return <div className="parent-stack">
+    {pendingSummary.pendingMonthsCount > 0 ? <section className="parent-panel parent-pending-fees"><h3>Pending Months</h3><div className="parent-pending-total"><strong>{money(pendingSummary.totalPendingAmount)}</strong><span>{pendingSummary.pendingMonthsCount} month{pendingSummary.pendingMonthsCount > 1 ? 's' : ''} pending</span></div><ul>{pendingSummary.pendingMonths.map(item => <li key={item.monthKey}><span>{item.month}</span><em>{item.status === 'partial' ? `Partial · paid ${money(item.amountPaid)}` : 'Unpaid'}</em><strong>{money(item.amountDue)}</strong></li>)}</ul></section> : <section className="parent-panel parent-pending-fees clear"><h3>Pending Months</h3><div className="parent-uptodate">All months up to date — nothing pending.</div></section>}
     <section className="parent-panel fee-summary"><h3>Fee Summary</h3>{[['Total Fee', stats.totalFees], ['Total Paid', stats.paidFees], ['Total Pending', stats.pendingFees], ['Overdue', 0]].map(([label, value]) => <div key={label}><span>{label}</span><strong>{money(value)}</strong></div>)}</section>
     <section className="parent-panel"><h3>Month-wise Fee</h3><div className="parent-table-wrap"><table><thead><tr><th>Month</th><th>Amount</th><th>Status</th><th>Action</th></tr></thead><tbody>{monthNames.map(month => {
       const row = data.fees.find(item => String(item.billingMonth || item.month || '').toLowerCase().includes(month.toLowerCase()))
@@ -247,6 +251,54 @@ function CertificatesPage({ data, session, reload }) {
   return <div className="parent-stack"><div className="parent-card-list">{data.certificates.map(row => <article key={row.id}><span>{row.certificateNumber || row.certNo}</span><h3>{row.certificateType || row.type}</h3><small>{longDate(row.issueDate || row.createdAt)}</small><button onClick={() => window.print()}>View / Print</button></article>)}{!data.certificates.length && <Empty title="No certificates issued yet" />}</div><form className="parent-panel" onSubmit={submit}><h3>Request Certificate</h3><label>Type<select value={request.certificateType} onChange={event => setRequest({ ...request, certificateType: event.target.value })}>{['Transfer Certificate','Bonafide','Character','Study','Sports'].map(item => <option key={item}>{item}</option>)}</select></label><label>Purpose<textarea required value={request.purpose} onChange={event => setRequest({ ...request, purpose: event.target.value })} /></label><button className="parent-primary">Submit Request</button></form></div>
 }
 
+function LeavePage({ data, session, reload }) {
+  const today = new Date().toISOString().slice(0, 10)
+  const empty = { fromDate: today, toDate: today, reason: '' }
+  const [form, setForm] = useState(empty)
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState('')
+  const submit = async event => {
+    event.preventDefault()
+    if (busy) return
+    setBusy(true)
+    setError('')
+    try {
+      await api({ action: 'leaveRequest', ...session, studentId: data.selectedStudent.id, ...form })
+      setForm({ ...empty })
+      await reload()
+    } catch (submitError) {
+      setError(submitError.message)
+    } finally {
+      setBusy(false)
+    }
+  }
+  const requests = data.leaveRequests || []
+  return <div className="parent-stack">
+    <form className="parent-panel" onSubmit={submit}>
+      <h3>Apply for Leave</h3>
+      <label>From<input type="date" required value={form.fromDate} onChange={event => setForm({ ...form, fromDate: event.target.value })} /></label>
+      <label>To<input type="date" required value={form.toDate} min={form.fromDate} onChange={event => setForm({ ...form, toDate: event.target.value })} /></label>
+      <label>Reason<textarea required value={form.reason} onChange={event => setForm({ ...form, reason: event.target.value })} placeholder="e.g. Fever, family function" /></label>
+      {error && <p className="parent-error">{error}</p>}
+      <button className="parent-primary" disabled={busy}>{busy ? 'Submitting...' : 'Submit Request'}</button>
+    </form>
+    <section className="parent-panel">
+      <h3>My Requests</h3>
+      <div className="parent-table-wrap"><table>
+        <thead><tr><th>Dates</th><th>Reason</th><th>Status</th></tr></thead>
+        <tbody>
+          {requests.map(row => <tr key={row.id}>
+            <td>{row.fromDate === row.toDate ? longDate(row.fromDate) : `${longDate(row.fromDate)} - ${longDate(row.toDate)}`}</td>
+            <td>{row.reason}{row.reviewNote ? <small style={{ display: 'block', opacity: 0.7 }}>{row.reviewNote}</small> : null}</td>
+            <td><span className={`parent-status ${row.status === 'approved' ? 'paid' : row.status === 'rejected' ? 'due' : 'upcoming'}`}>{row.status}</span></td>
+          </tr>)}
+          {!requests.length && <tr><td colSpan="3">No leave requests yet.</td></tr>}
+        </tbody>
+      </table></div>
+    </section>
+  </div>
+}
+
 function ContactPage({ data, session, reload }) {
   const [form, setForm] = useState({ subject: '', message: '' })
   const submit = async event => {
@@ -278,6 +330,7 @@ export default function ParentPortal() {
   const [session, setSession] = useState(() => JSON.parse(localStorage.getItem('parent-session') || 'null'))
   const [data, setData] = useState(() => JSON.parse(localStorage.getItem('parent-data') || 'null'))
   const [tab, setTab] = useState('dashboard')
+  const [moreOpen, setMoreOpen] = useState(false)
   const [mode, setMode] = useState(window.location.pathname.includes('forgot') ? 'forgot' : 'login')
   const [selectedStudentId, setSelectedStudentId] = useState(() => data?.selectedStudent?.id || '')
   const [online, setOnline] = useState(navigator.onLine)
@@ -314,8 +367,15 @@ export default function ParentPortal() {
   }
   useEffect(() => {
     if (!session) return undefined
-    const timer = setInterval(() => refresh(selectedStudentId).catch(() => {}), 15000)
-    return () => clearInterval(timer)
+    // Attendance, fees and notices change a few times a day, not once a minute. Every poll makes
+    // the server re-read whole-school nodes (homework, notices, timetable, transport, library),
+    // so poll every 5 minutes, and only while the tab is actually visible — a portal left open
+    // in a background tab used to keep pulling all day. Returning to the tab refreshes
+    // immediately via the visibility handler, so the data never feels stale.
+    const tick = () => { if (!document.hidden) refresh(selectedStudentId).catch(() => {}) }
+    const timer = setInterval(tick, 300000)
+    document.addEventListener('visibilitychange', tick)
+    return () => { clearInterval(timer); document.removeEventListener('visibilitychange', tick) }
   }, [session, selectedStudentId])
   useEffect(() => {
     if (session && selectedStudentId) refresh(selectedStudentId).catch(() => {})
@@ -340,6 +400,7 @@ export default function ParentPortal() {
     transport: <TransportPage data={selectedData} />,
     timetable: <TimetablePage data={selectedData} />,
     certificates: <CertificatesPage data={selectedData} session={session} reload={refresh} />,
+    leave: <LeavePage data={selectedData} session={session} reload={refresh} />,
     contact: <ContactPage data={selectedData} session={session} reload={refresh} />,
     profile: <ProfilePage data={selectedData} session={session} updateLocal={setData} />,
   }
@@ -351,6 +412,20 @@ export default function ParentPortal() {
       <aside className="parent-sidebar">{tabs.map(([id, label, Icon]) => <button key={id} className={tab === id ? 'active' : ''} onClick={() => setTab(id)}><Icon size={18} /> {language === 'hindi' ? hindi[id] : label}</button>)}</aside>
       <section className="parent-content"><div className="parent-page-title"><h1>{language === 'hindi' ? hindi[tab] : tabs.find(item => item[0] === tab)?.[1]}</h1><button className="parent-secondary" onClick={() => refresh()}><RefreshCw size={15} /> Refresh</button></div>{pages[tab]}</section>
     </div>
-    <nav className="parent-bottom-nav">{tabs.slice(0, 5).map(([id, label, Icon]) => <button key={id} className={tab === id ? 'active' : ''} onClick={() => setTab(id)}><Icon size={18} /><span>{label}</span></button>)}<button onClick={() => setTab('profile')}><Menu size={18} /><span>More</span></button></nav>
+    <nav className="parent-bottom-nav">
+      {tabs.slice(0, 5).map(([id, label, Icon]) => <button key={id} className={tab === id ? 'active' : ''} onClick={() => { setMoreOpen(false); setTab(id) }}><Icon size={18} /><span>{language === 'hindi' ? hindi[id] : label}</span></button>)}
+      {/* Below 900px the sidebar is hidden, so everything past the fifth tab - Certificates,
+          Leave, Transport, Timetable, Contact - is only reachable from here. This used to jump
+          straight to Profile, which left those pages unreachable on a phone. */}
+      <button className={moreOpen ? 'active' : ''} onClick={() => setMoreOpen(open => !open)}><Menu size={18} /><span>More</span></button>
+    </nav>
+    {moreOpen && <>
+      <button className="parent-more-overlay" aria-label="Close menu" onClick={() => setMoreOpen(false)} />
+      <div className="parent-more-sheet">
+        {tabs.slice(5).map(([id, label, Icon]) => <button key={id} className={tab === id ? 'active' : ''} onClick={() => { setTab(id); setMoreOpen(false) }}>
+          <Icon size={18} /> {language === 'hindi' ? hindi[id] : label}
+        </button>)}
+      </div>
+    </>}
   </main>
 }
