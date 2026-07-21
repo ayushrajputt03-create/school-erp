@@ -10,7 +10,10 @@
 // receipt/paid date for the year.
 
 const MONTH_NAMES = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December']
-const FINE_HEADS = ['Late Fine', 'Fine', 'Absent Fine']
+// Pending months track the recurring tuition only. One-time or optional heads
+// (exam, annual, transport, admission, development) must never mark a month
+// paid or inflate the expected monthly due.
+const TUITION_HEADS = ['Monthly Tuition Fee', 'Tuition Fee']
 
 const classParts = value => {
   const raw = String(value || '').trim()
@@ -23,13 +26,13 @@ const classParts = value => {
   return { className: raw || '', section: '' }
 }
 
-// Sum of the recurring monthly amount configured for this student in feeManager.structures.
-// Fines are recurring rules, not amounts owed by default, so they never inflate the expected due.
+// Monthly tuition amount configured for this student in feeManager.structures.
+// Only tuition heads count - transport/computer/exam/fines never inflate the expected due.
 export const monthlyFeeFor = (student, structures) => {
   const parts = classParts(student?.className)
   const feeGroup = String(student?.feeGroup || 'REGULAR').toUpperCase()
   return Object.values(structures || {})
-    .filter(row => String(row.frequency || '') === 'Monthly' && !FINE_HEADS.includes(String(row.feeHead || '')))
+    .filter(row => String(row.frequency || '') === 'Monthly' && TUITION_HEADS.includes(String(row.feeHead || '')))
     .filter(row => {
       const sameClass = !row.className || String(row.className) === String(parts.className)
       const sameSection = !row.section || String(row.section) === String(parts.section)
@@ -41,16 +44,15 @@ export const monthlyFeeFor = (student, structures) => {
 }
 
 // When no fee structure matches the student's class (structures are only configured
-// for some classes), fall back to the recurring monthly heads on the student's own
-// most recent receipt so record-less months still get an expected due.
-const MONTHLY_HEADS = ['Monthly Tuition Fee', 'Tuition Fee', 'Transport Fee', 'Computer Fee', 'IT Fee']
+// for some classes), fall back to the tuition heads on the student's own most
+// recent receipt so record-less months still get an expected due.
 const monthlyFeeFromRows = rows => {
   let best = 0
   let bestAt = -1
   for (const row of rows) {
     const items = Array.isArray(row.feeItems) ? row.feeItems : []
     const sum = items
-      .filter(item => MONTHLY_HEADS.includes(String(item.head || '')))
+      .filter(item => TUITION_HEADS.includes(String(item.head || '')))
       .reduce((total, item) => total + Number(item.due || 0), 0)
     const at = Number(row.paidAt || 0)
     if (sum > 0 && at >= bestAt) {
@@ -59,6 +61,28 @@ const monthlyFeeFromRows = rows => {
     }
   }
   return best
+}
+
+// Tuition portion of a fee row. Itemised receipts expose heads via feeItems, but
+// payment is receipt-level, so paid money is attributed to tuition first (schools
+// collect tuition before optional heads). Quick payments carry no items and are
+// treated as pure tuition. A receipt with items but no tuition head (exam-only,
+// admission-only...) contributes nothing and never marks a month as paid.
+const tuitionShareOf = row => {
+  const items = Array.isArray(row.feeItems) ? row.feeItems : []
+  if (!items.length) return null
+  return items
+    .filter(item => TUITION_HEADS.includes(String(item.head || '')))
+    .reduce((sum, item) => sum + Number(item.due || 0), 0)
+}
+const tuitionPaidOf = row => {
+  const paid = Number(row.paidAmount ?? row.amount ?? 0)
+  const share = tuitionShareOf(row)
+  return share === null ? paid : Math.min(paid, share)
+}
+const rowCoversTuition = row => {
+  const share = tuitionShareOf(row)
+  return share === null || share > 0
 }
 
 const belongsToStudent = (row, student) => {
@@ -135,14 +159,14 @@ export function getPendingFeesSummary({ student, fees = {}, structures = {}, aca
     const name = MONTH_NAMES[cursor.getMonth()]
     const key = `${year}-${String(cursor.getMonth() + 1).padStart(2, '0')}`
     const monthRows = studentRows.filter(row => rowMatchesMonth(row, key, name, year))
-    const amountPaid = monthRows.reduce((sum, row) => sum + Number(row.paidAmount ?? row.amount ?? 0), 0)
-    const markedPaid = monthRows.some(row => String(row.status || '').toLowerCase() === 'paid')
+    const amountPaid = monthRows.reduce((sum, row) => sum + tuitionPaidOf(row), 0)
+    const markedPaid = monthRows.some(row => rowCoversTuition(row) && String(row.status || '').toLowerCase() === 'paid')
     if (!markedPaid) {
       // Without a configured monthly fee the expected due for record-less months is unknown,
-      // so only the recorded unpaid balance can be reported for those students.
+      // so only the recorded unpaid balance on tuition-carrying rows can be reported.
       const amountDue = fee > 0
         ? Math.max(0, fee - amountPaid)
-        : monthRows.reduce((sum, row) => sum + Number(row.balance || 0), 0)
+        : monthRows.filter(rowCoversTuition).reduce((sum, row) => sum + Number(row.balance || 0), 0)
       if (amountDue > 0) {
         pendingMonths.push({
           month: `${name} ${year}`,
