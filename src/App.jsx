@@ -1019,7 +1019,7 @@ function StudentModal({ close, addStudent, updateStudent, getNextAdmissionNumber
   </form></div>
 }
 
-function StudentProfile({ student, close, attendance, fees, feeManager, schoolProfile, academics, documents, onRecordPayment, onUploadDocument, onUpdatePhoto }) {
+function StudentProfile({ student, close, attendance, fees, feeManager, schoolProfile, academics, documents, onRecordPayment, onUploadDocument, onUpdatePhoto, onEdit }) {
   const [tab, setTab] = useState('personal')
   const [uploading, setUploading] = useState('')
   const [photoDraft, setPhotoDraft] = useState(null)
@@ -1079,7 +1079,7 @@ function StudentProfile({ student, close, attendance, fees, feeManager, schoolPr
     }
   }
   return <div className="profile-page">
-    <div className="profile-page-header"><button className="secondary-button" onClick={close}>Back</button><div><span>Student Profile</span><h2>{student.name}</h2></div><button className="icon-button" onClick={close}><X size={20} /></button></div>
+    <div className="profile-page-header"><button className="secondary-button" onClick={close}>Back</button><div><span>Student Profile</span><h2>{student.name}</h2></div><button className="secondary-button" style={{ marginRight: '8px' }} onClick={onEdit}><Pencil size={15} /> Edit</button><button className="icon-button" onClick={close}><X size={20} /></button></div>
     <section className="profile-cover"><div className="profile-photo-wrap"><label className="profile-photo editable">{photoDraft?.preview || currentPhoto ? <img src={photoDraft?.preview || currentPhoto} alt={student.name} /> : student.initials}<span><Camera size={18} />{photoSaving ? 'Saving...' : 'Change'}</span><input disabled={photoSaving} type="file" accept="image/jpeg,image/jpg,image/png" onChange={async event => { const file = event.target.files?.[0]; event.target.value = ''; if (file) changePhoto(await prepareStudentPhoto(file)) }} /></label>{photoSaving && <small>Uploading photo...</small>}</div><div><span className="admission-badge">Admission Number</span><strong className="admission-number">{student.roll}</strong><h3>{student.name}</h3><p>Class {student.className} · {student.feeGroup}</p>{(photoDraft?.compressedSize || student.photoSize) ? <small className="compression-info inline">Photo: {formatBytes(photoDraft?.compressedSize || student.photoSize)} OK</small> : null}</div><span className={`status ${student.fee.toLowerCase()}`}>{student.fee}</span></section>
     <div className="profile-tabs">{[['personal','Personal Info'],['attendance','Attendance'],['fees','Fees'],['academics','Academics'],['documents','Documents']].map(([id,label]) => <button key={id} className={tab === id ? 'active' : ''} onClick={() => setTab(id)}>{label}</button>)}</div>
     <section className="profile-tab-content" key={tab}>
@@ -3679,6 +3679,7 @@ export default function App() {
   const [loginSplash, setLoginSplash] = useState(false)
   const sawLoggedOutState = useRef(false)
   const [selectedStudent, setSelectedStudent] = useState(null)
+  const [editingStudent, setEditingStudent] = useState(null)
   const [darkMode, setDarkMode] = useState(() => localStorage.getItem('northstar-theme') === 'dark')
 
   useEffect(() => {
@@ -3773,5 +3774,5 @@ export default function App() {
     await signOut(auth)
     setPage('dashboard')
   }
-  return <div className={`app-shell ${darkMode ? 'theme-dark' : 'theme-light'}`}><Sidebar page={page} setPage={setPage} open={menuOpen} close={() => setMenuOpen(false)} schoolName={data.workspace.schoolName} schoolLogo={data.workspace.schoolProfile.logoURL || data.workspace.schoolProfile.logo} schoolCode={data.workspace.schoolProfile.schoolCode} cloudMode={!data.developmentDemo} profile={profile} /><main className="main-area"><Header title={current.label} subtitle={`${data.workspace.schoolName} · ${data.workspace.schoolProfile.academicYear || '2026-27'}`} schoolCode={data.workspace.schoolProfile.schoolCode} onMenu={() => setMenuOpen(true)} profile={profile} onSignOut={logout} students={data.students} onSelectStudent={setSelectedStudent} darkMode={darkMode} onToggleTheme={() => setDarkMode(current => !current)} /><div className="page-content page-enter" key={page}>{screens[page]}</div></main>{selectedStudent && <StudentProfile student={data.students.find(student => student.id === selectedStudent.id) || selectedStudent} close={() => setSelectedStudent(null)} attendance={data.attendance} fees={data.fees} feeManager={data.feeManager} schoolProfile={data.workspace.schoolProfile} academics={data.academics} documents={data.documents} onRecordPayment={data.recordPayment} onUploadDocument={data.uploadStudentDocument} onUpdatePhoto={data.updateStudentPhoto} />}</div>
+  return <div className={`app-shell ${darkMode ? 'theme-dark' : 'theme-light'}`}><Sidebar page={page} setPage={setPage} open={menuOpen} close={() => setMenuOpen(false)} schoolName={data.workspace.schoolName} schoolLogo={data.workspace.schoolProfile.logoURL || data.workspace.schoolProfile.logo} schoolCode={data.workspace.schoolProfile.schoolCode} cloudMode={!data.developmentDemo} profile={profile} /><main className="main-area"><Header title={current.label} subtitle={`${data.workspace.schoolName} · ${data.workspace.schoolProfile.academicYear || '2026-27'}`} schoolCode={data.workspace.schoolProfile.schoolCode} onMenu={() => setMenuOpen(true)} profile={profile} onSignOut={logout} students={data.students} onSelectStudent={setSelectedStudent} darkMode={darkMode} onToggleTheme={() => setDarkMode(current => !current)} /><div className="page-content page-enter" key={page}>{screens[page]}</div></main>{selectedStudent && <StudentProfile student={data.students.find(student => student.id === selectedStudent.id) || selectedStudent} close={() => setSelectedStudent(null)} attendance={data.attendance} fees={data.fees} feeManager={data.feeManager} schoolProfile={data.workspace.schoolProfile} academics={data.academics} documents={data.documents} onRecordPayment={data.recordPayment} onUploadDocument={data.uploadStudentDocument} onUpdatePhoto={data.updateStudentPhoto} onEdit={() => setEditingStudent(selectedStudent)} />}{editingStudent && <StudentModal close={() => setEditingStudent(null)} student={data.students.find(student => student.id === editingStudent.id) || editingStudent} addStudent={data.addStudent} updateStudent={data.updateStudent} getNextAdmissionNumber={data.getNextAdmissionNumber} />}</div>
 }

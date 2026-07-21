@@ -63,7 +63,7 @@ const FIELD_LABELS = {
 }
 
 const BASE_LAYOUT = {
-  schoolLogo: { x: 4, y: 4, w: 9, h: 9 },
+  schoolLogo: { x: 3, y: 3, w: 13, h: 10 },
   schoolName: { x: 15, y: 4, w: 52, h: 7 },
   photo: { x: 6, y: 17, w: 20, h: 24 },
   name: { x: 29, y: 17, w: 37, h: 6 },
