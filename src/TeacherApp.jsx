@@ -742,7 +742,7 @@ export default function TeacherApp() {
 
   if (!session || !teacher) {
     if (authLoading) return <div className="teacher-loading"><LoaderCircle className="spin" size={28} /> Loading...</div>
-    if (!session) { window.location.href = '/teacher/login'; return null }
+    if (!session) return <TeacherLogin />
     if (!teacher && !loadError) return <div className="teacher-loading"><LoaderCircle className="spin" size={28} /> Loading teacher data...</div>
     if (loadError) return <main className="teacher-login-page"><div className="teacher-login-card">
       <div className="teacher-login-header"><div className="teacher-login-icon"><GraduationCap size={28} /></div><h1>Access Error</h1><p>{loadError}</p></div>

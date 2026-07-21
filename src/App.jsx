@@ -2397,7 +2397,10 @@ function useSchoolWorkspace(session) {
     }
 
     async function load() {
-      setWorkspace(current => ({ ...current, loading: true, error: '' }))
+      // Only show the full-screen loader on the first load. Firebase hands back a new session
+      // object whenever it refreshes the token, and flipping back to loading on every refresh
+      // remounted the whole workspace - which read as the app reloading itself in a loop.
+      setWorkspace(current => ({ ...current, loading: !current.schoolId, error: '' }))
       try {
         const token = await session.getIdToken()
         const ownSchoolId = session.uid
@@ -2624,7 +2627,9 @@ function useSchoolWorkspace(session) {
 
     load()
     return () => { active = false; controller.abort() }
-  }, [session, setAttendance, setEnquiries, setFees, setNotices, setStudents, setTimetableData, workspaceVersion])
+    // Keyed on the uid, not the session object: Firebase replaces that object on every token
+    // refresh, and depending on it re-ran this whole effect for the same signed-in user.
+  }, [session?.uid, setAttendance, setEnquiries, setFees, setNotices, setStudents, setTimetableData, workspaceVersion])
 
   useEffect(() => {
     if (!isFirebaseConfigured || !firebaseApp || !workspace.schoolId || workspace.needsSetup || workspace.loading) return
