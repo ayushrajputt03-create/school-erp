@@ -140,17 +140,15 @@ export function getPendingFeesSummary({ student, fees = {}, structures = {}, aca
   const fallbackStart = now.getMonth() >= 3 ? now.getFullYear() : now.getFullYear() - 1
   const startYear = Number(String(academicYear || '').match(/\d{4}/)?.[0] || fallbackStart)
   let cursor = new Date(startYear, 3, 1)
-  // Admission dates are often the day the record was entered, not when dues began:
-  // schools bill from the session start and back-date receipts (billingMonth "April"
-  // on a July admission). So only clamp to the admission month when no fee row is
-  // billed earlier - otherwise start from the earliest billed month so previous
-  // months are still walked and reported.
-  let startMonth = firstOfMonth(student.admissionDate)
+  // Never clamp the walk to the admission date: the app records admissionDate as the
+  // day the record was entered (form/import default is today), while schools bill
+  // every student from the session start (April) and back-date receipts. Clamping
+  // hid all pre-entry months, so only the current month ever showed as pending.
+  // Rows billed before April (previous-session dues) still extend the walk back.
   for (const row of studentRows) {
     const billed = rowBilledMonth(row)
-    if (billed && startMonth && billed < startMonth) startMonth = billed
+    if (billed && billed < cursor) cursor = billed
   }
-  if (startMonth && startMonth > cursor) cursor = startMonth
   const currentMonth = new Date(now.getFullYear(), now.getMonth(), 1)
 
   const pendingMonths = []
