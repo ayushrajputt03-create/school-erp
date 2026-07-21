@@ -196,3 +196,39 @@
 .rt-swatch-jungle  { background: linear-gradient(135deg, #285f3b, #e1843a, #f1c94b); }
 .rt-swatch-candy   { background: linear-gradient(135deg, #ef658f, #a16bd0, #4faec4); }
 .rt-swatch-rainbow { background: linear-gradient(90deg, #ed5d8f, #f2913d, #f6ca45, #45b992, #409ed7, #5b45aa); }
+
+/* ------------------------------------------------------------------ fixes */
+
+/* A real school logo is a rectangular image. The themed circular crest crops its sides off,
+   so the circle survives only for the initials fallback. */
+.rt .rt-crest.has-logo,
+.rt-formal.theme-navy .rt-crest.has-logo,
+.rt-formal.theme-emerald .rt-crest.has-logo {
+  padding: 0;
+  border: 0;
+  border-radius: 1.5mm;
+  background: transparent;
+  box-shadow: none;
+}
+.rt .rt-crest.has-logo img { object-fit: contain; }
+
+/* Preview must be the same width as the printed page, or what the user positions on screen is
+   not what comes out. safePrint uses A4 with a 10mm margin, leaving 190mm of printable width. */
+.report-card-paper.rt { width: 190mm; max-width: 190mm; font-family: Inter, "Segoe UI", Arial, sans-serif; color: #172033; }
+.rt .rt-inner { padding: 8mm 8mm 6mm; }
+.rt-formal.theme-royal .rt-inner { padding-top: 12mm; }
+.rt-formal.theme-minimal .rt-inner { padding-left: 13mm; }
+.rt-kids.theme-rainbow .rt-inner { padding-top: 12mm; }
+
+@media print {
+  .report-card-paper.rt { width: 190mm !important; min-width: 190mm !important; max-width: 190mm !important; }
+  .rt .rt-inner { padding: 8mm 8mm 6mm; }
+}
+
+/* The preview sits inside a scrolling two-column grid. An ancestor that still scrolls during
+   print can clip the page, so the wrappers are flattened while printing. */
+@media print {
+  .report-preview-wrap { overflow: visible !important; }
+  .report-two-column { display: block !important; }
+  .report-form, .rt-picker { display: none !important; }
+}

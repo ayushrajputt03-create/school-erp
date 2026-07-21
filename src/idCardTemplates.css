@@ -147,3 +147,21 @@
   .idc { box-shadow: none !important; break-inside: avoid; }
   .idc-picker { display: none !important; }
 }
+
+/* ------------------------------------------------------------------ fixes */
+
+/* Same reason as the report card crest: a rectangular school logo loses its sides inside a
+   circular frame. The circle stays for the initials fallback only. */
+.idc .idc-logo.has-logo {
+  border-radius: 1mm;
+  background: #fff;
+  box-shadow: 0 0 0 .4mm var(--accent);
+}
+.idc .idc-logo.has-logo img { object-fit: contain; }
+
+/* Project rule: student and staff photos are passport style, never circular. Two themes had
+   inherited a round photo frame from the reference designs. */
+.idc-maroon .idc-photo-frame,
+.idc-fresh .idc-photo-frame { width: 21mm; height: 25mm; border-radius: 1.6mm; }
+.idc-maroon .idc-photo,
+.idc-fresh .idc-photo { border-radius: 1mm; }

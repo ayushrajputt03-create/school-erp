@@ -78,7 +78,7 @@ export function IdCardDesign({ design, side, person, school, form, qr, watermark
     {side === 'front' ? <div className="idc-front">
       <div className="idc-head">
         <div className="idc-school-row">
-          <div className="idc-logo">{logo ? <img src={logo} alt="" /> : <span>{initialsOf(school.schoolName)}</span>}</div>
+          <div className={`idc-logo ${logo ? 'has-logo' : ''}`}>{logo ? <img src={logo} alt="" /> : <span>{initialsOf(school.schoolName)}</span>}</div>
           <div>
             <div className="idc-school-name">{school.schoolName || 'School Name'}</div>
             <div className="idc-school-address">{[school.address, school.phone].filter(Boolean).join(' · ')}</div>

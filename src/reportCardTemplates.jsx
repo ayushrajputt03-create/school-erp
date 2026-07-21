@@ -23,8 +23,11 @@ const progressWord = percent => percent >= 85 ? 'Excellent' : percent >= 70 ? 'V
 const schoolLine = school => [school.address, school.phone, school.email].filter(Boolean).join(' · ')
 
 // Shared header used by both layouts.
+// The reference designs framed a drawn shield inside a circle. A real school logo is a
+// rectangular image, and a circular frame crops its sides off, so the decorative circle is
+// kept only for the initials fallback.
 function Crest({ logo, fallback }) {
-  return <div className="rt-crest">{logo ? <img src={logo} alt="" /> : <span>{fallback}</span>}</div>
+  return <div className={`rt-crest ${logo ? 'has-logo' : ''}`}>{logo ? <img src={logo} alt="" /> : <span>{fallback}</span>}</div>
 }
 
 function StudentPhoto({ photo, label }) {
