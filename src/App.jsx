@@ -76,7 +76,7 @@ const isActiveStudent = student => studentStatusKey(student) === 'active'
 
 import { onAuthStateChanged, signOut } from 'firebase/auth'
 import { deleteObject, getDownloadURL, ref as storageRef, uploadBytes } from 'firebase/storage'
-import { auth, isFirebaseConfigured, storage, firebaseApp } from './lib/firebase'
+import { auth, isFirebaseConfigured, storage, firebaseApp, rtdb } from './lib/firebase'
 
 const databaseUrl = import.meta.env.VITE_FIREBASE_DATABASE_URL?.replace(/\/$/, '')
 const useFirebaseStorage = import.meta.env.VITE_USE_FIREBASE_STORAGE === 'true'
@@ -3477,6 +3477,28 @@ function useSchoolWorkspace(session) {
     setActivities(current => [{ id: `fee-${invoiceId}`, title: 'Fee payment received', detail: `${money(amount)} via ${method}`, at: paidAt, icon: '₹' }, ...current])
   }
 
+  // Receipt numbers must never repeat - a school's books depend on them being unique.
+  // Deriving the next one from the fees held in memory races when two people submit at the
+  // same moment (both read the same maximum and both write it back), and it would break
+  // outright the day the fees listener stops loading every past session. Reserve the number
+  // through an atomic counter in the database instead.
+  //
+  // The seed floor is the highest number already issued as far as this client can see. The
+  // transaction only ever moves the counter forward, so a stale or missing counter can never
+  // hand out a number that an existing receipt already uses.
+  const reserveReceiptSequence = async seedFloor => {
+    if (developmentDemo || !rtdb) return seedFloor + 1
+    const { ref: dbRef, runTransaction } = await import('firebase/database')
+    const counter = dbRef(rtdb, `schools/${workspace.schoolId}/feeManager/receiptCounter`)
+    const result = await runTransaction(counter, current => Math.max(Number(current) || 0, seedFloor) + 1)
+    const reserved = Number(result.snapshot?.val())
+    // Failing loudly beats issuing a number that might already be on another receipt.
+    if (!result.committed || !Number.isFinite(reserved)) {
+      throw new Error('Could not reserve a receipt number. Check your connection and submit again.')
+    }
+    return reserved
+  }
+
   const submitFeeReceipt = async receipt => {
     const paidAt = Date.now()
     const receiptId = `receipt_${paidAt}`
@@ -3486,7 +3508,7 @@ function useSchoolWorkspace(session) {
     const settings = feeManager.settings?.config || {}
     const prefix = settings.prefix || `RCP-${new Date().getFullYear()}`
     const existingNumbers = Object.values(fees).map(item => Number(String(item.receiptNumber || '').match(/(\d+)$/)?.[1] || 0))
-    const sequence = Math.max(Number(settings.start || 1) - 1, ...existingNumbers) + 1
+    const sequence = await reserveReceiptSequence(Math.max(Number(settings.start || 1) - 1, ...existingNumbers))
     const receiptNumber = `${prefix}-${String(sequence).padStart(5, '0')}`
     const row = {
       ...receipt,

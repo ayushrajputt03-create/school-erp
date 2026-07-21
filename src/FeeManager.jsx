@@ -74,6 +74,7 @@ function SubmitFee({ students, fees, onSubmit, onOpenProfile, schoolProfile, rec
   const [payments, setPayments] = useState([{ id: 1, type: 'CASH', amount: 0 }])
   const [form, setForm] = useState({ feeGroup: 'REGULAR', setType: 'Group Wise', newAdmission: 'Yes', ledger: 'Tuition Fee', cardNo: '', receiptDate: today(), month: new Date().toLocaleDateString('en-IN', { month: 'long' }), remark: '', sms: true, whatsapp: false })
   const [saving, setSaving] = useState(false)
+  const [submitError, setSubmitError] = useState('')
   const [receiptNumber, setReceiptNumber] = useState('')
   const [selectedReceipt, setSelectedReceipt] = useState(null)
   const [allowExtraPayment, setAllowExtraPayment] = useState(false)
@@ -131,6 +132,7 @@ function SubmitFee({ students, fees, onSubmit, onOpenProfile, schoolProfile, rec
     if (alreadyPaidThisMonth && !allowExtraPayment) return
     if (!student || paidAmount <= 0) return
     setSaving(true)
+    setSubmitError('')
     try {
       const savedReceipt = await onSubmit({
         studentId: student.id,
@@ -157,6 +159,11 @@ function SubmitFee({ students, fees, onSubmit, onOpenProfile, schoolProfile, rec
       })
       setReceiptNumber(savedReceipt.receiptNumber)
       setSelectedReceipt(savedReceipt)
+    } catch (error) {
+      // Without this the promise rejected silently: the spinner stopped and the cashier had
+      // no idea the receipt was never saved. Nothing is written when this fires, so retrying
+      // is safe.
+      setSubmitError(error?.message || 'Could not save this receipt. Please try again.')
     } finally {
       setSaving(false)
     }
@@ -259,6 +266,7 @@ function SubmitFee({ students, fees, onSubmit, onOpenProfile, schoolProfile, rec
         <div className="fee-submit-footer">
           <div className="fee-switches"><label><input type="checkbox" checked={form.sms} onChange={event => setForm({ ...form, sms: event.target.checked })} /> Send SMS</label><label><input type="checkbox" checked={form.whatsapp} onChange={event => setForm({ ...form, whatsapp: event.target.checked })} /> Send WhatsApp</label></div>
           <button className="primary-button" disabled={saving || paidAmount <= 0 || (alreadyPaidThisMonth && !allowExtraPayment)}><Receipt size={16} /> {saving ? 'Submitting...' : alreadyPaidThisMonth && !allowExtraPayment ? 'Already Paid' : 'Submit Fee'}</button>
+          {submitError && <p className="fee-submit-error" role="alert">{submitError}</p>}
         </div>
         {receiptNumber && <div className="success-banner"><Check size={16} /> Fee submitted successfully. Receipt <strong>{receiptNumber}</strong></div>}
         <div className="fee-history-panel">
