@@ -2699,12 +2699,15 @@ function useSchoolWorkspace(session) {
           nameMigrationRan = true
           reconcileStudentIdentity(schoolId, data)
           backfillParentStudentIndex(schoolId, data)
-          // Photo migration is deliberately OFF. It works, but moving photos out of the row means
-          // the student list (which does not fetch photos, by design) falls back to initials -
-          // a bad trade at this school's size. The measured egress problem was the super admin
-          // console polling the whole database every 30s, not photos. Turn this on together with
-          // list-level photo loading once there are enough photos for it to actually pay off.
-          const PHOTO_MIGRATION_ENABLED = false
+          // Photo migration is ON. It used to be off because moving photos out of the row made
+          // every list fall back to initials; the directory, admission register, both searches,
+          // the old-student picker and the profile now request photos through useStudentPhotos,
+          // so that trade is gone. Photos are ~133KB of base64 each and the students node is
+          // read in full on every load, which makes them the largest read in the app.
+          //
+          // Runs for the school account only (see the guard in migrateInlinePhotos), once -
+          // it is idempotent, so a migrated workspace performs zero writes on later loads.
+          const PHOTO_MIGRATION_ENABLED = true
           if (PHOTO_MIGRATION_ENABLED) migrateInlinePhotos(schoolId, data)
         }
       })
@@ -2954,6 +2957,10 @@ function useSchoolWorkspace(session) {
   // data URLs would be tens of megabytes and fail. Idempotent - once moved, no rows match.
   const migrateInlinePhotos = async (schoolId, data) => {
     if (developmentDemo || !session) return
+    // studentPhotos/$schoolId is writable by the school account and super admins only - teachers
+    // can read it but not write. Without this guard every teacher login would retry the whole
+    // migration and upload megabytes that the rules then reject.
+    if (session.uid !== schoolId) return
     const rows = Object.entries(data || {}).filter(([, row]) => row && typeof row === 'object')
     const candidates = rows.filter(([, row]) => isInlinePhoto(row.photo_url))
     // Always report, even when there is nothing to do. Returning silently made it impossible to
@@ -3731,6 +3738,23 @@ function useSchoolWorkspace(session) {
 
   const createBackupPayload = async () => {
     const studentRows = Object.fromEntries(students.map(student => [student.id, studentToRow(student)]))
+
+    // Once photos live in studentPhotos/{schoolId}/{id}, the in-memory student only carries the
+    // bytes if some screen happened to load them - which is at most one page of the directory.
+    // Writing that straight to a backup would silently export blank photos for everyone else, so
+    // re-inline them here from the source. Restore then puts them back on the row and the
+    // migration moves them out again, which keeps the v1 backup format working unchanged.
+    if (!developmentDemo) {
+      try {
+        const token = await session.getIdToken()
+        const stored = await databaseRequest(`studentPhotos/${workspace.schoolId}`, token)
+        if (stored && typeof stored === 'object') {
+          Object.entries(studentRows).forEach(([id, row]) => {
+            if (!row.photo_url && typeof stored[id] === 'string' && stored[id]) row.photo_url = stored[id]
+          })
+        }
+      } catch { /* network issue - the rest of the backup is still worth producing */ }
+    }
     // Backups must contain the FULL attendance history, not just the current month the live
     // listener now holds. Fetch the entire attendance node once at export time.
     const attendanceFromState = () => {

@@ -231,6 +231,26 @@ function sanitizeStudent(id, row = {}) {
   }
 }
 
+// Photos live outside the student row (studentPhotos/{schoolId}/{studentId}) once they have been
+// migrated off it, so photo_url comes back empty and photo_inline is true. Fetch those few
+// separately - a parent has one to three children, so this is a handful of reads. Students whose
+// photo is still inline, or on a Storage URL, are already resolved and are skipped.
+async function withStudentPhotos(database, schoolId, students, rows) {
+  const needing = students.filter(student => !student.photoURL && rows[student.id]?.photo_inline === true)
+  if (!needing.length) return students
+  const fetched = await Promise.all(needing.map(async student => {
+    try {
+      const snap = await database.ref(`studentPhotos/${schoolId}/${student.id}`).once('value')
+      const value = snap.val()
+      return [student.id, typeof value === 'string' ? value : '']
+    } catch {
+      return [student.id, '']
+    }
+  }))
+  const photos = Object.fromEntries(fetched.filter(([, value]) => value))
+  return students.map(student => photos[student.id] ? { ...student, photoURL: photos[student.id] } : student)
+}
+
 function filterNotices(notices, student) {
   return Object.entries(notices || {}).map(([id, row]) => ({ id, ...row }))
     .filter(row => {
@@ -258,7 +278,7 @@ async function buildDataPayload(database, schoolId, parentId, parent, selectedSt
     const snaps = await Promise.all(studentIds.map(id => base.child(`students/${id}`).once('value')))
     snaps.forEach((snap, index) => { const val = snap.val(); if (val) studentRows[studentIds[index]] = val })
   }
-  const students = Object.entries(studentRows).map(([id, row]) => sanitizeStudent(id, row))
+  const students = await withStudentPhotos(database, schoolId, Object.entries(studentRows).map(([id, row]) => sanitizeStudent(id, row)), studentRows)
   const selected = students.find(row => row.id === selectedStudentId) || students[0]
   if (!selected) throw new Error('No linked student found for this parent.')
 
