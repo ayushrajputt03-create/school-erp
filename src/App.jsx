@@ -3711,6 +3711,19 @@ function useSchoolWorkspace(session) {
       } catch { /* network issue — fall through to in-memory current-month data */ }
       if (!Object.keys(attendanceRows).length) attendanceRows = attendanceFromState()
     }
+
+    // Same reasoning for fees. Today the listener still holds every receipt, but a backup that
+    // silently drops financial history is the kind of loss nobody notices until a restore, so
+    // read the node straight from the source rather than trusting whatever is in memory.
+    // The in-memory copy stays as the fallback: a partial backup beats a failed one.
+    let feeRows = fees
+    if (!developmentDemo) {
+      try {
+        const token = await session.getIdToken()
+        const full = await databaseRequest(`schools/${workspace.schoolId}/fees`, token)
+        if (full && typeof full === 'object' && Object.keys(full).length) feeRows = full
+      } catch { /* network issue - fall through to the in-memory copy */ }
+    }
     return {
       format: 'northstar-school-backup',
       version: 1,
@@ -3718,7 +3731,7 @@ function useSchoolWorkspace(session) {
       exportedAt: new Date().toISOString(),
       data: {
         students: studentRows,
-        fees,
+        fees: feeRows,
         attendance: attendanceRows,
         notices: Object.fromEntries(notices.map(notice => [notice.id, {
           title: notice.title, body: notice.detail, category: notice.type, priority: notice.priority,
