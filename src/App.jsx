@@ -1454,6 +1454,7 @@ td.lbl{color:#333;width:130px;font-weight:600}
         }
 
         let parsed = []
+        let headerReport = ''
         try {
           if (file.name.toLowerCase().endsWith('.xlsx')) {
             // — Excel file path —
@@ -1462,16 +1463,33 @@ td.lbl{color:#333;width:130px;font-weight:600}
             await wb.xlsx.load(await file.arrayBuffer())
             const ws = wb.worksheets[0]
             if (!ws) throw new Error('No worksheets found in this Excel file.')
+            const cellText = cell => {
+              let val = cell.value
+              if (val && typeof val === 'object' && val.result !== undefined) val = val.result
+              if (val && typeof val === 'object' && val.richText !== undefined) val = val.richText.map(rt => rt.text).join('')
+              if (val && typeof val === 'object' && val.text !== undefined) val = val.text
+              return val
+            }
+            // Real school sheets usually carry a merged title row ("Student's Detail - ...")
+            // above the actual headers, so assuming row 1 broke every such file with
+            // "No valid rows found". Scan the first rows and use the one that matches
+            // the most known header names as the header row.
+            let headerRowNum = 1, bestScore = 0
+            for (let r = 1; r <= Math.min(10, ws.rowCount); r++) {
+              let score = 0
+              ws.getRow(r).eachCell(cell => { if (HEADER_MAP[normalizeHeader(cellText(cell))]) score++ })
+              if (score > bestScore) { bestScore = score; headerRowNum = r }
+            }
             const headers = {}
-            ws.getRow(1).eachCell((cell, col) => {
-              const raw = cell.value && typeof cell.value === 'object' && cell.value.richText
-                ? cell.value.richText.map(rt => rt.text).join('')
-                : cell.value
-              headers[col] = normalizeHeader(raw)
+            const rawHeaders = []
+            ws.getRow(headerRowNum).eachCell((cell, col) => {
+              headers[col] = normalizeHeader(cellText(cell))
+              rawHeaders.push(String(cellText(cell) ?? '').trim())
             })
-            console.log('[Import] Excel headers', Object.entries(headers).map(([col, h]) => `col${col}:${h}->${HEADER_MAP[h] || 'IGNORED'}`))
+            headerReport = rawHeaders.map(h => `"${h}"${HEADER_MAP[normalizeHeader(h)] ? '' : ' (not recognized)'}`).join(', ')
+            console.log('[Import] Excel header row', headerRowNum, Object.entries(headers).map(([col, h]) => `col${col}:${h}->${HEADER_MAP[h] || 'IGNORED'}`))
             ws.eachRow((row, rowNum) => {
-              if (rowNum === 1) return
+              if (rowNum <= headerRowNum) return
               const obj = {}
               row.eachCell((cell, col) => {
                 const h = headers[col]
@@ -1500,9 +1518,17 @@ td.lbl{color:#333;width:130px;font-weight:600}
             // — CSV file path —
             const table = parseCsvText(await file.text())
             if (!table.length) throw new Error('The CSV file is empty.')
-            const headers = table[0].map(normalizeHeader)
-            console.log('[Import] CSV headers', headers.map((h, i) => `${i}:${h}->${HEADER_MAP[h] || 'IGNORED'}`))
-            for (let i = 1; i < table.length; i++) {
+            // Same title-row tolerance as the Excel path: the header line is the row
+            // matching the most known header names, not necessarily the first line.
+            let headerIdx = 0, bestScore = 0
+            for (let i = 0; i < Math.min(10, table.length); i++) {
+              const score = table[i].reduce((n, c) => n + (HEADER_MAP[normalizeHeader(c)] ? 1 : 0), 0)
+              if (score > bestScore) { bestScore = score; headerIdx = i }
+            }
+            const headers = table[headerIdx].map(normalizeHeader)
+            headerReport = table[headerIdx].map(h => `"${String(h).trim()}"${HEADER_MAP[normalizeHeader(h)] ? '' : ' (not recognized)'}`).join(', ')
+            console.log('[Import] CSV header row', headerIdx + 1, headers.map((h, i) => `${i}:${h}->${HEADER_MAP[h] || 'IGNORED'}`))
+            for (let i = headerIdx + 1; i < table.length; i++) {
               const cols = table[i]
               const obj = {}
               headers.forEach((h, idx) => {
@@ -1521,7 +1547,7 @@ td.lbl{color:#333;width:130px;font-weight:600}
         }
 
         if (!parsed.length) {
-          alert('No valid rows found. Make sure your file has "Name" and "Class" columns.')
+          alert(`No valid rows found. Make sure your file has "Name" and "Class" columns.${headerReport ? `\n\nHeaders detected in your file: ${headerReport}` : ''}`)
           return
         }
 
