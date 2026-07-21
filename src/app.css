@@ -305,3 +305,8 @@ img{max-width:100%}
 .theme-dark .session-archive-banner strong { color: #f0c580; }
 .fee-submit-error { margin-top: 10px; padding: 9px 11px; border: 1px solid #f0c9c2; border-radius: 8px; background: #fdf3f1; color: #b03a2e; font-size: 12px; font-weight: 600; }
 .theme-dark .fee-submit-error { background: #2e1a17; border-color: #5c2f27; color: #f3b4a8; }
+.health-result { margin-top: 10px; padding: 9px 11px; border-radius: 8px; font-size: 12px; line-height: 1.7; }
+.health-result.good { border: 1px solid #bfe3cd; background: #f2fbf6; color: #166a41; }
+.health-result.bad { border: 1px solid #f0c9c2; background: #fdf3f1; color: #b03a2e; }
+.theme-dark .health-result.good { background: #12271c; border-color: #245239; color: #9fdcbb; }
+.theme-dark .health-result.bad { background: #2e1a17; border-color: #5c2f27; color: #f3b4a8; }

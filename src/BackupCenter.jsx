@@ -22,6 +22,30 @@ export default function BackupCenter({ students, fees, attendance, settings, cre
   // stat card. Full history is still exported via createBackup() in exportExcel/exportJson.
   const attendanceCount = Object.values(attendance || {}).reduce((sum, marks) => sum + Object.keys(marks || {}).length, 0)
 
+  // Read-only. Answers one question before the fees listener can safely be date-bounded:
+  // does every stored receipt carry a timestamp to bound on? A bounded query silently skips
+  // rows whose ordered field is missing, so a single dateless receipt would quietly vanish
+  // from pending totals. This writes nothing - it reads the same payload a backup reads.
+  const [health, setHealth] = useState(null)
+  const runHealthCheck = async () => {
+    setBusy('health')
+    setHealth(null)
+    try {
+      const payload = await createBackup()
+      const rows = Object.values(payload.data.fees || {})
+      const dateless = rows.filter(row => !row.paidAt && !row.receiptDate && !row.billingPeriod && !row.date)
+      setHealth({
+        total: rows.length,
+        missingPaidAt: rows.filter(row => !row.paidAt).length,
+        dateless: dateless.length,
+      })
+    } catch (error) {
+      setHealth({ error: error?.message || 'Could not read fee records.' })
+    } finally {
+      setBusy('')
+    }
+  }
+
   const exportJson = async () => {
     const payload = await createBackup()
     downloadBlob(new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' }), backupName('json'))
@@ -132,6 +156,18 @@ export default function BackupCenter({ students, fees, attendance, settings, cre
         <div className="backup-icon json"><FileJson size={23} /></div>
         <div><h3>Full Restore Backup</h3><p>Complete JSON copy including notices, timetable, documents and fee settings.</p></div>
         <button className="secondary-button" disabled={!admin} onClick={exportJson}><Download size={15} /> Download .json</button>
+      </section>
+      <section className="panel backup-card">
+        <div className="backup-icon json"><DatabaseBackup size={23} /></div>
+        <div><h3>Fee Data Health Check</h3><p>Checks whether every stored receipt carries a date. Read only — nothing is changed.</p></div>
+        <button className="secondary-button" disabled={!admin || busy === 'health'} onClick={runHealthCheck}><Check size={15} /> {busy === 'health' ? 'Checking...' : 'Run check'}</button>
+        {health && (health.error
+          ? <p className="health-result bad">{health.error}</p>
+          : <p className={`health-result ${health.missingPaidAt || health.dateless ? 'bad' : 'good'}`}>
+              Fee records: <strong>{health.total}</strong><br />
+              Missing paidAt: <strong>{health.missingPaidAt}</strong><br />
+              No date at all: <strong>{health.dateless}</strong>
+            </p>)}
       </section>
       <section className="panel backup-card restore-card">
         <div className="backup-icon restore"><RotateCcw size={23} /></div>
