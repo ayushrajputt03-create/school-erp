@@ -35,6 +35,7 @@ const LeaveManager = lazy(() => import('./LeaveManager'))
 import SplashScreen from './SplashScreen'
 import DatePicker from './DatePicker'
 import { getPendingFeesSummary } from './lib/pendingFees'
+import { promotionHistory, sessionsKnownFor, classInSession } from './lib/sessionHistory'
 import ParentPortal from './ParentPortal'
 import {
   academicYears,
@@ -49,6 +50,10 @@ import {
   onlyDigits,
   recognitionOptions as schoolRecognitionOptions,
   sectionOptions,
+  sessionMonthNames,
+  sessionStartMonthOf,
+  sessionStartMonthOptions,
+  MONTH_NAMES,
   STREAM_OPTIONS,
 } from './schoolOptions'
 
@@ -258,6 +263,7 @@ async function createSchoolRecord(user, token, profile) {
     schoolContactNo: profile.schoolContactNo || profile.phone?.trim() || '',
     schoolEmail: profile.schoolEmail || profile.email || user.email || '',
     academicYear: profile.academicYear || '2026-27',
+    sessionStartMonth: sessionStartMonthOf(profile),
     createdAt,
     updatedAt: createdAt,
   }
@@ -586,6 +592,7 @@ function SchoolProfile({ profile, students, staff, save }) {
       <div><span>Total Students</span><strong>{students.length}</strong></div>
       <div><span>Total Teachers</span><strong>{Object.keys(staff || {}).length}</strong></div>
       <div><span>Academic Year</span><strong>{profile.academicYear || '2026-27'}</strong></div>
+      <div><span>Session Starts</span><strong>{MONTH_NAMES[sessionStartMonthOf(profile) - 1]}</strong></div>
       <div><span>School Code</span><strong>{profile.schoolCode || '-'}</strong></div>
     </section>
     <section className="panel school-profile-details">
@@ -608,6 +615,7 @@ function SchoolProfile({ profile, students, staff, save }) {
         <label>UDISE Number<input value={form.udiseNo || ''} onChange={e => setForm({ ...form, udiseNo: e.target.value })} /></label>
         <label>Board<select required value={form.board || 'CBSE'} onChange={e => setForm({ ...form, board: e.target.value })}>{boardOptions.map(item => <option key={item}>{item}</option>)}</select></label>
         <label>Academic Year<select required value={form.academicYear || '2026-27'} onChange={e => setForm({ ...form, academicYear: e.target.value })}>{academicYears.map(item => <option key={item}>{item}</option>)}</select></label>
+        <label>Session Starts In<select value={sessionStartMonthOf(form)} onChange={e => setForm({ ...form, sessionStartMonth: Number(e.target.value) })}>{sessionStartMonthOptions.map(month => <option key={month} value={month}>{MONTH_NAMES[month - 1]}</option>)}</select></label>
         <label>Principal Name<input value={form.principalName || ''} onChange={e => setForm({ ...form, principalName: e.target.value })} /></label>
         <label>School Motto<input value={form.schoolMotto || ''} onChange={e => setForm({ ...form, schoolMotto: e.target.value })} /></label>
         <label>Website<input value={form.schoolWebsite || ''} onChange={e => setForm({ ...form, schoolWebsite: e.target.value })} /></label>
@@ -1065,7 +1073,8 @@ function StudentProfile({ student, close, attendance, fees, feeManager, schoolPr
   }, {})
   const academicYear = schoolProfile?.academicYear || `${now.getFullYear()}-${String(now.getFullYear() + 1).slice(-2)}`
   const startYear = Number(String(academicYear).match(/\d{4}/)?.[0] || now.getFullYear())
-  const feeMonths = ['April','May','June','July','August','September','October','November','December','January','February','March']
+  const sessionStartMonth = sessionStartMonthOf(schoolProfile)
+  const feeMonths = sessionMonthNames(sessionStartMonth)
   const studentFees = Object.values(fees).filter(fee => fee.studentId === student.id)
   const totalPaid = studentFees.filter(fee => fee.status === 'paid').reduce((sum, fee) => sum + Number(fee.amount || 0), 0)
   const structures = Object.values(feeManager?.structures || {})
@@ -1078,7 +1087,7 @@ function StudentProfile({ student, close, attendance, fees, feeManager, schoolPr
         && (!item.section || item.section === student.className.split('-')[1]))
     .reduce((sum, item) => sum + Number(item.amount || 0), 0)
   const pending = studentFees.reduce((sum, fee) => sum + Number(fee.balance || 0), 0)
-  const pendingSummary = getPendingFeesSummary({ student, fees: studentFees, structures: feeManager?.structures, academicYear })
+  const pendingSummary = getPendingFeesSummary({ student, fees: studentFees, structures: feeManager?.structures, academicYear, sessionStartMonth })
   const results = academics?.[student.id] || {}
   const docs = documents?.[student.id] || {}
   const currentPhoto = student.photoUrl || docs.photo?.url || docs.photo?.data || ''
@@ -1111,7 +1120,7 @@ function StudentProfile({ student, close, attendance, fees, feeManager, schoolPr
     <section className="profile-cover"><div className="profile-photo-wrap"><label className="profile-photo editable">{photoDraft?.preview || currentPhoto ? <img src={photoDraft?.preview || currentPhoto} alt={student.name} /> : student.initials}<span><Camera size={18} />{photoSaving ? 'Saving...' : 'Change'}</span><input disabled={photoSaving} type="file" accept="image/jpeg,image/jpg,image/png" onChange={async event => { const file = event.target.files?.[0]; event.target.value = ''; if (file) changePhoto(await prepareStudentPhoto(file)) }} /></label>{photoSaving && <small>Uploading photo...</small>}</div><div><span className="admission-badge">Admission Number</span><strong className="admission-number">{student.roll}</strong><h3>{student.name}</h3><p>Class {student.className} · {student.feeGroup}</p>{(photoDraft?.compressedSize || student.photoSize) ? <small className="compression-info inline">Photo: {formatBytes(photoDraft?.compressedSize || student.photoSize)} OK</small> : null}</div><span className={`status ${student.fee.toLowerCase()}`}>{student.fee}</span></section>
     <div className="profile-tabs">{[['personal','Personal Info'],['attendance','Attendance'],['fees','Fees'],['academics','Academics'],['documents','Documents']].map(([id,label]) => <button key={id} className={tab === id ? 'active' : ''} onClick={() => setTab(id)}>{label}</button>)}</div>
     <section className="profile-tab-content" key={tab}>
-      {tab === 'personal' && <dl className="profile-details full-profile-details">{[['Admission Number',student.roll],['Full Name',student.name],['Father Name',student.fatherName],['Mother Name',student.motherName],['Date of Birth',student.dob],['Gender',student.gender],['Phone',student.phone],['Email',student.email],['Address',[student.address,student.city,student.state,student.pincode].filter(Boolean).join(', ')],['Class',student.className.split('-')[0]],['Section',student.className.split('-')[1]],['Fee Group',student.feeGroup],['Admission Date',student.admissionDate],['Aadhaar',student.aadhaar],['PEN ID',student.penId],['APAAR ID',student.apaarId]].map(([label,value]) => <div key={label}><dt>{label}</dt><dd>{value || 'Not provided'}</dd></div>)}</dl>}
+      {tab === 'personal' && <dl className="profile-details full-profile-details">{[['Admission Number',student.roll],['Full Name',student.name],['Father Name',student.fatherName],['Mother Name',student.motherName],['Date of Birth',student.dob],['Gender',student.gender],['Phone',student.phone],['Email',student.email],['Address',[student.address,student.city,student.state,student.pincode].filter(Boolean).join(', ')],['Class',student.className.split('-')[0]],['Section',student.className.split('-')[1]],['Fee Group',student.feeGroup],['Admission Date',student.admissionDate],['Aadhaar',student.aadhaar],['PEN ID',student.penId],['APAAR ID',student.apaarId],['Academic Session',student.academicSession],['Previous Sessions',sessionsKnownFor(student).filter(item => item !== student.academicSession).map(item => `${item}: Class ${classInSession(student, item) || '—'}`).join(' · ')]].map(([label,value]) => <div key={label}><dt>{label}</dt><dd>{value || 'Not provided'}</dd></div>)}</dl>}
       {tab === 'attendance' && <><div className="profile-metrics"><div><span>Present this month</span><strong>{currentMarks.filter(([,mark])=>mark==='P').length}</strong></div><div><span>Absent this month</span><strong>{currentMarks.filter(([,mark])=>mark==='A').length}</strong></div><div><span>Overall attendance</span><strong>{Object.keys(records).length ? Math.round(Object.values(records).filter(mark=>mark==='P').length/Object.keys(records).length*100) : 0}%</strong></div></div><div className="attendance-calendar"><div className="calendar-title">{now.toLocaleDateString('en-IN',{month:'long',year:'numeric'})}</div><div className="calendar-week">{['Sun','Mon','Tue','Wed','Thu','Fri','Sat'].map(day=><span key={day}>{day}</span>)}</div><div className="calendar-grid">{Array.from({length:new Date(now.getFullYear(),now.getMonth(),1).getDay()}).map((_,i)=><i key={i}/>)}{Array.from({length:monthDays},(_,i)=>{const day=i+1;const mark=records[`${monthKey}-${String(day).padStart(2,'0')}`];return <div key={day} className={mark?`marked ${mark}`:''}><span>{day}</span><b>{mark||'—'}</b></div>})}</div></div><div className="panel table-panel profile-table"><table><thead><tr><th>Month</th><th>Present</th><th>Absent</th><th>Leave</th><th>Percentage</th></tr></thead><tbody>{Object.entries(monthSummary).map(([month,marks])=><tr key={month}><td>{new Date(`${month}-01`).toLocaleDateString('en-IN',{month:'long',year:'numeric'})}</td><td>{marks.P}</td><td>{marks.A}</td><td>{marks.L}</td><td>{Math.round(marks.P/(marks.P+marks.A+marks.L)*100)}%</td></tr>)}{!Object.keys(monthSummary).length&&<tr><td colSpan="5"><div className="empty-state">No attendance records yet.</div></td></tr>}</tbody></table></div></>}
       {tab === 'fees' && <><div className="profile-metrics"><div><span>Total paid</span><strong>{money(totalPaid)}</strong></div><div><span>Recorded balance</span><strong>{money(pending)}</strong></div><div className="due-metric"><span>Monthly fee setup</span><strong>{monthlyFee ? money(monthlyFee) : 'Not set'}</strong></div></div>{pendingSummary.pendingMonthsCount > 0 ? <div className="pending-fees-panel"><div className="pending-fees-total"><strong>{money(pendingSummary.totalPendingAmount)}</strong><span>{pendingSummary.pendingMonthsCount} month{pendingSummary.pendingMonthsCount > 1 ? 's' : ''} pending</span></div><ul>{pendingSummary.pendingMonths.map(item => <li key={item.monthKey}><span>{item.month}</span><em>{item.status === 'partial' ? `Partial · paid ${money(item.amountPaid)}` : 'Unpaid'}</em><strong>{money(item.amountDue)}</strong></li>)}</ul></div> : <div className="pending-fees-panel clear"><span className="fee-months-badge clear">Up to date — no pending months</span></div>}<div className="fee-month-grid">{feeMonths.map((month,index)=>{const monthNo=((index+3)%12)+1;const year=monthNo<4?startYear+1:startYear;const billingMonth=`${year}-${String(monthNo).padStart(2,'0')}`;const fee=studentFees.find(item=>item.billingPeriod===billingMonth||item.billingMonth===billingMonth||item.billingMonth===month);const overdue=monthlyFee>0&&!fee&&new Date(year,monthNo-1,10)<new Date();return <div key={month} className={fee?.status==='paid'?'paid':overdue?'overdue':'pending'}><span>{month}</span><strong>{fee ? money(fee.amount || fee.totalDue) : monthlyFee ? money(monthlyFee) : 'Not set'}</strong><small>{fee?.status==='paid'?'Paid':overdue?'Overdue':monthlyFee?'Pending':'Configure fee'}</small>{!fee&&monthlyFee>0&&<button className="text-button" onClick={()=>onRecordPayment(student.id,monthlyFee,'UPI',billingMonth)}>Record payment</button>}</div>})}</div></>}
       {tab === 'academics' && <div className="academics-profile"><div className="profile-actions"><button className="secondary-button" onClick={()=>window.print()}><Printer size={16}/> Print report card</button></div>{Object.entries(results).map(([exam,record])=><div className="exam-block" key={exam}><div><h3>{exam}</h3><strong>{record.percentage||0}% · Grade {record.grade||'—'}</strong></div><table><thead><tr><th>Subject</th><th>Marks</th><th>Maximum</th></tr></thead><tbody>{Object.entries(record.subjects||{}).map(([subject,marks])=><tr key={subject}><td>{subject}</td><td>{marks.obtained}</td><td>{marks.maximum}</td></tr>)}</tbody></table></div>)}{!Object.keys(results).length&&<div className="empty-state large"><FileText size={28}/><strong>No academic results yet</strong><p>Exam-wise marks will appear here after publishing.</p></div>}</div>}
@@ -1325,7 +1334,7 @@ function AdmissionForm({ students, onAddStudent, onUpdateStudent, onOpenRegister
     setSaving(true)
     setSubmitError('')
     try {
-      const payload = { ...form, newAdmission: form.admissionType === 'new', phone: form.fatherPhone || form.phone, guardian: form.guardian || form.fatherName, parentLoginPhone: form.fatherPhone || form.phone, aadhaar: formatAadhaar(form.aadhaar), photoFile: photo?.file || null, photoPreview: photo?.preview || '', photoOriginalSize: photo?.originalSize || 0, photoCompressedSize: photo?.compressedSize || 0 }
+      const payload = { ...form, newAdmission: form.admissionType === 'new', phone: form.fatherPhone || form.phone, guardian: form.guardian || form.fatherName, parentLoginPhone: form.fatherPhone || form.phone, aadhaar: formatAadhaar(form.aadhaar), photoFile: photo?.file || null, photoPreview: photo?.preview || '', photoOriginalSize: photo?.originalSize || 0, photoCompressedSize: photo?.compressedSize || 0, sessionHistory: promotionHistory(selectedOldStudent, form) }
       const admissionNo = form.admissionType === 'old' && selectedOldStudent
         ? (await onUpdateStudent(selectedOldStudent.id, payload), selectedOldStudent.roll)
         : await onAddStudent(payload)
@@ -2002,6 +2011,9 @@ function studentFromRow(row, index) {
     apaarId: row.apaar_id || '',
     feeGroup: row.fee_group || 'Standard',
     academicSession: row.academic_session || row.academicSession || '',
+    sessionHistory: Array.isArray(row.session_history) ? row.session_history
+      : Array.isArray(row.sessionHistory) ? row.sessionHistory
+      : [],
     rollNumber: row.roll_number || row.rollNumber || '',
     bloodGroup: row.blood_group || row.bloodGroup || '',
     height: row.height || '',
@@ -2107,6 +2119,10 @@ function studentToRow(student) {
     apaar_id: student.apaarId || '',
     fee_group: student.feeGroup || 'Standard',
     academic_session: student.academicSession || '',
+    // Snapshot of the classes this student sat in during earlier sessions. Append-only:
+    // the promotion flow adds one entry and nothing ever rewrites it, because the live
+    // record only keeps the CURRENT class and that history cannot be recovered later.
+    session_history: Array.isArray(student.sessionHistory) ? student.sessionHistory : [],
     roll_number: student.rollNumber || '',
     blood_group: student.bloodGroup || '',
     height: student.height || '',
@@ -3029,6 +3045,12 @@ function useSchoolWorkspace(session) {
     // A PUT replaces the row, so re-assert the inline marker for a student whose photo was
     // migrated earlier and is not part of this edit - otherwise the flag would be dropped.
     if (!updates.photoFile && existing.photoInline) row.photo_inline = true
+    // Past-session classes cannot be recreated once lost, and this PUT replaces the whole row.
+    // Never let an update that carries no history (or a shorter one) shrink what is stored.
+    const storedHistory = Array.isArray(existing.sessionHistory) ? existing.sessionHistory : []
+    if (!Array.isArray(row.session_history) || row.session_history.length < storedHistory.length) {
+      row.session_history = storedHistory
+    }
     if (!developmentDemo) {
       const token = await session.getIdToken()
       await databaseRequest(`schools/${workspace.schoolId}/students/${studentId}`, token, { method: 'PUT', body: row })

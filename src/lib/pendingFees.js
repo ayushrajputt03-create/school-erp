@@ -125,10 +125,11 @@ const firstOfMonth = value => {
 }
 
 // Returns { pendingMonthsCount, pendingMonths: [{ month, monthKey, amountDue, amountPaid, status }],
-// totalPendingAmount, monthlyFee }. Walks every month from the later of the academic year start
-// (April) and the student's admission month up to the current month. A month counts as pending
-// when no matching fee row says "paid" and the amount collected is short of the monthly fee.
-export function getPendingFeesSummary({ student, fees = {}, structures = {}, academicYear, monthlyFee, now = new Date() }) {
+// totalPendingAmount, monthlyFee }. Walks every month from the session start (April unless the
+// school configured otherwise, extended back to any earlier billed row) up to the current month.
+// A month counts as pending when no matching fee row says "paid" and the amount collected is
+// short of the monthly fee.
+export function getPendingFeesSummary({ student, fees = {}, structures = {}, academicYear, monthlyFee, sessionStartMonth, now = new Date() }) {
   if (!student) return { pendingMonthsCount: 0, pendingMonths: [], totalPendingAmount: 0, monthlyFee: 0 }
   const allRows = Array.isArray(fees) ? fees : Object.values(fees || {})
   const studentRows = allRows.filter(row => row && belongsToStudent(row, student))
@@ -137,9 +138,16 @@ export function getPendingFeesSummary({ student, fees = {}, structures = {}, aca
     : monthlyFeeFor(student, structures)
   const fee = configuredFee > 0 ? configuredFee : monthlyFeeFromRows(studentRows)
 
-  const fallbackStart = now.getMonth() >= 3 ? now.getFullYear() : now.getFullYear() - 1
+  // Sessions open in April by default; schools that start in March (or any other month)
+  // configure it on their profile. An absent/invalid value must stay April so existing
+  // schools keep the exact behaviour they had before the setting existed.
+  const startMonthNumber = Number(sessionStartMonth)
+  const startIndex = Number.isInteger(startMonthNumber) && startMonthNumber >= 1 && startMonthNumber <= 12
+    ? startMonthNumber - 1
+    : 3
+  const fallbackStart = now.getMonth() >= startIndex ? now.getFullYear() : now.getFullYear() - 1
   const startYear = Number(String(academicYear || '').match(/\d{4}/)?.[0] || fallbackStart)
-  let cursor = new Date(startYear, 3, 1)
+  let cursor = new Date(startYear, startIndex, 1)
   // Never clamp the walk to the admission date: the app records admissionDate as the
   // day the record was entered (form/import default is today), while schools bill
   // every student from the session start (April) and back-date receipts. Clamping

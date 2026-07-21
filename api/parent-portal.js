@@ -90,6 +90,7 @@ const publicSchool = school => {
     email: profile.schoolEmail || profile.email || '',
     website: profile.schoolWebsite || '',
     academicYear: profile.academicYear || '2026-27',
+    sessionStartMonth: profile.sessionStartMonth || null,
     upi: profile.upiId || profile.upi || '',
     bankName: profile.bankName || '',
     bankAccount: profile.bankAccount || '',
