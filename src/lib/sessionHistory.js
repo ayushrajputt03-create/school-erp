@@ -94,17 +94,19 @@ export const feeRowDate = row => {
 export const studentsInSession = (students = [], session) => {
   const wanted = sessionOf(session)
   if (!wanted) return students
-  return students.reduce((list, student) => {
-    const className = classInSession(student, wanted)
-    if (!className) return list
-    const entry = entriesOf(student).find(item => sessionOf(item.session) === wanted)
-    return [...list, {
-      ...student,
-      className,
-      rollNumber: entry?.rollNumber || student.rollNumber || '',
-      feeGroup: entry?.feeGroup || student.feeGroup || '',
-    }]
-  }, [])
+  return students
+    .map(student => {
+      const className = classInSession(student, wanted)
+      if (!className) return null
+      const entry = entriesOf(student).find(item => sessionOf(item.session) === wanted)
+      return {
+        ...student,
+        className,
+        rollNumber: entry?.rollNumber || student.rollNumber || '',
+        feeGroup: entry?.feeGroup || student.feeGroup || '',
+      }
+    })
+    .filter(Boolean)
 }
 
 // Every session the workspace can show, newest first, with the live one always present.

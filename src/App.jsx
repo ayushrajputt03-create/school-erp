@@ -3642,6 +3642,31 @@ function useSchoolWorkspace(session) {
     }
   }
 
+  // The live attendance listener is bounded to the current month, so a past session has
+  // nothing in memory at all. Fetch just that session's window on demand - only when the
+  // archive's attendance tab is actually opened - rather than widening the live listener
+  // and paying for a year of records on every page load.
+  const loadSessionAttendance = async (startDate, endDate) => {
+    if (!startDate || !endDate) return null
+    if (developmentDemo) {
+      return Object.fromEntries(Object.entries(attendance).filter(([date]) => date >= startDate && date <= endDate))
+    }
+    try {
+      const token = await session.getIdToken()
+      const query = `orderBy=${encodeURIComponent('"date"')}&startAt=${encodeURIComponent(`"${startDate}"`)}&endAt=${encodeURIComponent(`"${endDate}"`)}`
+      const data = await databaseRequest(`schools/${workspace.schoolId}/attendance`, token, { query })
+      return Object.values(data || {}).reduce((dates, record) => {
+        const studentId = record.studentId || record.student_id
+        if (!studentId || !record.date) return dates
+        dates[record.date] ||= {}
+        dates[record.date][studentId] = normalizeAttendanceStatus(record.mark || record.status)
+        return dates
+      }, {})
+    } catch {
+      return null
+    }
+  }
+
   const createBackupPayload = async () => {
     const studentRows = Object.fromEntries(students.map(student => [student.id, studentToRow(student)]))
     // Backups must contain the FULL attendance history, not just the current month the live
@@ -4768,7 +4793,7 @@ function useSchoolWorkspace(session) {
     return [...byId.values()].sort((a, b) => b.at - a.at).slice(0, ACTIVITY_FEED_LIMIT)
   }, [students, fees, notices, activities])
 
-  return { students, notices, fees, feeManager, attendance, timetableData, timetableRecords, homework, transport, library, accounts, leave, parents, parentMessages, parentNotifications, certificateRequests, leaveRequests, decideLeaveRequest, admissionRequests, approveAdmissionRequest, rejectAdmissionRequest, loadAdmissionHistory, enquiries, staff, staffAttendance, employeeConfig, approvals, expenses, academics, documents, certificates, certificateSettings, examData, reportData, idCards, idCardSettings, activities: feedActivities, backupSettings, workspace, createSchoolWorkspace, getNextAdmissionNumber, addStudent, updateStudent, updateStudentPhoto, ensureStudentPhotos, deletedStudents, deleteStudents, deleteAllStudents, restoreStudent, restoreAllStudents, permanentDeleteStudent, recordPayment, submitFeeReceipt, saveFeeGroup, deleteFeeGroup, saveFeeStructure, deleteFeeStructure, deleteFeeReceipt, restoreFeeReceipt, decideFeeApproval, saveFeeManagerConfig, createBackupPayload, restoreBackup, saveBackupSettings, saveSchoolProfile, saveParentAccount, addNotice, saveAttendance, saveEmployeeConfig, deleteEmployeeConfig, saveEmployee, deleteEmployee, saveStaffAttendance, savePeriod, saveTimetableRecord, deleteTimetableRecord, saveHomework, deleteHomework, markHomeworkDone, markHomeworkSeen, saveTransportItem, deleteTransportItem, saveExpenseItem, deleteExpenseItem, saveLibraryItem, deleteLibraryItem, saveAccountsItem, deleteAccountsItem, saveLeaveItem, deleteLeaveItem, saveEnquiry, uploadStudentDocument, loadStudentAttendance, saveCertificate, saveCertificateSettings, saveExamRecord, saveDateSheetRow, deleteDateSheetRow, saveAdmitCards, deleteCertificate, updateCertificateStatus, saveReportExam, deleteReportExam, saveReportMarks, saveReportCard, updateReportCard, saveIdCardSettings, saveIdCard, deleteIdCard, uploadIdCardLogo, developmentDemo }
+  return { students, notices, fees, feeManager, attendance, timetableData, timetableRecords, homework, transport, library, accounts, leave, parents, parentMessages, parentNotifications, certificateRequests, leaveRequests, decideLeaveRequest, admissionRequests, approveAdmissionRequest, rejectAdmissionRequest, loadAdmissionHistory, enquiries, staff, staffAttendance, employeeConfig, approvals, expenses, academics, documents, certificates, certificateSettings, examData, reportData, idCards, idCardSettings, activities: feedActivities, backupSettings, workspace, createSchoolWorkspace, getNextAdmissionNumber, addStudent, updateStudent, updateStudentPhoto, ensureStudentPhotos, deletedStudents, deleteStudents, deleteAllStudents, restoreStudent, restoreAllStudents, permanentDeleteStudent, recordPayment, submitFeeReceipt, saveFeeGroup, deleteFeeGroup, saveFeeStructure, deleteFeeStructure, deleteFeeReceipt, restoreFeeReceipt, decideFeeApproval, saveFeeManagerConfig, createBackupPayload, restoreBackup, saveBackupSettings, saveSchoolProfile, saveParentAccount, addNotice, saveAttendance, saveEmployeeConfig, deleteEmployeeConfig, saveEmployee, deleteEmployee, saveStaffAttendance, savePeriod, saveTimetableRecord, deleteTimetableRecord, saveHomework, deleteHomework, markHomeworkDone, markHomeworkSeen, saveTransportItem, deleteTransportItem, saveExpenseItem, deleteExpenseItem, saveLibraryItem, deleteLibraryItem, saveAccountsItem, deleteAccountsItem, saveLeaveItem, deleteLeaveItem, saveEnquiry, uploadStudentDocument, loadStudentAttendance, loadSessionAttendance, saveCertificate, saveCertificateSettings, saveExamRecord, saveDateSheetRow, deleteDateSheetRow, saveAdmitCards, deleteCertificate, updateCertificateStatus, saveReportExam, deleteReportExam, saveReportMarks, saveReportCard, updateReportCard, saveIdCardSettings, saveIdCard, deleteIdCard, uploadIdCardLogo, developmentDemo }
 }
 
 export default function App() {
@@ -4909,6 +4934,9 @@ export default function App() {
   }
   // The session switcher only lists sessions the workspace actually has records for, so a
   // brand new school sees no dropdown at all and nothing about its screens changes.
+  // Deliberately not memoised: this sits after the loading/setup early returns, so a hook here
+  // would break the rules of hooks. It is a single linear pass over students and runs in well
+  // under a millisecond even for a few thousand records.
   const currentSession = data.workspace.schoolProfile.academicYear || '2026-27'
   const sessionOptions = sessionOptionsFrom(data.students, currentSession)
   const archiveSession = viewSession && viewSession !== currentSession ? viewSession : ''
@@ -4919,5 +4947,5 @@ export default function App() {
     await signOut(auth)
     setPage('dashboard')
   }
-  return <StudentPhotoContext.Provider value={data.ensureStudentPhotos}><div className={`app-shell ${darkMode ? 'theme-dark' : 'theme-light'}`}><Sidebar page={page} setPage={next => { setViewSession(''); setPage(next) }} open={menuOpen} close={() => setMenuOpen(false)} schoolName={data.workspace.schoolName} schoolLogo={data.workspace.schoolProfile.logoURL || data.workspace.schoolProfile.logo} schoolCode={data.workspace.schoolProfile.schoolCode} cloudMode={!data.developmentDemo} profile={profile} /><main className="main-area"><Header title={archiveSession ? `${archiveSession} Archive` : current.label} subtitle={`${data.workspace.schoolName} · ${archiveSession || currentSession}`} schoolCode={data.workspace.schoolProfile.schoolCode} onMenu={() => setMenuOpen(true)} profile={profile} onSignOut={logout} students={data.students} onSelectStudent={setSelectedStudent} darkMode={darkMode} onToggleTheme={() => setDarkMode(current => !current)} sessions={sessionOptions} currentSession={currentSession} viewSession={archiveSession} onChangeSession={setViewSession} /><div className="page-content page-enter" key={archiveSession || page}><Suspense fallback={<div className="module-loading"><span className="module-loading-dot" />Loading module...</div>}>{archiveSession ? <SessionArchive session={archiveSession} sessionStartMonth={sessionStartMonthOf(data.workspace.schoolProfile)} students={data.students} fees={data.fees} attendance={data.attendance} /> : screens[page]}</Suspense></div></main>{selectedStudent && <StudentProfile student={data.students.find(student => student.id === selectedStudent.id) || selectedStudent} close={() => setSelectedStudent(null)} attendance={data.attendance} fees={data.fees} feeManager={data.feeManager} schoolProfile={data.workspace.schoolProfile} academics={data.academics} documents={data.documents} onRecordPayment={data.recordPayment} onUploadDocument={data.uploadStudentDocument} onUpdatePhoto={data.updateStudentPhoto} onEdit={s => setEditingStudent(s)} loadStudentAttendance={data.loadStudentAttendance} />}{editingStudent && <StudentModal close={() => setEditingStudent(null)} student={editingStudent} updateStudent={async (id, updates) => { await data.updateStudent(id, updates); setEditingStudent(null) }} />}</div></StudentPhotoContext.Provider>
+  return <StudentPhotoContext.Provider value={data.ensureStudentPhotos}><div className={`app-shell ${darkMode ? 'theme-dark' : 'theme-light'}`}><Sidebar page={page} setPage={next => { setViewSession(''); setPage(next) }} open={menuOpen} close={() => setMenuOpen(false)} schoolName={data.workspace.schoolName} schoolLogo={data.workspace.schoolProfile.logoURL || data.workspace.schoolProfile.logo} schoolCode={data.workspace.schoolProfile.schoolCode} cloudMode={!data.developmentDemo} profile={profile} /><main className="main-area"><Header title={archiveSession ? `${archiveSession} Archive` : current.label} subtitle={`${data.workspace.schoolName} · ${archiveSession || currentSession}`} schoolCode={data.workspace.schoolProfile.schoolCode} onMenu={() => setMenuOpen(true)} profile={profile} onSignOut={logout} students={data.students} onSelectStudent={setSelectedStudent} darkMode={darkMode} onToggleTheme={() => setDarkMode(current => !current)} sessions={sessionOptions} currentSession={currentSession} viewSession={archiveSession} onChangeSession={setViewSession} /><div className="page-content page-enter" key={archiveSession || page}><Suspense fallback={<div className="module-loading"><span className="module-loading-dot" />Loading module...</div>}>{archiveSession ? <SessionArchive session={archiveSession} sessionStartMonth={sessionStartMonthOf(data.workspace.schoolProfile)} students={data.students} fees={data.fees} loadSessionAttendance={data.loadSessionAttendance} /> : screens[page]}</Suspense></div></main>{selectedStudent && <StudentProfile student={data.students.find(student => student.id === selectedStudent.id) || selectedStudent} close={() => setSelectedStudent(null)} attendance={data.attendance} fees={data.fees} feeManager={data.feeManager} schoolProfile={data.workspace.schoolProfile} academics={data.academics} documents={data.documents} onRecordPayment={data.recordPayment} onUploadDocument={data.uploadStudentDocument} onUpdatePhoto={data.updateStudentPhoto} onEdit={s => setEditingStudent(s)} loadStudentAttendance={data.loadStudentAttendance} />}{editingStudent && <StudentModal close={() => setEditingStudent(null)} student={editingStudent} updateStudent={async (id, updates) => { await data.updateStudent(id, updates); setEditingStudent(null) }} />}</div></StudentPhotoContext.Provider>
 }

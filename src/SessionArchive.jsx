@@ -6,7 +6,7 @@
 // snapshots renders empty on purpose - inventing a class for a student whose promotion
 // happened before history was recorded would be worse than showing nothing.
 
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Archive, GraduationCap, IndianRupee, CalendarCheck } from 'lucide-react'
 import { studentsInSession, sessionRange, isDateInSession, feeRowDate } from './lib/sessionHistory'
 
@@ -29,29 +29,50 @@ const TABS = [
   { id: 'attendance', label: 'Attendance', icon: CalendarCheck },
 ]
 
-export default function SessionArchive({ session, sessionStartMonth, students = [], fees = {}, attendance = {} }) {
+export default function SessionArchive({ session, sessionStartMonth, students = [], fees = {}, loadSessionAttendance }) {
   const [tab, setTab] = useState('students')
 
   const range = useMemo(() => sessionRange(session, sessionStartMonth), [session, sessionStartMonth])
   const sessionStudents = useMemo(() => studentsInSession(students, session), [students, session])
   const studentById = useMemo(
-    () => sessionStudents.reduce((map, student) => ({ ...map, [student.id]: student }), {}),
+    () => Object.fromEntries(sessionStudents.map(student => [student.id, student])),
     [sessionStudents],
   )
 
+  // The live attendance listener only holds the current month, so a past session has to be
+  // fetched. Do it lazily - the request fires the first time this tab is opened and never
+  // again for the same session, so browsing students and fees costs nothing extra.
+  const [attendance, setAttendance] = useState(null)
+  const [attendanceError, setAttendanceError] = useState(false)
+  useEffect(() => {
+    setAttendance(null)
+    setAttendanceError(false)
+  }, [session])
+  useEffect(() => {
+    if (tab !== 'attendance' || attendance || attendanceError || !range || !loadSessionAttendance) return undefined
+    let active = true
+    loadSessionAttendance(range.start, range.end).then(result => {
+      if (!active) return
+      if (result) setAttendance(result)
+      else setAttendanceError(true)
+    })
+    return () => { active = false }
+  }, [tab, attendance, attendanceError, range, loadSessionAttendance])
+
+  // Stamp the date once per row instead of recomputing it inside every sort comparison.
   const sessionFees = useMemo(() => Object.entries(fees)
-    .map(([id, row]) => ({ id, ...row }))
-    .filter(row => isDateInSession(feeRowDate(row), session, sessionStartMonth))
-    .sort((a, b) => String(feeRowDate(b)).localeCompare(String(feeRowDate(a)))),
+    .map(([id, row]) => ({ id, ...row, rowDate: feeRowDate(row) }))
+    .filter(row => isDateInSession(row.rowDate, session, sessionStartMonth))
+    .sort((a, b) => b.rowDate.localeCompare(a.rowDate)),
   [fees, session, sessionStartMonth])
 
   const collected = sessionFees.reduce((total, row) => total + paidOf(row), 0)
 
-  const sessionDates = useMemo(() => Object.keys(attendance)
-    .filter(date => isDateInSession(date, session, sessionStartMonth) && Object.keys(attendance[date] || {}).length)
+  const sessionDates = useMemo(() => Object.keys(attendance || {})
+    .filter(date => Object.keys(attendance[date] || {}).length)
     .sort()
     .reverse(),
-  [attendance, session, sessionStartMonth])
+  [attendance])
 
   const nameOf = id => studentById[id]?.name || students.find(student => student.id === id)?.name || id
   const classOf = id => studentById[id]?.className || '-'
@@ -93,7 +114,7 @@ export default function SessionArchive({ session, sessionStartMonth, students = 
         <div className="table-toolbar"><div><strong>{money(collected)} collected</strong><small>{sessionFees.length} receipts dated inside {session}.</small></div></div>
         <div className="table-scroll"><table><thead><tr><th>Date</th><th>Receipt No</th><th>Student</th><th>Class</th><th>Month</th><th>Mode</th><th>Paid</th></tr></thead><tbody>
           {sessionFees.map(row => <tr key={row.id}>
-            <td>{readableDate(feeRowDate(row))}</td>
+            <td>{readableDate(row.rowDate)}</td>
             <td>{row.receiptNumber || row.invoiceNumber || '-'}</td>
             <td>{row.studentName || nameOf(row.studentId)}</td>
             <td>{row.className || classOf(row.studentId)}</td>
@@ -106,7 +127,10 @@ export default function SessionArchive({ session, sessionStartMonth, students = 
       </>}
 
       {tab === 'attendance' && <>
-        <div className="table-toolbar"><div><strong>{sessionDates.length} days marked</strong><small>Attendance saved between {range ? `${readableDate(range.start)} and ${readableDate(range.end)}` : session}.</small></div></div>
+        <div className="table-toolbar"><div><strong>{attendance ? `${sessionDates.length} days marked` : 'Loading attendance...'}</strong><small>Attendance saved between {range ? `${readableDate(range.start)} and ${readableDate(range.end)}` : session}. Fetched only when you open this tab.</small></div></div>
+        {attendanceError && <div className="empty-state">Could not load attendance for {session}. Check your connection and reopen this tab.</div>}
+        {!attendance && !attendanceError && <div className="empty-state">Fetching this session's attendance...</div>}
+        {attendance &&
         <div className="table-scroll"><table><thead><tr><th>Date</th><th>Present</th><th>Absent</th><th>Leave</th><th>Total marked</th><th>Rate</th></tr></thead><tbody>
           {sessionDates.map(date => {
             const marks = Object.values(attendance[date] || {}).map(statusOf)
@@ -122,7 +146,7 @@ export default function SessionArchive({ session, sessionStartMonth, students = 
             </tr>
           })}
           {!sessionDates.length && <tr><td colSpan="6"><div className="empty-state">No attendance was saved inside {session}.</div></td></tr>}
-        </tbody></table></div>
+        </tbody></table></div>}
       </>}
     </div>
   </>
