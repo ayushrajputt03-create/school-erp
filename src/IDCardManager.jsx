@@ -5,7 +5,10 @@ import {
   Save, Search, Settings, ShieldCheck, Trash2, Upload, Users
 } from 'lucide-react'
 import DatePicker from './DatePicker'
+import { IdCardDesign, ID_DESIGNS, isFixedDesign } from './idCardTemplates'
 import './IDCardManager.css'
+
+const DESIGN_KEY = 'northstar-id-design'
 
 const CARD_TYPES = [
   { id: 'student', label: 'Student ID Card', prefix: 'STU' },
@@ -317,6 +320,24 @@ function CardPreview({ person, school, settings, template, form, side, selectedF
   </div>
 }
 
+function DesignPicker({ value, onChange }) {
+  return <div className="idc-picker">
+    <label style={{ fontSize: 8, fontWeight: 700, color: '#536073' }}>Card Design</label>
+    <div className="idc-picker-grid">{ID_DESIGNS.map(item => <button
+      type="button" key={item.id} className={value === item.id ? 'active' : ''} onClick={() => onChange(item.id)}
+    >
+      <i className={`idc-swatch idc-swatch-${item.id}`} />
+      {item.label}
+      {item.note && <small>{item.note}</small>}
+    </button>)}</div>
+    <p className="idc-picker-note">
+      {value === 'custom'
+        ? 'Custom Layout uses the field toggles and drag positions below.'
+        : 'Ready-made design, 54 x 86 mm portrait. Field toggles and drag positions do not apply to it, and optional details the record is missing (blood group, house, route) are left off the card rather than printed empty.'}
+    </p>
+  </div>
+}
+
 export default function IDCardManager({ students, staff, school, idCards, settings, onSaveSettings, onSaveCard, onDeleteCard, onUploadLogo }) {
   const [tab, setTab] = useState('generate')
   const [cardType, setCardType] = useState('student')
@@ -332,6 +353,11 @@ export default function IDCardManager({ students, staff, school, idCards, settin
   const [visitor, setVisitor] = useState({ visitorName: '', visitorPhone: '', visitorAddress: '', purpose: 'Visitor Meeting', visitTime: '' })
   const [form, setForm] = useState({ issueDate: today(), expiryDate: addYears(1), principalName: school.principalName || '' })
   const [common, setCommon] = useState({ ...DEFAULT_SETTINGS, ...(settings?.common || settings || {}) })
+  // Which design renders. 'custom' is the existing drag-and-drop editor and stays the default,
+  // so a school that already laid out its card sees no change. Remembered per browser rather
+  // than written to the saved settings record - it is a choice of look, not stored school data.
+  const [design, setDesign] = useState(() => localStorage.getItem(DESIGN_KEY) || 'custom')
+  useEffect(() => { localStorage.setItem(DESIGN_KEY, design) }, [design])
   const [templates, setTemplates] = useState(() => ({
     student: { ...TEMPLATE_DEFAULTS.student, ...(settings?.templates?.student || {}) },
     teacher: { ...TEMPLATE_DEFAULTS.teacher, ...(settings?.templates?.teacher || {}) },
@@ -455,7 +481,11 @@ export default function IDCardManager({ students, staff, school, idCards, settin
   const downloadPDF = async () => {
     const card = printRef.current?.querySelector('#id-card-preview')
     if (!card) return
-    const size = common.size === 'custom' ? { width: Number(common.customWidth || 86), height: Number(common.customHeight || 54) } : CARD_SIZES[common.size]
+    // The ready-made designs are always 54 x 86 portrait. Sizing the PDF page from the size
+    // selector instead would squash them onto an 86 x 54 landscape sheet.
+    const size = isFixedDesign(design)
+      ? { width: 54, height: 86 }
+      : common.size === 'custom' ? { width: Number(common.customWidth || 86), height: Number(common.customHeight || 54) } : CARD_SIZES[common.size]
     const [{ default: html2canvas }, { jsPDF }] = await Promise.all([
       import('html2canvas'),
       import('jspdf'),
@@ -497,11 +527,14 @@ export default function IDCardManager({ students, staff, school, idCards, settin
             <div className="id-person-list">{filteredPeople.map(person => <label key={person.id} className={selectedIds.includes(person.id) ? 'chosen' : ''}><input type="checkbox" checked={selectedIds.includes(person.id)} onChange={event => setSelectedIds(current => event.target.checked ? [...new Set([...current, person.id])] : current.filter(id => id !== person.id))} /><span>{person.photo ? <img src={person.photo} alt="" /> : initials(person.name)}</span><strong>{person.name}<small>{person.admissionNo || person.employeeId} · {person.classSection || person.designation}</small></strong></label>)}{!filteredPeople.length && <p className="empty-state">No records found. Check class filter or add records first.</p>}</div>
           </>}
         </div>
+        <div className="control-block"><h3><Palette size={15} /> Card Design</h3><DesignPicker value={design} onChange={setDesign} /></div>
         <div className="control-block"><h3><Layers size={15} /> Card Settings</h3><label>School Logo<label className="id-logo-upload">{logoPreview ? <img src={logoPreview} alt="" /> : initials(school.schoolName)}<span><Upload size={14} /> Upload logo</span><input type="file" accept="image/png,image/jpeg,image/jpg" onChange={uploadLogo} /></label></label><label>Size<select value={common.size} onChange={event => setCommon({ ...common, size: event.target.value })}>{Object.entries(CARD_SIZES).map(([id, size]) => <option key={id} value={id}>{size.label}</option>)}</select></label>{common.size === 'custom' && <div className="id-filter-row"><input type="number" value={common.customWidth} onChange={event => setCommon({ ...common, customWidth: event.target.value })} /><input type="number" value={common.customHeight} onChange={event => setCommon({ ...common, customHeight: event.target.value })} /></div>}<div className="id-date-row"><label>Issue<DatePicker value={form.issueDate} onChange={value => setForm({ ...form, issueDate: value })} /></label><label>Expiry<DatePicker value={form.expiryDate} onChange={value => setForm({ ...form, expiryDate: value })} /></label></div></div>
       </aside>
       <main className="id-workspace">
         <div className="id-preview-toolbar panel"><div><button className={side === 'front' ? 'active' : ''} onClick={() => setSide('front')}>Front Side</button><button className={side === 'back' ? 'active' : ''} onClick={() => setSide('back')}>Back Side</button></div><div><button onClick={() => downloadImage('png')}><FileImage size={15} /> PNG</button><button onClick={() => downloadImage('jpg')}><Download size={15} /> JPG</button><button onClick={downloadPDF}><Download size={15} /> PDF</button><button onClick={printCards}><Printer size={15} /> Print</button></div></div>
-        <div className="id-preview-stage"><div ref={printRef} className={`id-print-set ${tab === 'bulk' ? 'bulk' : ''}`}>{(tab === 'bulk' ? (selectedPeople.length ? selectedPeople : filteredPeople).slice(0, 60) : [activePerson]).map(person => <div className="id-print-pair" key={`${person.id}-${side}`}><CardPreview person={person} school={schoolForPreview} settings={common} template={activeTemplate} form={form} side={side} selectedField={selectedField} onSelect={setSelectedField} /></div>)}</div></div>
+        <div className="id-preview-stage"><div ref={printRef} className={`id-print-set ${tab === 'bulk' ? 'bulk' : ''}`}>{(tab === 'bulk' ? (selectedPeople.length ? selectedPeople : filteredPeople).slice(0, 60) : [activePerson]).map(person => <div className="id-print-pair" key={`${person.id}-${side}`}>{isFixedDesign(design)
+            ? <IdCardDesign design={design} side={side} person={person} school={schoolForPreview} form={form} watermark={common.watermark} qr={<QRPreview value={`${location.origin}/?verify=${person.type}-${person.admissionNo || person.employeeId || person.id}`} />} />
+            : <CardPreview person={person} school={schoolForPreview} settings={common} template={activeTemplate} form={form} side={side} selectedField={selectedField} onSelect={setSelectedField} />}</div>)}</div></div>
       </main>
       <aside className="id-builder panel">
         {tab === 'history' ? <><h3><Badge size={15} /> Generated Cards</h3><div className="id-history-table">{generatedCards.map(card => <div key={card.id || card.cardNo}><strong>{card.personName}</strong><span>{card.cardNo}</span><small>{card.type} · {card.createdAt ? new Date(card.createdAt).toLocaleDateString('en-IN') : card.issueDate}</small><button onClick={() => { setTab('generate'); setCardType(card.type || 'student'); setNotice('History card opened. Search/select the person to reprint latest data.') }}>View</button><button onClick={printCards}>Reprint</button>{onDeleteCard && <button className="danger" onClick={() => onDeleteCard(card.id)}><Trash2 size={13} /></button>}</div>)}{!generatedCards.length && <p className="empty-state">No generated cards found.</p>}</div></> : <>

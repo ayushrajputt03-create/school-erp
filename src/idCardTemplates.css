@@ -1,0 +1,149 @@
+/* Fixed ID card designs. One 54 x 86 mm portrait layout, six themes.
+   Sizes are in mm so the preview matches PVC card output at 100% scale. */
+
+.idc {
+  --primary: #173c69;
+  --secondary: #2a74ad;
+  --accent: #e0ae3e;
+  --soft: #eaf3fa;
+  --ink: #24354a;
+  --muted: #66758a;
+  position: relative;
+  width: 54mm;
+  height: 86mm;
+  overflow: hidden;
+  border-radius: 3mm;
+  background: #fff;
+  color: var(--ink);
+  font-family: "Segoe UI", Arial, sans-serif;
+  -webkit-print-color-adjust: exact !important;
+  print-color-adjust: exact !important;
+}
+.idc:after { content: ""; position: absolute; inset: 1.2mm; z-index: 9; border: .25mm solid #ffffff80; border-radius: 2.2mm; pointer-events: none; }
+.idc .idc-front, .idc .idc-back { position: relative; height: 100%; }
+
+/* front -------------------------------------------------------------------- */
+.idc .idc-head { position: relative; height: 25mm; padding: 3.5mm 2.5mm 0; background: var(--primary); color: #fff; text-align: center; }
+.idc .idc-head:after { content: ""; position: absolute; left: -5%; right: -5%; bottom: -5mm; height: 10mm; border-radius: 0 0 50% 50%; background: var(--primary); }
+.idc .idc-school-row { position: relative; z-index: 2; display: grid; grid-template-columns: 9mm 1fr; align-items: center; gap: 1.5mm; text-align: left; }
+.idc .idc-logo { display: grid; place-items: center; width: 8.5mm; height: 8.5mm; overflow: hidden; border-radius: 50%; background: #fff; box-shadow: 0 0 0 .6mm var(--accent); }
+.idc .idc-logo img { width: 100%; height: 100%; object-fit: contain; }
+.idc .idc-logo span { color: var(--primary); font-size: 4.5pt; font-weight: 900; }
+.idc .idc-school-name { overflow: hidden; font-family: Georgia, serif; font-size: 6.4pt; font-weight: 800; line-height: 1.05; text-transform: uppercase; }
+.idc .idc-school-address { margin-top: .8mm; overflow: hidden; color: #ffffffc9; font-size: 3.4pt; line-height: 1.2; }
+.idc .idc-session { position: relative; z-index: 2; display: inline-block; margin-top: 1.5mm; padding: .7mm 2.2mm; border-radius: 99px; background: var(--accent); color: var(--primary); font-size: 3.8pt; font-weight: 900; letter-spacing: .3px; text-transform: uppercase; }
+
+.idc .idc-photo-frame { position: relative; z-index: 4; width: 21mm; height: 25mm; margin: -1mm auto 1.5mm; padding: 1mm; border-radius: 2.2mm; background: #fff; box-shadow: 0 1mm 3mm #1e324f38; }
+.idc .idc-photo { display: grid; place-items: center; width: 100%; height: 100%; overflow: hidden; border-radius: 1.4mm; background: var(--soft); color: #8292a6; font-size: 8pt; font-weight: 800; }
+.idc .idc-photo img { width: 100%; height: 100%; object-fit: cover; }
+
+.idc .idc-name { margin: 0 2mm; overflow: hidden; color: var(--primary); font-size: 8.6pt; font-weight: 900; line-height: 1.05; text-align: center; text-transform: uppercase; }
+.idc .idc-class-row { text-align: center; }
+.idc .idc-class { display: inline-block; margin: 1.2mm 0 1.7mm; padding: 1mm 3mm; border-radius: 99px; background: var(--soft); color: var(--secondary); font-size: 5.2pt; font-weight: 900; }
+
+.idc .idc-info { display: grid; grid-template-columns: 1fr 1fr; gap: 1.2mm 2mm; padding: 0 4mm; text-align: left; }
+.idc .idc-info div { min-width: 0; }
+.idc .idc-info span { display: block; color: var(--muted); font-size: 3.5pt; font-weight: 800; letter-spacing: .3px; text-transform: uppercase; }
+.idc .idc-info b { display: block; margin-top: .2mm; overflow: hidden; color: var(--ink); font-size: 4.8pt; white-space: nowrap; text-overflow: ellipsis; }
+
+.idc .idc-foot { position: absolute; left: 0; right: 0; bottom: 0; height: 7mm; padding: 2mm 3mm; overflow: hidden; background: var(--primary); color: #fff; font-size: 4pt; font-weight: 800; letter-spacing: .35px; text-align: center; white-space: nowrap; text-overflow: ellipsis; }
+.idc .idc-foot:before { content: ""; position: absolute; left: 0; right: 0; top: -1.3mm; height: 1.3mm; background: var(--accent); }
+
+/* back --------------------------------------------------------------------- */
+.idc .idc-back { padding: 5mm 4mm 4mm; background: linear-gradient(160deg, #fff, var(--soft)); }
+.idc .idc-back-title { padding: 1.5mm; border-radius: 1.5mm; background: var(--primary); color: #fff; font-size: 5.6pt; font-weight: 900; letter-spacing: .7px; text-align: center; text-transform: uppercase; }
+.idc .idc-qr { display: grid; place-items: center; width: 20mm; height: 20mm; margin: 3mm auto 1.5mm; padding: 1.2mm; border: 1px solid #ccd5df; border-radius: 1.5mm; background: #fff; }
+.idc .idc-qr > * { width: 100%; height: 100%; }
+.idc .idc-qr svg, .idc .idc-qr img, .idc .idc-qr canvas { width: 100% !important; height: 100% !important; }
+.idc .idc-scan { color: var(--muted); font-size: 3.8pt; text-align: center; }
+.idc .idc-back-info { margin-top: 2.5mm; padding: 2.5mm; border: 1px solid #d7dee7; border-radius: 1.8mm; background: #fff; font-size: 4.3pt; line-height: 1.6; }
+.idc .idc-back-info div { display: flex; justify-content: space-between; gap: 2mm; border-bottom: 1px dotted #d5dbe4; }
+.idc .idc-back-info div:last-child { border: 0; }
+.idc .idc-back-info span { flex: none; color: var(--muted); }
+.idc .idc-back-info b { overflow: hidden; color: var(--primary); text-align: right; white-space: nowrap; text-overflow: ellipsis; }
+.idc .idc-notice { margin: 2.5mm 1mm 0; color: #5f6d80; font-size: 3.9pt; line-height: 1.45; text-align: center; }
+.idc .idc-signature { position: absolute; left: 6mm; right: 6mm; bottom: 8.5mm; padding-top: 1mm; overflow: hidden; border-top: .25mm solid var(--ink); color: var(--primary); font-size: 3.8pt; font-weight: 800; text-align: center; white-space: nowrap; text-overflow: ellipsis; }
+.idc .idc-back-foot { position: absolute; left: 0; right: 0; bottom: 0; height: 6mm; padding: 1.8mm 2mm; overflow: hidden; background: var(--primary); color: #fff; font-size: 3.6pt; font-weight: 800; text-align: center; white-space: nowrap; text-overflow: ellipsis; }
+.idc .idc-watermark { position: absolute; z-index: 0; left: 50%; top: 46%; width: 30mm; height: 30mm; opacity: .05; transform: translate(-50%, -50%); pointer-events: none; }
+.idc .idc-watermark img { width: 100%; height: 100%; object-fit: contain; }
+
+/* ------------------------------------------------------------------- themes */
+.idc-executive { --primary: #102b4e; --secondary: #1f5c8c; --accent: #caa653; --soft: #edf3f8; border-radius: 2mm; }
+.idc-executive .idc-head { height: 27mm; background: linear-gradient(145deg, #091c34 0 62%, #173f68 62%); }
+.idc-executive .idc-head:after { left: 0; right: 0; bottom: -3mm; height: 6mm; border-radius: 0; background: #caa653; clip-path: polygon(0 0, 100% 52%, 100% 100%, 0 48%); }
+.idc-executive .idc-school-name { font-family: "Segoe UI", Arial, sans-serif; letter-spacing: .45px; }
+.idc-executive .idc-session { border-radius: .5mm; }
+.idc-executive .idc-photo-frame { border-radius: .7mm; box-shadow: 0 0 0 .35mm #caa653, 0 1mm 3mm #102b4e38; }
+.idc-executive .idc-photo, .idc-executive .idc-class { border-radius: .3mm; }
+.idc-executive .idc-foot, .idc-executive .idc-back-title, .idc-executive .idc-back-foot { border-radius: .5mm; letter-spacing: 1px; }
+.idc-executive .idc-back { background: linear-gradient(160deg, #fff 55%, #edf3f8); }
+
+.idc-platinum { --primary: #252b33; --secondary: #596473; --accent: #aeb6bf; --soft: #f0f2f4; border-radius: 2mm; }
+.idc-platinum:after { border-color: #89939e80; }
+.idc-platinum .idc-head { height: 22mm; padding-top: 3mm; border-top: 3mm solid #252b33; border-bottom: .35mm solid #aeb6bf; background: #fff; color: #252b33; }
+.idc-platinum .idc-head:after { display: none; }
+.idc-platinum .idc-school-name { font-family: "Segoe UI", Arial, sans-serif; letter-spacing: .5px; }
+.idc-platinum .idc-school-address { color: #78828d; }
+.idc-platinum .idc-logo { box-shadow: 0 0 0 .4mm #aeb6bf; }
+.idc-platinum .idc-session { margin-top: 2mm; border-radius: 0; background: #252b33; color: #fff; }
+.idc-platinum .idc-photo-frame { margin-top: 2mm; border-radius: 0; box-shadow: 0 0 0 .3mm #9aa3ad; }
+.idc-platinum .idc-photo { border-radius: 0; }
+.idc-platinum .idc-class { border-radius: 0; background: #252b33; color: #fff; }
+.idc-platinum .idc-back { background: #fff; }
+.idc-platinum .idc-back-title, .idc-platinum .idc-qr, .idc-platinum .idc-back-info { border-radius: 0; }
+
+.idc-maroon { --primary: #641f2c; --secondary: #9a3245; --accent: #d8b564; --soft: #f8eeee; border-radius: 3mm; }
+.idc-maroon .idc-head { height: 26mm; background: linear-gradient(155deg, #4b1420, #7b2637); }
+.idc-maroon .idc-head:after { left: -10%; right: -10%; bottom: -5mm; height: 9mm; border-radius: 50%; background: #7b2637; }
+.idc-maroon .idc-school-name { font-family: Georgia, "Times New Roman", serif; font-size: 6.6pt; }
+.idc-maroon .idc-session { color: #4b1420; }
+.idc-maroon .idc-photo-frame { width: 23mm; height: 23mm; border-radius: 50%; box-shadow: 0 0 0 .5mm #d8b564, 0 1mm 3mm #4b142038; }
+.idc-maroon .idc-photo { border-radius: 50%; }
+.idc-maroon .idc-class { background: #f7e8eb; color: #7b2637; }
+.idc-maroon .idc-foot { font-family: Georgia, serif; letter-spacing: .8px; }
+.idc-maroon .idc-back { background: radial-gradient(circle at top, #faeff1, transparent 42%), #fff; }
+.idc-maroon .idc-signature { color: #641f2c; }
+
+.idc-classic { --primary: #143e6b; --secondary: #1e76ad; --accent: #e2ad38; --soft: #e9f4fb; }
+.idc-classic .idc-head { background: linear-gradient(140deg, #102e52, var(--primary), #1d5f95); }
+.idc-classic .idc-head:after { background: #1d5f95; }
+.idc-classic .idc-foot, .idc-classic .idc-back-title, .idc-classic .idc-back-foot { background: linear-gradient(90deg, #102e52, var(--primary), #1d5f95); }
+
+.idc-blocks { --primary: #4f3f9c; --secondary: #e0527d; --accent: #f5c544; --soft: #f2efff; border-radius: 2mm; }
+.idc-blocks .idc-head { height: 23mm; background: linear-gradient(120deg, #4f3f9c 0 57%, #e0527d 57%); }
+.idc-blocks .idc-head:after { left: -15mm; right: auto; bottom: -9mm; width: 90mm; height: 13mm; border-radius: 50%; background: #e0527d; transform: rotate(-7deg); }
+.idc-blocks .idc-photo-frame { margin-top: 0; }
+.idc-blocks .idc-foot { background: linear-gradient(90deg, #4f3f9c 0 60%, #e0527d 60%); }
+.idc-blocks .idc-back { background: linear-gradient(145deg, #fff 50%, #fff0f5); }
+.idc-blocks .idc-back-title, .idc-blocks .idc-back-foot { background: linear-gradient(90deg, #4f3f9c, #e0527d); }
+
+.idc-fresh { --primary: #155c52; --secondary: #15917d; --accent: #f1b83d; --soft: #e8f7f3; border-radius: 4mm; }
+.idc-fresh .idc-head { height: 26mm; background: linear-gradient(145deg, #0f4a43, #147364); }
+.idc-fresh .idc-head:after { bottom: -4mm; height: 8mm; border-radius: 0 0 80% 20%; background: #147364; }
+.idc-fresh .idc-logo { border-radius: 2mm; transform: rotate(-4deg); }
+.idc-fresh .idc-photo-frame { width: 23mm; height: 23mm; margin-top: -1mm; border-radius: 50%; }
+.idc-fresh .idc-photo { border-radius: 50%; }
+.idc-fresh .idc-back { background: radial-gradient(circle at top right, #d9f4ed, transparent 40%), #fff; }
+
+/* --------------------------------------------------------------- design picker */
+.idc-picker { display: grid; gap: 7px; }
+.idc-picker-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(104px, 1fr)); gap: 7px; }
+.idc-picker-grid button { display: grid; gap: 5px; padding: 8px; border: 1px solid #dce1e8; border-radius: 8px; background: #fff; color: #3f4c5f; font-size: 8px; font-weight: 700; text-align: left; }
+.idc-picker-grid button.active { border-color: #2457d6; box-shadow: 0 0 0 2px #2457d633; color: #2457d6; }
+.idc-picker-grid button i { display: block; height: 20px; border-radius: 4px; }
+.idc-picker-grid button small { color: #8792a6; font-size: 7px; font-weight: 600; }
+.idc-picker-note { color: #8792a6; font-size: 8px; line-height: 1.5; }
+.theme-dark .idc-picker-grid button { background: var(--surface-soft); border-color: #344156; color: #e8eef7; }
+
+.idc-swatch-custom    { background: repeating-linear-gradient(45deg, #cfd8e6 0 4px, #eef2f7 4px 8px); }
+.idc-swatch-executive { background: linear-gradient(135deg, #091c34 60%, #caa653); }
+.idc-swatch-platinum  { background: linear-gradient(135deg, #252b33 60%, #aeb6bf); }
+.idc-swatch-maroon    { background: linear-gradient(135deg, #4b1420 60%, #d8b564); }
+.idc-swatch-classic   { background: linear-gradient(135deg, #102e52, #1d5f95 70%, #e2ad38); }
+.idc-swatch-blocks    { background: linear-gradient(120deg, #4f3f9c 57%, #e0527d 57%); }
+.idc-swatch-fresh     { background: linear-gradient(145deg, #0f4a43, #147364 70%, #f1b83d); }
+
+@media print {
+  .idc { box-shadow: none !important; break-inside: avoid; }
+  .idc-picker { display: none !important; }
+}
