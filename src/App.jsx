@@ -1444,7 +1444,8 @@ td.lbl{color:#333;width:130px;font-weight:600}
         const HEADER_MAP = {
           name: 'name', fullname: 'name', studentname: 'name', studentfullname: 'name', nameofstudent: 'name',
           class: 'className', classname: 'className', grade: 'className', standard: 'className', classsection: 'className',
-          section: 'section',
+          std: 'className', classstd: 'className', classno: 'className', classgrade: 'className', clas: 'className',
+          section: 'section', sec: 'section', sectionname: 'section', div: 'section', division: 'section',
           rollnumber: 'rollNumber', rollno: 'rollNumber', roll: 'rollNumber',
           admissionnumber: 'roll', admissionno: 'roll', admno: 'roll', admissionnu: 'roll',
           guardian: 'guardian', guardianname: 'guardian', nameofguardian: 'guardian',
@@ -1606,7 +1607,13 @@ td.lbl{color:#333;width:130px;font-weight:600}
         let success = 0, failed = 0
         for (const row of parsed) {
           try {
-            const className = row.section ? `${row.className}-${row.section}` : row.className
+            // Never let a lone Section value land in the class slot. If the sheet's class column
+            // was not recognised, row.className is empty; combining it with a section used to
+            // produce "undefined-A", and a bare section could read as the class. Section is only
+            // appended when there is a real class to attach it to.
+            const classBase = String(row.className || '').trim()
+            const sectionPart = String(row.section || '').trim()
+            const className = classBase && sectionPart ? `${classBase}-${sectionPart}` : classBase
             // Father and Guardian are one identity in this app (see studentToRow), so whichever
             // column the sheet provided fills both. Same for the contact number.
             const contactName = row.fatherName || row.guardian || ''
