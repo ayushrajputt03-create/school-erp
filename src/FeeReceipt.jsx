@@ -54,7 +54,10 @@ const numberToWords = value => {
 }
 
 export default function FeeReceipt({ receipt, student, school, settings = {}, onClose }) {
-  const schoolName = school?.schoolName || school?.name || 'NXT School ERP'
+  const schoolName = school?.schoolName || school?.name || 'SCHOOL99'
+  // Match how every other module resolves the crest (report card, certificates): the profile stores
+  // it under logoURL, so checking only school.logo left the receipt on the "NO" initials fallback.
+  const logo = school?.logoURL || school?.logo || school?.schoolLogo || ''
   const feeItems = receipt.feeItems?.length
     ? receipt.feeItems
     : [{ head: 'Fee Payment', due: receipt.totalDue || receipt.amount, discount: receipt.discount || 0, total: receipt.totalDue || receipt.amount }]
@@ -80,15 +83,15 @@ export default function FeeReceipt({ receipt, student, school, settings = {}, on
         </div>
         <div>
           <button className="secondary-button" type="button" onClick={onClose}><X size={16} /> Close</button>
-          <button className="primary-button" type="button" onClick={() => safePrint('#printable-fee-receipt', { pageSize: 'A5', pageMargin: '8mm' })}><Printer size={16} /> Print Receipt</button>
+          <button className="primary-button" type="button" onClick={() => safePrint('#printable-fee-receipt', { pageSize: 'A4', pageMargin: '12mm' })}><Printer size={16} /> Print Receipt</button>
         </div>
       </div>
 
       <article className="fee-receipt-paper" id="printable-fee-receipt">
         <header className="fee-receipt-header">
           <div className="fee-receipt-logo">
-            {school?.logo
-              ? <img src={school.logo} alt={`${schoolName} logo`} />
+            {logo
+              ? <img src={logo} alt={`${schoolName} logo`} />
               : <span>{schoolName.slice(0, 2).toUpperCase()}</span>}
           </div>
           <div className="fee-receipt-school">

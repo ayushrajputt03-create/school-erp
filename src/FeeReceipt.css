@@ -2,10 +2,10 @@
 .fee-receipt-shell{width:min(820px,100%);margin:0 auto}
 .fee-receipt-toolbar{display:flex;align-items:center;justify-content:space-between;gap:16px;margin-bottom:12px;padding:12px 14px;border:1px solid rgba(255,255,255,.15);border-radius:8px;background:#101827;color:#fff;box-shadow:0 18px 50px rgba(0,0,0,.25)}
 .fee-receipt-toolbar>div,.fee-receipt-toolbar>div:last-child{display:flex;align-items:center;gap:10px}.fee-receipt-toolbar>div:first-child{flex-direction:column;align-items:flex-start;gap:1px}.fee-receipt-toolbar span{font-size:11px;color:#9eabc0}
-.fee-receipt-paper{min-height:1120px;padding:38px 42px;background:#fff;color:#18202c;box-shadow:0 24px 70px rgba(0,0,0,.28);font-family:Arial,Helvetica,sans-serif}
+.fee-receipt-paper{padding:30px 34px;background:#fff;color:#18202c;box-shadow:0 24px 70px rgba(0,0,0,.28);font-family:Arial,Helvetica,sans-serif}
 .fee-receipt-header{display:grid;grid-template-columns:82px 1fr 82px;align-items:center;gap:18px;border-bottom:2px solid #052659;padding-bottom:18px}
-.fee-receipt-logo{width:72px;height:72px;display:grid;place-items:center;overflow:hidden;border:2px solid #052659;border-radius:50%;background:#edf5fb;color:#052659;font-weight:800;font-size:20px}
-.fee-receipt-logo img{width:100%;height:100%;object-fit:cover}
+.fee-receipt-logo{width:72px;height:72px;display:grid;place-items:center;overflow:hidden;border:2px solid #052659;border-radius:10px;background:#edf5fb;color:#052659;font-weight:800;font-size:20px}
+.fee-receipt-logo img{width:100%;height:100%;object-fit:contain;padding:4px}
 .fee-receipt-school{text-align:center}.fee-receipt-school h1{margin:0 0 7px;color:#052659;font-size:26px;line-height:1.15;letter-spacing:0}.fee-receipt-school p{margin:3px 0;color:#4b596d;font-size:11px;line-height:1.4}
 .fee-receipt-copy{align-self:start;text-align:right;color:#758197;font-size:8px;font-weight:700;letter-spacing:1px}
 .fee-receipt-paper>h2{width:max-content;margin:22px auto 18px;padding:8px 28px;border:2px solid #052659;color:#052659;font-size:17px;letter-spacing:1.5px}
@@ -17,4 +17,22 @@
 .fee-receipt-remark{margin:12px 0 0;font-size:10px}.fee-receipt-signatures{display:grid;grid-template-columns:repeat(3,1fr);gap:36px;margin-top:70px;text-align:center}.fee-receipt-signatures span{display:block;border-top:1px solid #46556c}.fee-receipt-signatures strong{display:block;margin-top:7px;color:#052659;font-size:10px}.fee-receipt-signatures small{color:#7a8596;font-size:8px}
 .fee-receipt-paper footer{margin-top:34px;padding-top:12px;border-top:1px solid #aab4c2;text-align:center;color:#657289;font-size:8px}.fee-receipt-paper footer p{margin:0 0 6px;font-style:italic}.fee-receipt-paper footer strong,.fee-receipt-paper footer span,.fee-receipt-paper footer small{display:block;margin-top:3px}
 @media(max-width:640px){.fee-receipt-overlay{padding:10px}.fee-receipt-toolbar{align-items:flex-start;flex-direction:column}.fee-receipt-toolbar>div:last-child{width:100%;justify-content:flex-end}.fee-receipt-paper{min-height:0;padding:24px 18px}.fee-receipt-header{grid-template-columns:58px 1fr}.fee-receipt-logo{width:54px;height:54px}.fee-receipt-copy{display:none}.fee-receipt-school h1{font-size:18px}.fee-receipt-student dl{grid-template-columns:1fr}.fee-receipt-payment{grid-template-columns:1fr}.fee-receipt-payment div{border-right:0;border-bottom:1px solid #8797ab}.fee-receipt-payment div:last-child{border-bottom:0}.fee-receipt-signatures{gap:14px;margin-top:54px}.fee-receipt-table th,.fee-receipt-table td{padding:7px 5px;font-size:9px}}
-@media print{.fee-receipt-overlay{position:static;display:block;overflow:visible;padding:0;background:#fff}.fee-receipt-shell{width:100%;margin:0}.fee-receipt-toolbar{display:none!important}.fee-receipt-paper{display:block!important;width:100%;min-height:0;padding:0;box-shadow:none;print-color-adjust:exact;-webkit-print-color-adjust:exact}.fee-receipt-school h1{font-size:21px}.fee-receipt-signatures{margin-top:48px}}
+/* Print: compact so the whole receipt sits in the top half of an A4 sheet (half-page receipt). */
+@media print{
+.fee-receipt-overlay{position:static;display:block;overflow:visible;padding:0;background:#fff}
+.fee-receipt-shell{width:100%;margin:0}
+.fee-receipt-toolbar{display:none!important}
+.fee-receipt-paper{display:block!important;width:100%;min-height:0;padding:0;box-shadow:none;font-size:10px;print-color-adjust:exact;-webkit-print-color-adjust:exact}
+.fee-receipt-header{gap:12px;padding-bottom:9px}
+.fee-receipt-logo{width:52px;height:52px}
+.fee-receipt-school h1{font-size:17px;margin-bottom:3px}
+.fee-receipt-school p{font-size:8.5px;margin:1px 0}
+.fee-receipt-paper>h2{margin:9px auto 7px;padding:4px 18px;font-size:12px}
+.fee-receipt-meta{margin-bottom:7px}.fee-receipt-meta p{font-size:9.5px}
+.fee-receipt-student{padding:7px 9px}.fee-receipt-student dl{gap:4px 18px}.fee-receipt-student dt{font-size:8.5px}.fee-receipt-student dd{font-size:9.5px}
+.fee-receipt-table{margin-top:9px;font-size:9.5px}.fee-receipt-table th,.fee-receipt-table td{padding:4px 7px}
+.fee-receipt-payment{margin-top:9px}.fee-receipt-payment div{padding:6px 9px}.fee-receipt-payment span{font-size:8px}.fee-receipt-payment strong{font-size:9.5px}
+.fee-receipt-words{margin-top:8px;padding:7px 9px}
+.fee-receipt-signatures{margin-top:20px;gap:18px}
+.fee-receipt-paper footer{margin-top:12px;padding-top:7px}
+}

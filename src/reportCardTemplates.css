@@ -221,8 +221,15 @@
 .rt-kids.theme-rainbow .rt-inner { padding-top: 12mm; }
 
 @media print {
-  .report-card-paper.rt { width: 190mm !important; min-width: 190mm !important; max-width: 190mm !important; }
-  .rt .rt-inner { padding: 8mm 8mm 6mm; }
+  /* A4 printable width is 190mm (210mm − 2×10mm @page margin). Sizing the card to the full 190mm
+     left zero tolerance, so printer/rounding margins clipped the rightmost column. 186mm keeps ~2mm
+     safety each side while staying centered. */
+  .report-card-paper.rt { width: 186mm !important; min-width: 0 !important; max-width: 186mm !important; margin: 0 auto !important; }
+  .rt .rt-inner { padding: 8mm 7mm 6mm; }
+  /* Slightly smaller table text in print so columns never crowd the page edge. */
+  .rt .rt-table th { font-size: 5.3pt; padding: 1.2mm .4mm; }
+  .rt .rt-table td { font-size: 6pt; padding: 1.1mm .5mm; }
+  .rt .rt-table td:first-child { padding-left: 1.4mm; }
 }
 
 /* The preview sits inside a scrolling two-column grid. An ancestor that still scrolls during

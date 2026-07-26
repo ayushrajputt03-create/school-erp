@@ -133,8 +133,8 @@ export default function AuthScreen() {
       <section className="auth-brand">
         <div className="auth-brand-inner">
           <div className="auth-app">
-            <img className="auth-logo" src="/nxt-logo-transparent.png" alt="NXT School ERP" />
-            <strong>NXT School ERP</strong>
+            <img className="auth-logo" src="/nxt-logo-transparent.png" alt="SCHOOL99" />
+            <strong>SCHOOL99</strong>
           </div>
           <div className="auth-brand-copy">
             <h1>Get Started with Us</h1>

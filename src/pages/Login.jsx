@@ -32,7 +32,7 @@ export default function Login() {
   return (
     <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#F9FAFB', fontFamily: 'system-ui, sans-serif' }}>
       <div style={{ background: '#fff', borderRadius: 12, border: '1px solid #e5e7eb', padding: '2rem', width: 360 }}>
-        <h1 style={{ fontSize: 20, fontWeight: 600, marginBottom: 4 }}>🏫 School ERP</h1>
+        <h1 style={{ fontSize: 20, fontWeight: 600, marginBottom: 4 }}>🏫 SCHOOL99</h1>
         <p style={{ fontSize: 13, color: '#6b7280', marginBottom: '1.5rem' }}>
           {mode === 'login' ? 'Admin login karo' : 'Naya account banao'}
         </p>

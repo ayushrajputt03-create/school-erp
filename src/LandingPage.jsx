@@ -99,7 +99,7 @@ const STEPS = [
 ]
 
 const TESTIMONIALS = [
-  { quote: 'Northstar has simplified fee management and administration for our entire school.', name: 'Principal', school: 'School name to be added' },
+  { quote: 'SCHOOL99 has simplified fee management and administration for our entire school.', name: 'Principal', school: 'School name to be added' },
   { quote: 'Attendance and report cards that took days now take minutes for our teachers.', name: 'Vice Principal', school: 'School name to be added' },
   { quote: 'Parents love the portal — fewer office calls and far more transparency.', name: 'Administrator', school: 'School name to be added' },
 ]
@@ -137,7 +137,7 @@ function HeroMockup() {
     <div className="ls-mockup-glass">
       <div className="ls-mockup-head">
         <span className="ls-mockup-dot" /><span className="ls-mockup-dot" /><span className="ls-mockup-dot" />
-        <b>Northstar · Command Center</b>
+        <b>SCHOOL99 · Command Center</b>
       </div>
       <div className="ls-mockup-stats">
         <div><span>Students</span><strong>1,248</strong><i className="up">▲ 4.2%</i></div>
@@ -189,7 +189,7 @@ export default function LandingPage() {
       <div className="ls-nav-inner">
         <a href="/" className="ls-logo">
           <img src="/nxt-logo-transparent.png" alt="" onError={e => { e.target.style.display = 'none' }} />
-          <span>Northstar <b>School OS</b></span>
+          <span><b>SCHOOL99</b></span>
         </a>
         <nav className="ls-nav-links">
           {NAV_LINKS.map(([id, label]) => <a key={id} href={`#${id}`} onClick={e => scrollTo(id, e)}>{label}</a>)}
@@ -214,7 +214,7 @@ export default function LandingPage() {
       <div className="ls-hero-inner">
         <div className="ls-hero-copy reveal">
           <span className="ls-badge"><Sparkles size={14} /> Trusted by Schools Across Delhi NCR</span>
-          <h1>Northstar <span className="ls-grad">School OS</span></h1>
+          <h1><span className="ls-grad">SCHOOL99</span></h1>
           <p className="ls-tagline">The Complete Operating System for Modern Schools</p>
           <p className="ls-hero-desc">Manage admissions, attendance, academics, fees, certificates, communication, staff and reports from one intelligent platform built for schools.</p>
           <div className="ls-hero-cta">
@@ -256,7 +256,7 @@ export default function LandingPage() {
 
     {/* PRODUCT SHOWCASE */}
     <section className="ls-section alt" id="showcase">
-      <div className="ls-head reveal"><span className="ls-eyebrow">Product</span><h2>See Northstar in Action</h2><p>Designed for administrators, teachers and parents.</p></div>
+      <div className="ls-head reveal"><span className="ls-eyebrow">Product</span><h2>See SCHOOL99 in Action</h2><p>Designed for administrators, teachers and parents.</p></div>
       <div className="ls-showcase reveal">
         {SHOWCASE.map(s => <article key={s.title} className="ls-showcase-card">
           <div className="ls-showcase-glass">
@@ -304,7 +304,7 @@ export default function LandingPage() {
 
     {/* WHY */}
     <section className="ls-section" id="why">
-      <div className="ls-head reveal"><span className="ls-eyebrow">Why Northstar</span><h2>Built for Indian Schools</h2><p>Priced for reality, designed for speed.</p></div>
+      <div className="ls-head reveal"><span className="ls-eyebrow">Why SCHOOL99</span><h2>Built for Indian Schools</h2><p>Priced for reality, designed for speed.</p></div>
       <div className="ls-why-grid reveal">
         {WHY.map(w => <div key={w.title} className="ls-why">
           <span className="ls-why-icon"><w.icon size={24} /></span>
@@ -391,7 +391,7 @@ export default function LandingPage() {
       <div className="ls-final-glow" />
       <div className="ls-final-content reveal">
         <h2>Ready to Transform Your School?</h2>
-        <p>Join forward-thinking schools using Northstar School OS to automate administration and improve communication.</p>
+        <p>Join forward-thinking schools using SCHOOL99 to automate administration and improve communication.</p>
         <div className="ls-final-cta">
           <a className="ls-btn ls-btn-white lg" href="/register">Get Started Free <ArrowRight size={18} /></a>
           <a className="ls-btn ls-btn-ghost lg" href="https://wa.me/919999999999" target="_blank" rel="noopener noreferrer">Schedule Demo</a>
@@ -408,7 +408,7 @@ export default function LandingPage() {
       <div className="ls-footer-inner">
         <div className="ls-footer-brand">
           <img src="/nxt-logo-transparent.png" alt="" onError={e => { e.target.style.display = 'none' }} />
-          <span>Northstar <b>School OS</b></span>
+          <span><b>SCHOOL99</b></span>
           <small>The complete operating system for modern schools, by NXT Eleveta Media.</small>
         </div>
         <div className="ls-footer-cols">

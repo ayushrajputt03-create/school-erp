@@ -160,15 +160,56 @@ const formatBytes = bytes => {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
 }
 
+// Student photos are stored as base64 in studentPhotos/{schoolId}/{id} (Spark plan has no Storage),
+// so keeping them tiny matters for both bandwidth and the 400KB per-node validate cap. Target ~10KB.
+const STUDENT_PHOTO_TARGET_BYTES = 10 * 1024
+
+// Decode via an <img>, which handles any format the browser natively supports (jpeg/png/webp/gif and,
+// on Safari, heic). browser-image-compression's maxSizeMB was only best-effort and could overshoot;
+// this iterates quality then dimensions so the result is *guaranteed* under the target.
+async function loadImageFromFile(file) {
+  const source = await fileToDataUrl(file)
+  return new Promise((resolve, reject) => {
+    const image = new Image()
+    image.onload = () => resolve(image)
+    image.onerror = () => reject(new Error('Could not read this image. Please try a JPG or PNG photo.'))
+    image.src = source
+  })
+}
+
+function canvasToJpegBlob(canvas, quality) {
+  return new Promise(resolve => canvas.toBlob(blob => resolve(blob), 'image/jpeg', quality))
+}
+
+function blobToPhotoFile(blob, originalName) {
+  const base = (originalName || 'photo').replace(/\.[^.]+$/, '')
+  return new File([blob], `${base}.jpg`, { type: 'image/jpeg' })
+}
+
 async function compressPhoto(file) {
-  const options = {
-    maxSizeMB: 0.1,
-    maxWidthOrHeight: 260,
-    useWebWorker: true,
-    fileType: 'image/jpeg',
-    initialQuality: 0.68,
+  const image = await loadImageFromFile(file)
+  let smallest = null
+  // Passport-style photos stay legible even when small; cap the long edge, then shrink if needed.
+  for (let maxEdge = 320; maxEdge >= 160; maxEdge = Math.round(maxEdge * 0.8)) {
+    const scale = Math.min(1, maxEdge / Math.max(image.width, image.height))
+    const width = Math.max(1, Math.round(image.width * scale))
+    const height = Math.max(1, Math.round(image.height * scale))
+    const canvas = document.createElement('canvas')
+    canvas.width = width
+    canvas.height = height
+    const context = canvas.getContext('2d')
+    context.imageSmoothingEnabled = true
+    context.imageSmoothingQuality = 'high'
+    context.drawImage(image, 0, 0, width, height)
+    for (let quality = 0.7; quality >= 0.3; quality -= 0.1) {
+      const blob = await canvasToJpegBlob(canvas, quality)
+      if (!blob) continue
+      if (!smallest || blob.size < smallest.size) smallest = blob
+      if (blob.size <= STUDENT_PHOTO_TARGET_BYTES) return blobToPhotoFile(blob, file.name)
+    }
   }
-  return imageCompression(file, options)
+  // Nothing hit the target (rare, e.g. a huge flat image); return the smallest we produced.
+  return blobToPhotoFile(smallest, file.name)
 }
 
 async function compressEmployeePhoto(file) {
@@ -184,7 +225,9 @@ async function compressEmployeePhoto(file) {
 
 async function prepareStudentPhoto(file) {
   if (!file) return null
-  if (!/^image\/(jpe?g|png)$/i.test(file.type)) throw new Error('Please choose a JPG, JPEG or PNG photo.')
+  // Some phones report an empty or non-standard type (heic/webp) for camera-roll images; don't reject
+  // on the label. Only block obvious non-images, and let the decoder be the real gate below.
+  if (file.type && !file.type.startsWith('image/')) throw new Error('Please choose an image file (JPG, PNG, WEBP).')
   const compressed = await compressPhoto(file)
   return {
     file: compressed,
@@ -225,7 +268,7 @@ function PhotoUploader({ photo, onPhoto, onRemove, compact = false, disabled = f
   return <div className={`student-photo-upload ${compact ? 'compact' : ''}`}>
     <label className={`student-photo-picker ${photo?.preview ? 'has-photo' : ''} ${busy ? 'is-busy' : ''}`} htmlFor={inputId}>
       {photo?.preview ? <img src={photo.preview} alt="Student photo preview" /> : <span><strong>{busy ? 'Compressing...' : 'Click to Upload Photo'}</strong><Camera size={compact ? 18 : 24} /><em>3.5 x 4.5</em></span>}
-      <input id={inputId} disabled={disabled || busy} type="file" accept="image/jpeg,image/jpg,image/png" onChange={selectPhoto} />
+      <input id={inputId} disabled={disabled || busy} type="file" accept="image/*" onChange={selectPhoto} />
     </label>
     {photo?.preview && <button type="button" className="student-photo-remove" onClick={onRemove} aria-label="Remove photo"><X size={14} /></button>}
     {!compact && photo?.compressedSize && <small className="compression-info">Original: {formatBytes(photo.originalSize)} &rarr; Compressed: {formatBytes(photo.compressedSize)} <b>OK</b></small>}
@@ -523,8 +566,8 @@ function Sidebar({ page, setPage, open, close, schoolName, schoolLogo, schoolCod
     <>
       <aside className={`sidebar ${open ? 'open' : ''}`}>
         <div className="brand">
-          <img className="app-brand-logo" src="/nxt-logo-transparent.png" alt="NXT School ERP" />
-          <div><strong>NXT</strong><span>School ERP</span></div>
+          <img className="app-brand-logo" src="/nxt-logo-transparent.png" alt="SCHOOL99" />
+          <div><strong>SCHOOL99</strong><span>School ERP</span></div>
           <button className="icon-button sidebar-close" onClick={close}><X size={18} /></button>
         </div>
         <div className="school-switcher">
@@ -704,7 +747,7 @@ function ParentAccounts({ parents = {}, students = [], school = {}, onSaveParent
     <section className="panel"><div className="table-scroll"><table className="data-table"><thead><tr><th>Parent</th><th>Phone</th><th>Children</th><th>Code</th><th>Status</th><th>Last Login</th><th>Actions</th></tr></thead><tbody>
       {filtered.map(parent => {
         const linked = Object.keys(parent.students || {}).map(id => studentMap[id]).filter(Boolean)
-        return <tr key={parent.id || parent.phone}><td><strong>{parent.name || 'Parent'}</strong><small>{parent.email || ''}</small></td><td>{parent.phone}</td><td>{linked.map(student => <span key={student.id} className="parent-child-pill">{student.name} · {student.className}</span>)}</td><td><button className="school-code-chip" onClick={() => navigator.clipboard?.writeText(school.schoolCode || '')}>{school.schoolCode || '-'}</button></td><td><span className={`status ${parent.status === 'inactive' ? 'overdue' : parent.mustChangePassword ? 'pending' : 'paid'}`}>{parent.status === 'inactive' ? 'Inactive' : parent.mustChangePassword ? 'Must Change' : 'Active'}</span></td><td>{parent.lastLogin ? new Date(parent.lastLogin).toLocaleString('en-IN') : '-'}</td><td><div className="table-actions"><button onClick={() => reset(parent)}>Reset</button><button onClick={() => toggle(parent)}>{parent.status === 'inactive' ? 'Activate' : 'Deactivate'}</button><button onClick={() => whatsapp(parent)}>WhatsApp</button><button onClick={() => printCards([parent])}>Print</button></div></td></tr>
+        return <tr key={parent.id || parent.phone}><td><strong>{cleanPersonName(parent.name) || cleanPersonName(linked[0]?.fatherName) || 'Parent'}</strong><small>{parent.email || ''}</small></td><td>{parent.phone}</td><td>{linked.map(student => <span key={student.id} className="parent-child-pill">{student.name} · {student.className}</span>)}</td><td><button className="school-code-chip" onClick={() => navigator.clipboard?.writeText(school.schoolCode || '')}>{school.schoolCode || '-'}</button></td><td><span className={`status ${parent.status === 'inactive' ? 'overdue' : parent.mustChangePassword ? 'pending' : 'paid'}`}>{parent.status === 'inactive' ? 'Inactive' : parent.mustChangePassword ? 'Must Change' : 'Active'}</span></td><td>{parent.lastLogin ? new Date(parent.lastLogin).toLocaleString('en-IN') : '-'}</td><td><div className="table-actions"><button onClick={() => reset(parent)}>Reset</button><button onClick={() => toggle(parent)}>{parent.status === 'inactive' ? 'Activate' : 'Deactivate'}</button><button onClick={() => whatsapp(parent)}>WhatsApp</button><button onClick={() => printCards([parent])}>Print</button></div></td></tr>
       })}
       {!filtered.length && <tr><td colSpan={7}><div className="empty-state">No parent accounts yet. Add students with father phone to auto-create parent logins.</div></td></tr>}
     </tbody></table></div></section>
@@ -1421,7 +1464,7 @@ td.lbl{color:#333;width:130px;font-weight:600}
 <div class="sec">PARENT / GUARDIAN</div>
 <table>${row('Father Name', d.fatherName, 'Mother Name', d.motherName)}${row('Guardian', d.guardian, 'Mobile', d.phone)}${row('Email', d.email, '', '')}${row('Address', d.address, '', '')}</table>
 <div class="sign"><div>Parent Signature</div><div>Principal Signature</div></div>
-<div class="note">This is a system-generated admission form from ${esc(s.schoolName || 'the school')} · Northstar School OS.</div>
+<div class="note">This is a system-generated admission form from ${esc(s.schoolName || 'the school')} · SCHOOL99.</div>
 </body></html>`
     const w = window.open('', '_blank')
     if (!w) { alert('Please allow pop-ups for this site to print the admission form.'); return }
@@ -2024,6 +2067,17 @@ const tones = ['blue', 'violet', 'green', 'orange', 'cyan', 'pink']
 // students node. Anything else (an https Storage URL, or empty) stays on the row as-is.
 const isInlinePhoto = value => typeof value === 'string' && value.startsWith('data:')
 
+// Older imports (and some source sheets) dropped the Gender column's value into the guardian/father
+// name field, so parent accounts built from those rows stored "Male"/"Female" as the parent name.
+// Treat a bare gender token in a name slot as "no name" so it never displays or gets re-persisted.
+// Non-destructive: only exact gender words are filtered, real names (incl. those starting with M/F)
+// are left untouched, and stored data is never rewritten unless the record is explicitly edited.
+const GENDER_TOKENS = new Set(['male', 'female', 'other', 'm', 'f', 'boy', 'girl', 'transgender'])
+const cleanPersonName = value => {
+  const text = String(value || '').trim()
+  return GENDER_TOKENS.has(text.toLowerCase()) ? '' : text
+}
+
 function studentFromRow(row, index) {
   const fullName = row.full_name || row.name || row.fullName || ''
   const className = row.class_name || row.class || row.className || ''
@@ -2035,7 +2089,11 @@ function studentFromRow(row, index) {
   // different stored fields with different priorities (guardian_name vs father_name), so a record
   // whose two fields drifted showed two different names. Derive both from one priority order here
   // so every surface renders the same value. Same for the contact phone.
-  const guardianName = row.father_name || row.fatherName || row.guardian_name || row.guardianName || ''
+  // Clean each candidate individually, not the collapsed result: a class-12 batch import dropped the
+  // Gender value into father_name for some records, so cleaning only the OR-result would blank the row
+  // even when a real name still lives in guardian_name. Per-field cleaning skips the gender token and
+  // recovers the real name from the next field when one exists.
+  const guardianName = cleanPersonName(row.father_name) || cleanPersonName(row.fatherName) || cleanPersonName(row.guardian_name) || cleanPersonName(row.guardianName) || ''
   const contactPhone = row.father_phone || row.fatherPhone || row.guardian_phone || row.guardianPhone || row.parent_login_phone || row.phone || ''
   return {
     id: row.id,
@@ -2262,7 +2320,7 @@ function buildParentAccount(existing = {}, studentId, student, schoolProfile = {
   return {
     id: phone,
     phone,
-    name: existing.name || student.fatherName || student.guardian || 'Parent',
+    name: cleanPersonName(existing.name) || cleanPersonName(student.fatherName) || cleanPersonName(student.guardian) || 'Parent',
     email: existing.email || student.fatherEmail || '',
     address: existing.address || student.address || '',
     students: currentStudents,
@@ -3842,7 +3900,7 @@ function useSchoolWorkspace(session) {
   }
 
   const restoreBackup = async payload => {
-    if (payload?.format !== 'northstar-school-backup' || payload?.version !== 1 || !payload?.data) throw new Error('This is not a valid Northstar backup file.')
+    if (payload?.format !== 'northstar-school-backup' || payload?.version !== 1 || !payload?.data) throw new Error('This is not a valid SCHOOL99 backup file.')
     if (payload.school?.id && workspace.schoolId && payload.school.id !== workspace.schoolId) throw new Error('This backup belongs to a different school account.')
     const restoredStudents = Object.entries(payload.data.students || {}).map(([id, row], index) => studentFromRow({ id, ...row }, index))
     const restoredAdmissionCounter = Math.max(0, ...Object.values(payload.data.students || {}).map(row => admissionValue(row.admission_number)))

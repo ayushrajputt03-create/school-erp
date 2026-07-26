@@ -79,12 +79,12 @@ function FormalTemplate({ theme, school, student, exam, record, summary, parts, 
 
       <div className="rt-heading"><h3>Scholastic Performance</h3><span>Maximum {summary.totalMax} marks</span></div>
       <table className="rt-table">
-        <thead><tr><th>Subject</th><th>Max</th><th>Obtained</th><th>%</th><th>Grade</th><th>Remark</th></tr></thead>
+        <thead><tr><th>Subject</th><th>Max</th><th>Obtained</th><th>Remark</th></tr></thead>
         <tbody>{summary.subjects.map(row => <tr key={row.subject}>
           <td>{row.subject}</td><td>{row.maxMarks}</td><td className="rt-total">{row.obtained}</td>
-          <td>{row.percent}%</td><td className="rt-grade">{row.grade}</td><td>{row.remarks || '—'}</td>
+          <td>{row.remarks || '—'}</td>
         </tr>)}</tbody>
-        <tfoot><tr><td>Overall</td><td>{summary.totalMax}</td><td className="rt-total">{summary.obtained}</td><td>{summary.percentage}%</td><td className="rt-grade">{summary.grade}</td><td>{summary.promotionStatus}</td></tr></tfoot>
+        <tfoot><tr><td>Overall</td><td>{summary.totalMax}</td><td className="rt-total">{summary.obtained}</td><td>{summary.promotionStatus}</td></tr></tfoot>
       </table>
 
       <div className="rt-lower">
@@ -161,11 +161,11 @@ function KidsTemplate({ theme, school, student, exam, record, summary, parts, ph
 
       <div className="rt-heading"><div className="rt-bubble">📚</div><h3>{copy.journey}</h3><span>Out of {summary.totalMax} marks</span></div>
       <table className="rt-table">
-        <thead><tr><th>Learning Area</th><th>Marks</th><th>Grade</th><th>Stars</th><th>Progress</th><th>Teacher&apos;s Note</th></tr></thead>
+        <thead><tr><th>Learning Area</th><th>Marks</th><th>Stars</th><th>Progress</th></tr></thead>
         <tbody>{summary.subjects.map(row => <tr key={row.subject}>
           <td>{row.subject}</td><td>{row.obtained} / {row.maxMarks}</td>
-          <td className="rt-grade">{row.grade}</td><td className="rt-stars">{stars(row.percent)}</td>
-          <td><span className="rt-pill">{progressWord(row.percent)}</span></td><td>{row.remarks || '—'}</td>
+          <td className="rt-stars">{stars(row.percent)}</td>
+          <td><span className="rt-pill">{progressWord(row.percent)}</span></td>
         </tr>)}</tbody>
       </table>
 

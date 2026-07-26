@@ -85,7 +85,7 @@ function Login({ onLogin, mode, setMode }) {
   }
   return <main className="parent-login-shell">
     <form className="parent-login-card" onSubmit={submit}>
-      <div className="parent-login-brand"><img src="/nxt-logo-transparent.png" alt="" /><div><strong>NXT School ERP</strong><span>Parent Portal</span></div></div>
+      <div className="parent-login-brand"><img src="/nxt-logo-transparent.png" alt="" /><div><strong>SCHOOL99</strong><span>Parent Portal</span></div></div>
       <h1>{mode === 'forgot' ? 'Reset Password' : 'Parent Login'}</h1>
       <p>Use your school code, registered phone and child's DOB password.</p>
       <label>School Code<input required minLength={6} value={form.schoolCode} onChange={event => update('schoolCode', event.target.value)} placeholder="Enter school code (e.g., ABC123)" /></label>

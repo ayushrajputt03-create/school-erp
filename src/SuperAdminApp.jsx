@@ -124,7 +124,7 @@ function SuperAdminLogin({ user, checking, denied }) {
 
   return <main className="sa-login">
     <section className="sa-login-brand">
-      <img src="/nxt-logo-transparent.png" alt="NXT School ERP" />
+      <img src="/nxt-logo-transparent.png" alt="SCHOOL99" />
       <span>Owner Console</span>
       <h1>Control every school from one secure workspace.</h1>
       <p>Subscriptions, revenue, due payments and school operations stay separated from every school administrator.</p>
@@ -224,7 +224,7 @@ function PaymentsPage({ rows, payments, initialTab = 'received', markPaid }) {
   const [tab, setTab] = useState(initialTab)
   const dueRows = rows.filter(row => ['due', 'trial'].includes(row.subscription.status))
   const reminder = row => {
-    const message = `Namaskar ${schoolName(row)} ji,\nAapka School ERP subscription ${money(row.subscription.amount)} due ho gaya hai.\n\nPlease jaldi payment karein:\nUPI: yourname@upi\nBank: XXXX\n\nPayment ke baad yahan confirm karein.\nDhanyavaad 🙏\nNXT School ERP Team`
+    const message = `Namaskar ${schoolName(row)} ji,\nAapka School ERP subscription ${money(row.subscription.amount)} due ho gaya hai.\n\nPlease jaldi payment karein:\nUPI: yourname@upi\nBank: XXXX\n\nPayment ke baad yahan confirm karein.\nDhanyavaad 🙏\nSCHOOL99 Team`
     window.open(`https://wa.me/91${safePhone(row.profile?.phone)}?text=${encodeURIComponent(message)}`, '_blank', 'noopener,noreferrer')
   }
   return <section className="sa-panel sa-table-panel">
@@ -354,7 +354,7 @@ function PricingControl({ row, onSave }) {
 
 function SchoolDetails({ row, close, edit, toggle, markPaid, savePricing }) {
   const payments = Object.entries(row.payments || {}).map(([id, value]) => ({ id, ...value })).sort((a, b) => Number(b.date || 0) - Number(a.date || 0))
-  const message = `Namaskar ${schoolName(row)} ji, NXT School ERP Team ki taraf se aapke school account ke sambandh mein sampark kar rahe hain.`
+  const message = `Namaskar ${schoolName(row)} ji, SCHOOL99 Team ki taraf se aapke school account ke sambandh mein sampark kar rahe hain.`
   return <div className="sa-drawer-backdrop" onClick={close}><aside className="sa-drawer" onClick={event => event.stopPropagation()}>
     <header><div><span>School Details</span><h2>{schoolName(row)}</h2></div><button onClick={close}><X size={20} /></button></header>
     <div className="sa-school-hero">{row.profile?.logo ? <img src={row.profile.logo} alt="" /> : <span>{schoolName(row).slice(0, 2).toUpperCase()}</span>}<div><StatusBadge value={row.subscription.status} /><p>{row.profile?.address || 'Address not added'}</p></div></div>
@@ -613,7 +613,7 @@ export default function SuperAdminApp() {
     try {
       const ExcelJS = (await import('exceljs')).default
       const workbook = new ExcelJS.Workbook()
-      workbook.creator = 'NXT School ERP Super Admin'
+      workbook.creator = 'SCHOOL99 Super Admin'
       const schoolsSheet = workbook.addWorksheet('Schools')
       schoolsSheet.columns = [{ header: 'School Name', key: 'name', width: 28 }, { header: 'Principal', key: 'principal', width: 22 }, { header: 'Phone', key: 'phone', width: 16 }, { header: 'Email', key: 'email', width: 28 }, { header: 'City', key: 'city', width: 18 }, { header: 'Registered', key: 'registered', width: 16 }, { header: 'Plan', key: 'plan', width: 12 }, { header: 'Status', key: 'status', width: 12 }, { header: 'Next Due', key: 'due', width: 16 }, { header: 'Students', key: 'students', width: 12 }, { header: 'Teachers', key: 'teachers', width: 12 }]
       rows.forEach(row => schoolsSheet.addRow({ name: schoolName(row), principal: row.profile?.principalName, phone: row.profile?.phone, email: row.profile?.email, city: row.profile?.city, registered: dateText(row.createdAt || row.profile?.createdAt), plan: row.subscription.plan, status: row.subscription.status, due: dateText(row.subscription.nextDueDate), students: Object.keys(row.students || {}).length, teachers: Object.keys(row.staff || row.teachers || {}).length }))
@@ -654,7 +654,7 @@ export default function SuperAdminApp() {
   }
   return <div className="sa-shell">
     <aside className={`sa-sidebar ${menuOpen ? 'open' : ''}`}>
-      <div className="sa-brand"><img src="/nxt-logo-transparent.png" alt="" /><div><strong>NXT</strong><span>SUPER ADMIN</span></div><button onClick={() => setMenuOpen(false)}><X size={18} /></button></div>
+      <div className="sa-brand"><img src="/nxt-logo-transparent.png" alt="" /><div><strong>SCHOOL99</strong><span>SUPER ADMIN</span></div><button onClick={() => setMenuOpen(false)}><X size={18} /></button></div>
       <div className="sa-owner"><span>{(user.displayName || 'NXT Owner').slice(0, 2).toUpperCase()}</span><div><strong>{user.displayName || 'NXT Owner'}</strong><small>{user.email}</small></div></div>
       <nav>{nav.map(([id, label, Icon]) => <button key={id} className={page === id ? 'active' : ''} onClick={() => { setPage(id); setMenuOpen(false) }}><Icon size={17} />{label}{id === 'due' && calculateStats(rows, payments).due > 0 && <b>{calculateStats(rows, payments).due}</b>}</button>)}</nav>
       <button className="sa-signout" onClick={async () => { await signOut(auth); navigate('/super-admin/login', true) }}><LogOut size={17} />Sign out</button>

@@ -76,6 +76,9 @@
 .tc-signatures{margin-top:30px;gap:42px;font:11px Arial,sans-serif}
 .tc-signatures .signature-line{height:38px}
 .tc-signatures .principal-block i{width:96px;height:54px;margin-left:auto}
+.tc-signatures .principal-sign-row{display:flex;align-items:flex-end;justify-content:center;gap:8px;min-height:16mm;margin-bottom:2px}
+.tc-signatures .principal-sign-row .admit-seal{height:16mm;width:auto;max-width:26mm;object-fit:contain}
+.tc-signatures .principal-sign-row .admit-sign{height:13mm;width:auto;max-width:34mm;object-fit:contain}
 .tc-history-editor{display:grid;gap:10px;border:1px solid var(--border);border-radius:8px;padding:12px;background:var(--input)}
 .tc-history-editor table{min-width:1050px}
 .tc-history-editor td,.tc-history-editor th{vertical-align:middle}
@@ -151,6 +154,8 @@
 .admit-signatures{display:flex;justify-content:space-between;align-items:flex-end;gap:20px;page-break-inside:avoid;break-inside:avoid}
 .admit-signatures div{flex:1;min-width:0}
 .admit-signatures .principal{grid-column:auto!important;justify-self:auto!important;width:auto!important}
+.admit-signatures .admit-seal{height:18mm;width:auto;max-width:32mm;object-fit:contain;margin:4px auto 0;display:block}
+.admit-signatures .admit-sign{height:14mm;width:auto;max-width:40mm;object-fit:contain;margin:2px auto 0;display:block}
 
 /* Ctrl+P fallback: hide certificate chrome, show document */
 @media print{

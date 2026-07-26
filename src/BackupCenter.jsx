@@ -55,7 +55,7 @@ export default function BackupCenter({ students, fees, attendance, settings, cre
       const attendanceRows = Object.values(payload.data.attendance || {}).map(record => ({ date: record.date, studentId: record.studentId || record.student_id, status: record.status || record.mark }))
       const ExcelJS = (await import('exceljs')).default
       const workbook = new ExcelJS.Workbook()
-      workbook.creator = 'Northstar School OS'
+      workbook.creator = 'SCHOOL99'
       workbook.created = new Date()
       const addSheet = (name, rows) => {
         const sheet = workbook.addWorksheet(name)
@@ -107,7 +107,7 @@ export default function BackupCenter({ students, fees, attendance, settings, cre
     setBusy('restore')
     try {
       const payload = JSON.parse(await file.text())
-      if (payload?.format !== 'northstar-school-backup' || payload?.version !== 1 || !payload?.data || typeof payload.data !== 'object') throw new Error('Please select a valid NXT School ERP JSON backup file.')
+      if (payload?.format !== 'northstar-school-backup' || payload?.version !== 1 || !payload?.data || typeof payload.data !== 'object') throw new Error('Please select a valid SCHOOL99 JSON backup file.')
       const confirmed = window.confirm(`Restore backup from ${new Date(payload.exportedAt).toLocaleString('en-IN')}?\n\nCurrent Students, Fees and Attendance will be replaced.`)
       if (!confirmed) return
       await exportJson()
