@@ -1,165 +1,229 @@
-.nxt-splash{
-  position:fixed;
-  inset:0;
-  z-index:9999;
-  width:100vw;
-  height:100vh;
-  min-height:100svh;
-  overflow:hidden;
-  display:grid;
-  place-items:center;
-  isolation:isolate;
+/* ── School99 splash screen ──────────────────────────────────────
+   Dark-navy premium splash. Logo sits on a light app-tile so the
+   black+red brand mark stays true on the navy ground. Sizing is
+   responsive (safe-area aware); motion honours prefers-reduced-motion.
+   ---------------------------------------------------------------- */
+
+:root {
+  --s99-navy-deep: #0A1F44;
+  --s99-navy-mid:  #123E8A;
+  --s99-red:       #E4322B;
+  --s99-tile-top:  #FFFFFF;
+  --s99-tile-bot:  #EEF3FC;
+  --s99-glow:      rgba(84, 131, 179, 0.55);
+  --s99-text-soft: #C6D6F5;
+  --s99-text-faint:rgba(198, 214, 245, 0.62);
+}
+
+.s99-splash {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  width: 100vw;
+  height: 100vh;
+  min-height: 100svh;
+  overflow: hidden;
+  isolation: isolate;
+  display: grid;
+  grid-template-rows: 1fr auto;
+  align-items: center;
+  justify-items: center;
+  padding:
+    calc(env(safe-area-inset-top) + 24px)
+    calc(env(safe-area-inset-right) + 24px)
+    calc(env(safe-area-inset-bottom) + 24px)
+    calc(env(safe-area-inset-left) + 24px);
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, system-ui, sans-serif;
+  color: #fff;
   background:
-    radial-gradient(circle at 50% 45%,#154fb6 0,#0d43a7 42%,#07388f 100%);
-  opacity:1;
-  transition:opacity .5s ease;
+    radial-gradient(120% 90% at 50% 8%,  #14479B 0%, transparent 55%),
+    radial-gradient(140% 120% at 50% 118%, #071B3E 0%, transparent 60%),
+    linear-gradient(160deg, var(--s99-navy-deep) 0%, var(--s99-navy-mid) 100%);
+  opacity: 1;
+  transition: opacity .5s ease;
 }
-.nxt-splash::before{
-  content:"";
-  position:absolute;
-  inset:0;
-  z-index:-2;
-  background:
-    radial-gradient(circle at 50% 50%,rgba(45,111,218,.24),transparent 43%),
-    linear-gradient(115deg,rgba(255,255,255,.025),transparent 30%,rgba(255,255,255,.02) 70%,transparent);
+.s99-splash-exit { opacity: 0; }
+
+/* faint depth grid, masked toward the centre */
+.s99-splash::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background-image:
+    linear-gradient(rgba(255, 255, 255, 0.035) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.035) 1px, transparent 1px);
+  background-size: 46px 46px;
+  -webkit-mask-image: radial-gradient(70% 60% at 50% 42%, #000 0%, transparent 80%);
+  mask-image: radial-gradient(70% 60% at 50% 42%, #000 0%, transparent 80%);
+  pointer-events: none;
+  z-index: 0;
 }
-.nxt-splash::after{
-  content:"";
-  position:absolute;
-  inset:0;
-  z-index:-1;
-  opacity:.12;
-  background-image:url("data:image/svg+xml,%3Csvg viewBox='0 0 180 180' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.8' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='.18'/%3E%3C/svg%3E");
+
+/* ── ambient light orbs ── */
+.s99-aura {
+  position: absolute;
+  border-radius: 50%;
+  filter: blur(70px);
+  opacity: 0.55;
+  pointer-events: none;
+  z-index: 0;
+  will-change: transform;
 }
-.nxt-splash-exit{opacity:0}
-.nxt-splash-mobile-artwork{
-  display:none;
+.s99-aura-1 {
+  width: 58vmin; height: 58vmin;
+  top: -14vmin; left: -10vmin;
+  background: radial-gradient(circle, rgba(64, 120, 220, 0.6), transparent 68%);
+  animation: s99-drift1 14s ease-in-out infinite;
 }
-.nxt-splash-wide-artwork{
-  position:relative;
-  z-index:1;
-  width:min(900px,90vw);
-  min-height:min(660px,88svh);
-  display:flex;
-  flex-direction:column;
-  align-items:center;
-  justify-content:center;
-  gap:clamp(46px,7vh,76px);
-  animation:nxt-artwork-enter .75s cubic-bezier(.2,.8,.2,1) both;
+.s99-aura-2 {
+  width: 52vmin; height: 52vmin;
+  bottom: -16vmin; right: -12vmin;
+  background: radial-gradient(circle, rgba(30, 84, 176, 0.55), transparent 68%);
+  animation: s99-drift2 17s ease-in-out infinite;
 }
-.nxt-splash-mark{
-  display:block;
-  width:clamp(250px,27vw,390px);
-  height:auto;
-  filter:drop-shadow(0 18px 34px rgba(0,24,91,.28));
+
+/* ── centred brand stack ── */
+.s99-brand {
+  position: relative;
+  z-index: 1;
+  grid-row: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: clamp(22px, 4.5vh, 40px);
+  opacity: 0;
+  animation: s99-fade-up 600ms cubic-bezier(.22, .61, .36, 1) 120ms forwards;
 }
-.nxt-splash-brand{
-  display:flex;
-  flex-direction:column;
-  align-items:center;
-  color:#fff;
-  text-align:center;
+
+.s99-logo-shell {
+  position: relative;
+  display: grid;
+  place-items: center;
+  animation: s99-float 4.6s ease-in-out 900ms infinite;
 }
-.nxt-splash-brand span{
-  margin-bottom:14px;
-  font-size:clamp(14px,1.3vw,19px);
-  font-weight:300;
-  letter-spacing:.28em;
-  opacity:.76;
+.s99-logo-shell::after {
+  content: "";
+  position: absolute;
+  inset: -22%;
+  border-radius: 42%;
+  background: radial-gradient(circle, var(--s99-glow), transparent 70%);
+  filter: blur(26px);
+  z-index: -1;
+  animation: s99-halo 3.8s ease-in-out infinite;
 }
-.nxt-splash-brand strong{
-  font-size:clamp(20px,2.25vw,34px);
-  font-weight:600;
-  letter-spacing:.27em;
-  line-height:1.2;
+
+.s99-logo-tile {
+  width: clamp(140px, 32vw, 320px);
+  aspect-ratio: 1 / 1;
+  max-width: 320px;
+  border-radius: 26%;
+  background: linear-gradient(155deg, var(--s99-tile-top), var(--s99-tile-bot));
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.9) inset,
+    0 24px 60px -18px rgba(3, 12, 32, 0.75),
+    0 4px 14px rgba(3, 12, 32, 0.35);
+  display: grid;
+  place-items: center;
+  padding: 16%;
 }
-.nxt-splash-brand i{
-  position:relative;
-  width:min(340px,50vw);
-  height:1px;
-  margin-top:24px;
-  background:linear-gradient(90deg,transparent,#20a8ff 42%,#fff 50%,#20a8ff 58%,transparent);
-  box-shadow:0 0 14px #26a9ff;
+
+.s99-wordmark {
+  width: 100%;
+  height: auto;
+  display: block;
 }
-.nxt-splash-brand i::after{
-  content:"";
-  position:absolute;
-  top:50%;
-  left:50%;
-  width:6px;
-  height:6px;
-  border-radius:50%;
-  background:#fff;
-  box-shadow:0 0 12px 4px #1ca8ff;
-  transform:translate(-50%,-50%);
+
+.s99-tagline {
+  margin: 0;
+  font-size: clamp(12px, 1.9vh, 15px);
+  font-weight: 500;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: var(--s99-text-soft);
+  text-align: center;
+  text-wrap: balance;
 }
-.nxt-splash-progress{
-  position:absolute;
-  z-index:2;
-  left:50%;
-  bottom:max(14px,env(safe-area-inset-bottom));
-  width:min(180px,42vw);
-  height:2px;
-  overflow:hidden;
-  transform:translateX(-50%);
-  border-radius:4px;
-  background:#ffffff36;
-  box-shadow:0 0 12px #258bff45;
+.s99-tagline b { color: #fff; font-weight: 600; }
+
+/* ── loading zone ── */
+.s99-loader {
+  position: relative;
+  z-index: 1;
+  grid-row: 2;
+  width: min(60vw, 240px);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+  margin-bottom: clamp(8px, 3vh, 28px);
+  opacity: 0;
+  animation: s99-fade-up 600ms ease 520ms forwards;
 }
-.nxt-splash-progress span{
-  display:block;
-  width:38%;
-  height:100%;
-  border-radius:inherit;
-  background:#fff;
-  box-shadow:0 0 12px #fff;
-  animation:nxt-progress 1.15s ease-in-out infinite;
+
+.s99-bar {
+  position: relative;
+  width: 100%;
+  height: 3px;
+  border-radius: 99px;
+  background: rgba(255, 255, 255, 0.12);
+  overflow: hidden;
 }
-@keyframes nxt-artwork-enter{
-  from{opacity:0;transform:scale(.97)}
-  to{opacity:1;transform:scale(1)}
+.s99-bar span {
+  position: absolute;
+  inset: 0;
+  width: 42%;
+  border-radius: 99px;
+  background: linear-gradient(90deg, transparent, #7DA0CA 20%, #C1E8FF 50%, #7DA0CA 80%, transparent);
+  box-shadow: 0 0 12px 2px rgba(193, 232, 255, 0.65);
+  animation: s99-sweep 1.5s cubic-bezier(.65, .05, .36, 1) infinite;
 }
-@keyframes nxt-progress{
-  from{transform:translateX(-120%);opacity:.35}
-  50%{opacity:1}
-  to{transform:translateX(370%);opacity:.5}
+
+.s99-loader small {
+  font-size: 11px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--s99-text-faint);
 }
-@media(max-width:767px), (max-aspect-ratio:4/5){
-  .nxt-splash::before,
-  .nxt-splash::after{
-    display:none;
-  }
-  .nxt-splash{
-    background:#0d43a7;
-  }
-  .nxt-splash-wide-artwork{
-    display:none;
-  }
-  .nxt-splash-mobile-artwork{
-    position:relative;
-    z-index:1;
-    display:block;
-    width:100vw;
-    height:100svh;
-    object-fit:cover;
-    object-position:center;
-    box-shadow:none;
-    animation:nxt-artwork-enter .75s cubic-bezier(.2,.8,.2,1) both;
-  }
-  .nxt-splash-progress{
-    bottom:max(12px,env(safe-area-inset-bottom));
-  }
+
+/* ── keyframes ── */
+@keyframes s99-fade-up {
+  from { opacity: 0; transform: translateY(14px); }
+  to   { opacity: 1; transform: translateY(0); }
 }
-@media(max-width:380px){
-  .nxt-splash-mobile-artwork{
-    object-fit:contain;
-  }
+@keyframes s99-float {
+  0%, 100% { transform: translateY(0)    scale(1);    }
+  50%      { transform: translateY(-6px) scale(1.05); }
 }
-@media(prefers-reduced-motion:reduce){
-  .nxt-splash-mobile-artwork,
-  .nxt-splash-wide-artwork,
-  .nxt-splash-progress span{
-    animation-duration:.01ms;
-    animation-iteration-count:1;
-  }
+@keyframes s99-halo {
+  0%, 100% { opacity: 0.55; transform: scale(0.96); }
+  50%      { opacity: 0.9;  transform: scale(1.06); }
+}
+@keyframes s99-sweep {
+  0%   { transform: translateX(-120%); }
+  100% { transform: translateX(340%);  }
+}
+@keyframes s99-drift1 {
+  0%, 100% { transform: translate(0, 0); }
+  50%      { transform: translate(6vmin, 4vmin); }
+}
+@keyframes s99-drift2 {
+  0%, 100% { transform: translate(0, 0); }
+  50%      { transform: translate(-5vmin, -4vmin); }
+}
+
+/* landscape / short viewports */
+@media (orientation: landscape) and (max-height: 520px) {
+  .s99-logo-tile { width: clamp(120px, 22vh, 200px); }
+  .s99-brand { gap: 18px; }
+}
+
+/* large tablets: cap growth so it never feels sparse */
+@media (min-width: 1024px) {
+  .s99-logo-tile { width: clamp(240px, 26vw, 320px); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .s99-brand, .s99-loader { animation: s99-fade-up 400ms ease forwards; }
+  .s99-logo-shell, .s99-logo-shell::after, .s99-aura-1, .s99-aura-2 { animation: none; }
+  .s99-bar span { animation: s99-sweep 2.4s linear infinite; }
 }
