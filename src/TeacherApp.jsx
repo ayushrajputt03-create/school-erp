@@ -8,6 +8,7 @@ import { onAuthStateChanged, signInWithCustomToken, signOut, updatePassword, Ema
 import { ref, onValue, query, orderByChild, startAt, equalTo } from 'firebase/database'
 import { auth, rtdb } from './lib/firebase'
 import DatePicker from './DatePicker'
+import { TIMETABLE_DAYS, PERIOD_NUMBERS, normalizeTimetable, teacherSchedule } from './timetable'
 import './teacher-app.css'
 
 const databaseUrl = import.meta.env.VITE_FIREBASE_DATABASE_URL?.replace(/\/$/, '')
@@ -616,8 +617,51 @@ function TeacherLeaveRequests({ leaveRequests, classSections }) {
   </div>
 }
 
+// Read-only weekly grid of the periods this teacher has been assigned, across every class.
+// Scoped by auth uid against the school timetable the shell already listens to, so it costs no
+// extra read and can never surface another teacher's schedule.
+function TeacherTimetable({ timetable, teacherId }) {
+  const schedule = useMemo(() => teacherSchedule(normalizeTimetable(timetable), teacherId), [timetable, teacherId])
+  const total = useMemo(
+    () => Object.values(schedule).reduce((sum, periods) => sum + Object.keys(periods).length, 0),
+    [schedule],
+  )
+  // Trim the grid to the periods actually in use so a school running 5 periods does not stare
+  // at 3 empty rows.
+  const lastPeriod = useMemo(() => {
+    const used = Object.values(schedule).flatMap(periods => Object.keys(periods).map(Number))
+    return used.length ? Math.max(...used) : 0
+  }, [schedule])
+
+  return <div className="teacher-page">
+    <div className="teacher-page-header">
+      <div><h2>My Timetable</h2><p className="teacher-subtitle">{total ? `${total} periods a week across your classes` : 'Your weekly teaching schedule'}</p></div>
+    </div>
+    {total
+      ? <div className="teacher-tt-scroll"><table className="teacher-tt">
+          <thead><tr><th>Period</th>{TIMETABLE_DAYS.map(day => <th key={day}>{day.slice(0, 3)}</th>)}</tr></thead>
+          <tbody>{PERIOD_NUMBERS.filter(period => period <= lastPeriod).map(period => <tr key={period}>
+            <td className="teacher-tt-no"><strong>{period}</strong></td>
+            {TIMETABLE_DAYS.map(day => {
+              const slot = schedule[day]?.[period]
+              return <td key={day}>{slot
+                ? <div className="teacher-tt-slot">
+                    <strong>{slot.className}</strong>
+                    <span>{slot.subject}</span>
+                    {(slot.startTime || slot.room) && <small>{[slot.startTime, slot.room].filter(Boolean).join(' · ')}</small>}
+                  </div>
+                : <span className="teacher-tt-free">—</span>}
+              </td>
+            })}
+          </tr>)}</tbody>
+        </table></div>
+      : <div className="teacher-empty"><Clock3 size={26} /><p>No periods assigned to you yet. Your school admin sets these in the Timetable module.</p></div>}
+  </div>
+}
+
 const teacherNav = [
   { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
+  { id: 'timetable', label: 'My Timetable', icon: Clock3 },
   { id: 'attendance', label: 'My Attendance', icon: CalendarCheck },
   { id: 'classes', label: 'My Classes', icon: GraduationCap },
   { id: 'homework', label: 'Homework', icon: BookOpen },
@@ -636,6 +680,7 @@ export default function TeacherApp() {
   const [attendance, setAttendance] = useState({})
   const [homework, setHomework] = useState({})
   const [notices, setNotices] = useState({})
+  const [timetable, setTimetable] = useState({})
   // Keyed by classSection, since each assigned class has its own scoped listener.
   const [leaveRequests, setLeaveRequests] = useState({})
   const [page, setPage] = useState('dashboard')
@@ -696,6 +741,10 @@ export default function TeacherApp() {
     sub('students', val => setStudents(val || {}))
     sub('homework', val => setHomework(val || {}))
     sub('notices', val => setNotices(val || {}))
+    // One school-wide listener, filtered to this teacher at render. The timetable carries no
+    // photos or history, so it is a fraction of the payload a per-teacher query would cost in
+    // round trips - and RTDB cannot index the nested teacherId anyway.
+    sub('timetable', val => setTimetable(val || {}))
     sub(`staff/${session.uid}`, val => { if (val) setTeacher(buildStaffProfile(session.uid, val)) })
     // Attendance listener is bounded to the current month so the live subscription never streams
     // the whole year's history. Requires "attendance": { ".indexOn": ["date"] } in the rules.
@@ -784,6 +833,7 @@ export default function TeacherApp() {
       </header>
       <div className="teacher-content">
         {page === 'dashboard' && <TeacherDashboard teacher={teacher} schoolProfile={schoolProfile} students={students} attendance={attendance} homework={homework} notices={notices} token={null} schoolId={schoolId} onLogout={doLogout} onNavigate={setPage} />}
+        {page === 'timetable' && <TeacherTimetable timetable={timetable} teacherId={session.uid} />}
         {page === 'attendance' && <TeacherAttendance teacher={teacher} students={students} attendance={attendance} token={null} schoolId={schoolId} onSaved={(d, c, data) => setAttendance(a => ({ ...a, [d]: { ...(a[d] || {}), [c]: data } }))} />}
         {page === 'classes' && <TeacherClasses teacher={teacher} students={students} />}
         {page === 'homework' && <TeacherHomework teacher={teacher} homework={homework} students={students} token={null} schoolId={schoolId} />}

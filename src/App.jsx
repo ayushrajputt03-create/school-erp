@@ -13,6 +13,10 @@ import './app.css'
 import AuthScreen from './AuthScreen'
 import SchoolSetup from './SchoolSetup'
 import { StudentPhotoContext, useStudentPhotos } from './student-photos'
+import {
+  TIMETABLE_DAYS, PERIOD_NUMBERS, normalizeTimetable, isLegacyClass,
+  findTeacherConflict, teacherWorkload, assignableTeachers,
+} from './timetable'
 
 // One screenful of students. Each row can carry ~133KB of photo, so this is the difference
 // between a directory costing a few megabytes and costing tens of them.
@@ -1991,50 +1995,180 @@ function LegacyFees({ students, fees, onRecordPayment }) {
   </>
 }
 
-function PeriodModal({ initial, className, close, onSave }) {
-  const [form, setForm] = useState(initial || { day: 'Monday', time: '08:00', subject: '', teacher: '', room: '' })
+function PeriodModal({ slot, className, day, period, teacherList, conflictFor, close, onSave }) {
+  const [form, setForm] = useState(() => ({
+    subject: slot?.subject || '',
+    teacherId: slot?.teacherId || '',
+    startTime: slot?.startTime || '',
+    endTime: slot?.endTime || '',
+    room: slot?.room || '',
+  }))
   const [saving, setSaving] = useState(false)
+  const [error, setError] = useState('')
+  // Live conflict feedback: the admin sees the clash the moment they pick the teacher, rather
+  // than after submitting. Runs over timetable data that is already in memory - no extra read.
+  const conflict = form.teacherId ? conflictFor(form.teacherId) : null
+  // A legacy slot carries a name typed as free text with no staff link. Surface it so the admin
+  // knows what the period used to say while they pick the real teacher.
+  const unlinkedName = !slot?.teacherId && slot?.teacherName ? slot.teacherName : ''
+
   const submit = async event => {
     event.preventDefault()
+    if (conflict) return
     setSaving(true)
-    try { await onSave(className, form); close() } finally { setSaving(false) }
+    setError('')
+    try {
+      const teacher = teacherList.find(item => item.id === form.teacherId)
+      await onSave(className, day, period, {
+        subject: form.subject.trim(),
+        teacherId: form.teacherId,
+        // With no teacher picked, keep whatever name the slot already carried. Legacy periods
+        // hold a free-text name and no id; blanking it here would quietly destroy the only
+        // record of who taught the period just because the admin edited the subject.
+        teacherName: form.teacherId ? (teacher?.name || '') : (slot?.teacherName || ''),
+        startTime: form.startTime,
+        endTime: form.endTime,
+        room: form.room.trim(),
+      })
+      close()
+    } catch (cause) {
+      setError(cause.message)
+    } finally {
+      setSaving(false)
+    }
   }
+
+  const clear = async () => {
+    if (!window.confirm(`Clear period ${period} on ${day} for Class ${className}?`)) return
+    setSaving(true)
+    setError('')
+    try {
+      await onSave(className, day, period, null)
+      close()
+    } catch (cause) {
+      setError(cause.message)
+      setSaving(false)
+    }
+  }
+
   return <div className="modal-backdrop"><form className="modal" onSubmit={submit}>
-    <div className="modal-header"><div><h3>{initial?.subject ? 'Edit period' : 'Add period'}</h3><p>{className} weekly timetable</p></div><button type="button" className="icon-button" onClick={close} aria-label="Close period form"><X size={19} /></button></div>
+    <div className="modal-header"><div><h3>{slot ? 'Edit period' : 'Add period'}</h3><p>Class {className} · {day} · Period {period}</p></div><button type="button" className="icon-button" onClick={close} aria-label="Close period form"><X size={19} /></button></div>
     <div className="form-grid">
-      <label>Day<select value={form.day} onChange={e => setForm({ ...form, day: e.target.value })}>{['Monday','Tuesday','Wednesday','Thursday','Friday'].map(day => <option key={day}>{day}</option>)}</select></label>
-      <label>Time<input required type="time" value={form.time} onChange={e => setForm({ ...form, time: e.target.value })} /></label>
-      <label className="full">Subject<input required value={form.subject} onChange={e => setForm({ ...form, subject: e.target.value })} /></label>
-      <label>Teacher<input required value={form.teacher} onChange={e => setForm({ ...form, teacher: e.target.value })} /></label>
-      <label>Room<input required value={form.room} onChange={e => setForm({ ...form, room: e.target.value })} /></label>
+      <label className="full">Subject<input required value={form.subject} onChange={e => setForm({ ...form, subject: e.target.value })} placeholder="e.g. Mathematics" /></label>
+      {/* Deliberately optional: a school that has not created teacher logins yet must still be
+          able to lay out its subjects. Requiring it would leave those schools unable to save
+          anything at all, which is worse than a period with no teacher on it. */}
+      <label className="full">Teacher <small>(optional)</small>
+        <select value={form.teacherId} onChange={e => setForm({ ...form, teacherId: e.target.value })}>
+          <option value="">No teacher assigned</option>
+          {teacherList.map(teacher => <option key={teacher.id} value={teacher.id}>{teacher.name}</option>)}
+        </select>
+      </label>
+      {!teacherList.length && <small className="full form-hint">No teacher logins yet. Create staff logins first — only staff with a login can be assigned, because the teacher timetable is scoped to their account.</small>}
+      {unlinkedName && <small className="full form-hint">Previously recorded as "{unlinkedName}" with no staff link. Pick the teacher to connect it.</small>}
+      {conflict && <div className="form-error full">{conflict.message}</div>}
+      <label>Start time<input type="time" value={form.startTime} onChange={e => setForm({ ...form, startTime: e.target.value })} /></label>
+      <label>End time<input type="time" value={form.endTime} onChange={e => setForm({ ...form, endTime: e.target.value })} /></label>
+      <label className="full">Room<input value={form.room} onChange={e => setForm({ ...form, room: e.target.value })} placeholder="e.g. R204" /></label>
+      {error && <div className="form-error full">{error}</div>}
     </div>
-    <div className="modal-actions"><button type="button" className="secondary-button" onClick={close}>Cancel</button><button className="primary-button" disabled={saving}><Save size={16} /> {saving ? 'Saving...' : 'Save period'}</button></div>
+    <div className="modal-actions">
+      {slot && <button type="button" className="secondary-button danger" onClick={clear} disabled={saving}><Trash2 size={15} /> Clear period</button>}
+      <button type="button" className="secondary-button" onClick={close}>Cancel</button>
+      <button className="primary-button" disabled={saving || Boolean(conflict)}><Save size={16} /> {saving ? 'Saving...' : 'Save period'}</button>
+    </div>
   </form></div>
 }
 
-function WeeklyPlanner({ timetableData, onSavePeriod }) {
-  const classes = Object.keys(timetableData).length ? Object.keys(timetableData) : ['10-A']
-  const [className, setClassName] = useState(classes[0])
+function TeacherWorkload({ timetable }) {
+  const rows = useMemo(() => teacherWorkload(timetable), [timetable])
+  return <div className="panel table-panel">
+    <div className="panel-header"><div><h3>Teacher workload</h3><p>Periods assigned per week across all classes.</p></div></div>
+    <div className="table-scroll"><table className="timetable-records"><thead><tr><th>#</th><th>Teacher</th><th>Periods / week</th><th>Classes</th></tr></thead><tbody>
+      {rows.map((row, index) => <tr key={row.teacherId || row.teacherName}>
+        <td>{index + 1}</td>
+        <td>{row.teacherName}{!row.linked && <small className="workload-unlinked"> · not linked to a login</small>}</td>
+        <td><strong>{row.periods}</strong></td>
+        <td>{row.classes.map(item => <span key={item} className="class-pill">{item}</span>)}</td>
+      </tr>)}
+      {!rows.length && <tr><td colSpan="4"><div className="empty-state">No teachers assigned to any period yet.</div></td></tr>}
+    </tbody></table></div>
+  </div>
+}
+
+function WeeklyPlanner({ timetableData, teachers, students, onSavePeriod }) {
+  // Every class the school actually has, so a brand new school can build its timetable straight
+  // away instead of only being able to edit classes that already have periods.
+  const classes = useMemo(() => {
+    const fromTimetable = Object.keys(timetableData || {})
+    const fromStudents = students.map(student => student.className).filter(Boolean)
+    return [...new Set([...fromTimetable, ...fromStudents])].sort()
+  }, [timetableData, students])
+  const [className, setClassName] = useState(classes[0] || '')
   const [editing, setEditing] = useState(null)
-  const periods = timetableData[className] || []
-  const times = [...new Set(periods.map(period => period.time))].sort()
-  const days = ['Monday','Tuesday','Wednesday','Thursday','Friday']
+  const timetable = useMemo(() => normalizeTimetable(timetableData), [timetableData])
+  const teacherList = useMemo(() => assignableTeachers(teachers), [teachers])
+
+  const active = classes.includes(className) ? className : classes[0] || ''
+  const classGrid = timetable[active] || {}
+
+  // Passed into the modal so it can test a candidate teacher against the loaded timetable.
+  const conflictFor = (day, period) => teacherId => {
+    const clash = findTeacherConflict(timetable, { className: active, day, period, teacherId })
+    if (!clash) return null
+    const name = teacherList.find(item => item.id === teacherId)?.name || 'That teacher'
+    return { ...clash, message: `${name} is already assigned to Class ${clash.className} at this period.` }
+  }
+
+  if (!classes.length) {
+    return <div className="panel"><div className="empty-state">Add students first — the planner builds its class list from the classes your school has.</div></div>
+  }
+
   return <>
-    <div className="section-actions"><div><h2>Academic planner</h2><p>Class timetable and teaching schedule for this week.</p></div><button className="primary-button" onClick={() => setEditing({})}><Plus size={17} /> Add period</button></div>
-    <div className="academic-banner"><div><span className="eyebrow">Current term</span><h3>Term I · 2026-27</h3><p>72 instructional days · 4 assessments planned</p></div><div className="term-progress"><span>Term progress <strong>38%</strong></span><div className="progress"><i style={{width:'38%'}} /></div></div></div>
-    <div className="panel timetable-panel"><div className="panel-header"><div><h3>Weekly timetable</h3><p>Class {className} · Click any period to edit</p></div><select value={className} onChange={e => setClassName(e.target.value)}>{classes.map(item => <option key={item}>{item}</option>)}</select></div><div className="table-scroll"><table className="timetable"><thead><tr><th>Time</th>{days.map(d => <th key={d}>{d}</th>)}</tr></thead><tbody>{times.map(time => <tr key={time}><td><strong>{time}</strong></td>{days.map((day, i) => { const period = periods.find(item => item.time === time && item.day === day); return <td key={day}>{period ? <button className="period-button" onClick={() => setEditing(period)}><span className={`subject s${i}`}>{period.subject}</span><small>{period.teacher} · {period.room}</small></button> : <button className="empty-period" onClick={() => setEditing({ day, time })}>+ Add</button>}</td> })}</tr>)}</tbody></table>{!times.length && <div className="empty-state">No periods yet. Add the first period for {className}.</div>}</div></div>
-    {editing && <PeriodModal initial={editing.subject ? editing : { day: editing.day || 'Monday', time: editing.time || '08:00', subject: '', teacher: '', room: '' }} className={className} close={() => setEditing(null)} onSave={onSavePeriod} />}
+    <div className="panel timetable-panel">
+      <div className="panel-header">
+        <div><h3>Weekly timetable</h3><p>Class {active} · click any period to assign subject and teacher</p></div>
+        <select value={active} onChange={e => setClassName(e.target.value)}>{classes.map(item => <option key={item}>{item}</option>)}</select>
+      </div>
+      <div className="table-scroll"><table className="timetable">
+        <thead><tr><th>Period</th>{TIMETABLE_DAYS.map(day => <th key={day}>{day}</th>)}</tr></thead>
+        <tbody>{PERIOD_NUMBERS.map(period => <tr key={period}>
+          <td><strong>{period}</strong></td>
+          {TIMETABLE_DAYS.map((day, index) => {
+            const slot = classGrid[day]?.[period]
+            return <td key={day}>{slot
+              ? <button className="period-button" onClick={() => setEditing({ day, period, slot })}>
+                  <span className={`subject s${index % 5}`}>{slot.subject}</span>
+                  <small>{slot.teacherName || 'No teacher'}{slot.room ? ` · ${slot.room}` : ''}</small>
+                </button>
+              : <button className="empty-period" onClick={() => setEditing({ day, period, slot: null })}>+ Add</button>}
+            </td>
+          })}
+        </tr>)}</tbody>
+      </table></div>
+    </div>
+    <TeacherWorkload timetable={timetable} />
+    {editing && <PeriodModal
+      slot={editing.slot}
+      className={active}
+      day={editing.day}
+      period={editing.period}
+      teacherList={teacherList}
+      conflictFor={conflictFor(editing.day, editing.period)}
+      close={() => setEditing(null)}
+      onSave={onSavePeriod}
+    />}
   </>
 }
 
-function Academics({ timetableData, timetableRecords, students, onSavePeriod, onSaveTimetable, onDeleteTimetable }) {
+function Academics({ timetableData, timetableRecords, students, teachers, onSavePeriod, onSaveTimetable, onDeleteTimetable }) {
   const [view, setView] = useState('records')
   return <>
     <div className="section-actions"><div><h2>Timetable</h2><p>Upload published schedules and manage the weekly teaching plan.</p></div></div>
     <div className="sub-tabs timetable-subtabs"><button className={view === 'records' ? 'active' : ''} onClick={() => setView('records')}>Add Timetable</button><button className={view === 'weekly' ? 'active' : ''} onClick={() => setView('weekly')}>Weekly Planner</button></div>
     {view === 'records'
       ? <TimetableManager records={timetableRecords} students={students} saveRecord={onSaveTimetable} deleteRecord={onDeleteTimetable} />
-      : <WeeklyPlanner timetableData={timetableData} onSavePeriod={onSavePeriod} />}
+      : <WeeklyPlanner timetableData={timetableData} teachers={teachers} students={students} onSavePeriod={onSavePeriod} />}
   </>
 }
 
@@ -2356,6 +2490,10 @@ function noticeFromRow(row) {
 // effect) and stay live for the rest of the session. This keeps their nodes out of every login's
 // download for the (common) case where the user never opens them.
 const LAZY_MODULES = new Set(['certificates', 'homework'])
+// Opening these pulls an extra node, but unlike LAZY_MODULES they render fine before it lands -
+// the timetable grid draws from data the bootstrap already has, and the teacher dropdown simply
+// fills in once the staff list arrives. So they subscribe without gating the render.
+const LAZY_SUBSCRIBE_MODULES = new Set([...LAZY_MODULES, 'academics'])
 
 function useSchoolWorkspace(session) {
   const developmentDemo = !isFirebaseConfigured && import.meta.env.VITE_APP_ENV !== 'production'
@@ -2365,6 +2503,10 @@ function useSchoolWorkspace(session) {
   const [attendance, setAttendance] = useStoredState('northstar-attendance-records', {})
   const [timetableData, setTimetableData] = useStoredState('northstar-timetable', defaultTimetable)
   const [timetableRecords, setTimetableRecords] = useState({})
+  // Staff who hold a teacher login (schools/{id}/teachers, written by api/create-teacher).
+  // Only these can be assigned a period: the teacher's own timetable view is scoped by auth uid,
+  // so a staff member without a login could never open the schedule you gave them.
+  const [teachers, setTeachers] = useState({})
   const [homework, setHomework] = useState({})
   const [transport, setTransport] = useState({ routes: {}, vehicles: {}, drivers: {}, allocations: {}, fees: {}, attendance: {}, settings: {} })
   const [library, setLibrary] = useState({ books: {}, issues: {}, returns: {}, categories: {}, settings: {}, fines: {} })
@@ -2400,7 +2542,7 @@ function useSchoolWorkspace(session) {
   const [openedModules, setOpenedModules] = useState(() => new Set())
   const [moduleReady, setModuleReady] = useState(() => new Set())
   const activateModule = useCallback(name => {
-    if (!LAZY_MODULES.has(name)) return
+    if (!LAZY_SUBSCRIBE_MODULES.has(name)) return
     setOpenedModules(prev => (prev.has(name) ? prev : new Set(prev).add(name)))
   }, [])
   const [backupSettings, setBackupSettings] = useState({ enabled: false, email: session?.email || '', lastSentAt: 0 })
@@ -2944,6 +3086,10 @@ function useSchoolWorkspace(session) {
       }
       if (openedModules.has('homework')) {
         attach(`schools/${schoolId}/homework`, setHomework, 'homework')
+      }
+      // No readyKey: the timetable renders immediately and the dropdown populates when this lands.
+      if (openedModules.has('academics')) {
+        attach(`schools/${schoolId}/teachers`, setTeachers)
       }
     }).catch(error => {
       console.error('[lazy-listeners] firebase/database failed to load:', error?.message)
@@ -4284,18 +4430,41 @@ function useSchoolWorkspace(session) {
     }, ...current])
   }
 
-  const savePeriod = async (className, period) => {
-    const id = `${period.day}_${period.time}`.replace(/[:\s]/g, '-')
-    const next = {
-      ...timetableData,
-      [className]: [...(timetableData[className] || []).filter(item => !(item.day === period.day && item.time === period.time)), { ...period, id }],
+  // Writes one period. Passing slot = null clears it.
+  //
+  // The conflict rule (a teacher cannot be in two classes at the same day+period) is enforced in
+  // the editor against the already-loaded timetable, so this does no extra read. It is re-checked
+  // here because savePeriod is the only write path and must not depend on the caller behaving.
+  const savePeriod = async (className, day, period, slot) => {
+    const normalized = normalizeTimetable(timetableData)
+    if (slot?.teacherId) {
+      const clash = findTeacherConflict(normalized, { className, day, period, teacherId: slot.teacherId })
+      if (clash) throw new Error(`${slot.teacherName || 'That teacher'} is already assigned to Class ${clash.className} at this period.`)
     }
+    const currentClass = normalized[className] || {}
+    const nextDay = { ...(currentClass[day] || {}) }
+    if (slot) nextDay[period] = slot
+    else delete nextDay[period]
+    const nextClass = { ...currentClass, [day]: nextDay }
+    const next = { ...normalized, [className]: nextClass }
     if (!developmentDemo) {
       const token = await session.getIdToken()
-      await databaseRequest(`schools/${workspace.schoolId}/timetable`, token, { method: 'PUT', body: next })
+      const base = `schools/${workspace.schoolId}/timetable/${encodeURIComponent(className)}`
+      if (isLegacyClass(timetableData, className)) {
+        // This class is still stored in the old flat-array shape. Rewrite it once, in full, to
+        // move it onto the nested shape - every legacy field is carried across by the normaliser.
+        await databaseRequest(base, token, { method: 'PUT', body: nextClass })
+      } else {
+        // Patch the single slot. The previous version PUT the entire timetable node on every
+        // edit, so two admins working on different classes silently overwrote each other.
+        await databaseRequest(`${base}/${day}/${period}`, token, { method: 'PUT', body: slot || null })
+      }
     }
     setTimetableData(next)
-    setActivities(current => [{ id: `period-${id}-${Date.now()}`, title: 'Timetable updated', detail: `${period.subject} added to ${className}`, at: Date.now(), icon: 'T' }, ...current])
+    const detail = slot
+      ? `${slot.subject} · period ${period} ${day} · ${className}`
+      : `Period ${period} ${day} cleared for ${className}`
+    setActivities(current => [{ id: `period-${className}-${day}-${period}-${Date.now()}`, title: 'Timetable updated', detail, at: Date.now(), icon: 'T' }, ...current])
   }
 
   const saveTimetableRecord = async form => {
@@ -5042,7 +5211,7 @@ function useSchoolWorkspace(session) {
     return [...byId.values()].sort((a, b) => b.at - a.at).slice(0, ACTIVITY_FEED_LIMIT)
   }, [students, fees, notices, activities])
 
-  return { students, notices, fees, feeManager, attendance, timetableData, timetableRecords, homework, transport, library, accounts, leave, parents, parentMessages, parentNotifications, certificateRequests, leaveRequests, decideLeaveRequest, admissionRequests, approveAdmissionRequest, rejectAdmissionRequest, loadAdmissionHistory, enquiries, staff, staffAttendance, employeeConfig, approvals, expenses, academics, documents, certificates, certificateSettings, examData, reportData, idCards, idCardSettings, activities: feedActivities, backupSettings, workspace, createSchoolWorkspace, getNextAdmissionNumber, addStudent, updateStudent, updateStudentPhoto, ensureStudentPhotos, deletedStudents, deleteStudents, deleteAllStudents, restoreStudent, restoreAllStudents, permanentDeleteStudent, recordPayment, submitFeeReceipt, saveFeeGroup, deleteFeeGroup, saveFeeStructure, deleteFeeStructure, deleteFeeReceipt, restoreFeeReceipt, decideFeeApproval, saveFeeManagerConfig, createBackupPayload, restoreBackup, saveBackupSettings, saveSchoolProfile, saveParentAccount, addNotice, saveAttendance, saveEmployeeConfig, deleteEmployeeConfig, saveEmployee, deleteEmployee, saveStaffAttendance, savePeriod, saveTimetableRecord, deleteTimetableRecord, saveHomework, deleteHomework, markHomeworkDone, markHomeworkSeen, saveTransportItem, deleteTransportItem, saveExpenseItem, deleteExpenseItem, saveLibraryItem, deleteLibraryItem, saveAccountsItem, deleteAccountsItem, saveLeaveItem, deleteLeaveItem, saveEnquiry, uploadStudentDocument, loadStudentAttendance, loadSessionAttendance, saveCertificate, saveCertificateSettings, saveExamRecord, saveDateSheetRow, deleteDateSheetRow, saveAdmitCards, deleteCertificate, updateCertificateStatus, saveReportExam, deleteReportExam, saveReportMarks, saveReportCard, updateReportCard, saveIdCardSettings, saveIdCard, deleteIdCard, uploadIdCardLogo, activateModule, moduleReady, developmentDemo }
+  return { students, notices, fees, feeManager, attendance, timetableData, timetableRecords, teachers, homework, transport, library, accounts, leave, parents, parentMessages, parentNotifications, certificateRequests, leaveRequests, decideLeaveRequest, admissionRequests, approveAdmissionRequest, rejectAdmissionRequest, loadAdmissionHistory, enquiries, staff, staffAttendance, employeeConfig, approvals, expenses, academics, documents, certificates, certificateSettings, examData, reportData, idCards, idCardSettings, activities: feedActivities, backupSettings, workspace, createSchoolWorkspace, getNextAdmissionNumber, addStudent, updateStudent, updateStudentPhoto, ensureStudentPhotos, deletedStudents, deleteStudents, deleteAllStudents, restoreStudent, restoreAllStudents, permanentDeleteStudent, recordPayment, submitFeeReceipt, saveFeeGroup, deleteFeeGroup, saveFeeStructure, deleteFeeStructure, deleteFeeReceipt, restoreFeeReceipt, decideFeeApproval, saveFeeManagerConfig, createBackupPayload, restoreBackup, saveBackupSettings, saveSchoolProfile, saveParentAccount, addNotice, saveAttendance, saveEmployeeConfig, deleteEmployeeConfig, saveEmployee, deleteEmployee, saveStaffAttendance, savePeriod, saveTimetableRecord, deleteTimetableRecord, saveHomework, deleteHomework, markHomeworkDone, markHomeworkSeen, saveTransportItem, deleteTransportItem, saveExpenseItem, deleteExpenseItem, saveLibraryItem, deleteLibraryItem, saveAccountsItem, deleteAccountsItem, saveLeaveItem, deleteLeaveItem, saveEnquiry, uploadStudentDocument, loadStudentAttendance, loadSessionAttendance, saveCertificate, saveCertificateSettings, saveExamRecord, saveDateSheetRow, deleteDateSheetRow, saveAdmitCards, deleteCertificate, updateCertificateStatus, saveReportExam, deleteReportExam, saveReportMarks, saveReportCard, updateReportCard, saveIdCardSettings, saveIdCard, deleteIdCard, uploadIdCardLogo, activateModule, moduleReady, developmentDemo }
 }
 
 export default function App() {
@@ -5173,7 +5342,7 @@ export default function App() {
     'student-leave': <StudentLeaveManager leaveRequests={data.leaveRequests} onDecide={data.decideLeaveRequest} role={data.workspace.role} />,
     attendance: <Attendance students={data.students} attendance={data.attendance} onSaveAttendance={data.saveAttendance} />,
     fees: <FeeManager students={data.students} fees={data.fees} feeManager={data.feeManager} approvals={data.approvals.fees || {}} schoolProfile={data.workspace.schoolProfile} onSubmitFee={data.submitFeeReceipt} onSaveGroup={data.saveFeeGroup} onDeleteGroup={data.deleteFeeGroup} onSaveStructure={data.saveFeeStructure} onDeleteStructure={data.deleteFeeStructure} onDeleteReceipt={data.deleteFeeReceipt} onRestoreReceipt={data.restoreFeeReceipt} onDecideApproval={data.decideFeeApproval} onSaveConfig={data.saveFeeManagerConfig} onOpenProfile={setSelectedStudent} />,
-    academics: <Academics timetableData={data.timetableData} timetableRecords={data.timetableRecords} students={data.students} onSavePeriod={data.savePeriod} onSaveTimetable={data.saveTimetableRecord} onDeleteTimetable={data.deleteTimetableRecord} />,
+    academics: <Academics timetableData={data.timetableData} timetableRecords={data.timetableRecords} students={data.students} teachers={data.teachers} onSavePeriod={data.savePeriod} onSaveTimetable={data.saveTimetableRecord} onDeleteTimetable={data.deleteTimetableRecord} />,
     homework: <HomeworkManager students={data.students} homework={data.homework} saveHomework={data.saveHomework} deleteHomework={data.deleteHomework} markHomeworkDone={data.markHomeworkDone} markHomeworkSeen={data.markHomeworkSeen} profile={profile} />,
     transport: <TransportManager students={data.students} transport={data.transport} saveTransportItem={data.saveTransportItem} deleteTransportItem={data.deleteTransportItem} />,
     expenses: <ExpenseManager expenses={data.expenses} staff={data.staff} fees={data.fees} saveExpenseItem={data.saveExpenseItem} deleteExpenseItem={data.deleteExpenseItem} />,
