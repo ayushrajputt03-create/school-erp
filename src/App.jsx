@@ -2351,6 +2351,12 @@ function noticeFromRow(row) {
   }
 }
 
+// Modules whose data node the dashboard never reads. They are not part of the always-on listener
+// set; instead they subscribe the first time the user opens the module (see the lazy-module
+// effect) and stay live for the rest of the session. This keeps their nodes out of every login's
+// download for the (common) case where the user never opens them.
+const LAZY_MODULES = new Set(['certificates', 'homework'])
+
 function useSchoolWorkspace(session) {
   const developmentDemo = !isFirebaseConfigured && import.meta.env.VITE_APP_ENV !== 'production'
   const [students, setStudents] = useStoredState('northstar-students', seedStudents)
@@ -2388,6 +2394,15 @@ function useSchoolWorkspace(session) {
   const [idCards, setIdCards] = useState({})
   const [idCardSettings, setIdCardSettings] = useState({})
   const [feeManager, setFeeManager] = useState({ groups: {}, structures: {}, fines: {}, settings: {}, deleted: {} })
+  // Lazy-module bookkeeping: which lazy modules have been opened this session, and which have
+  // received their first live snapshot. The shell calls activateModule(page) on navigation; the
+  // lazy-module effect below subscribes whatever is in openedModules. Both reset on school switch.
+  const [openedModules, setOpenedModules] = useState(() => new Set())
+  const [moduleReady, setModuleReady] = useState(() => new Set())
+  const activateModule = useCallback(name => {
+    if (!LAZY_MODULES.has(name)) return
+    setOpenedModules(prev => (prev.has(name) ? prev : new Set(prev).add(name)))
+  }, [])
   const [backupSettings, setBackupSettings] = useState({ enabled: false, email: session?.email || '', lastSentAt: 0 })
   const [activities, setActivities] = useState([])
   const [workspaceVersion, setWorkspaceVersion] = useState(0)
@@ -2851,17 +2866,11 @@ function useSchoolWorkspace(session) {
       })
       unsubs.push(() => off(pendingAdmissions, 'value'))
 
-      listen(`schools/${schoolId}/certificates`, snap => {
-        setCertificates(snap.val() || {})
-      })
-
-      listen(`schools/${schoolId}/certificateSettings`, snap => {
-        setCertificateSettings(snap.val() || {})
-      })
-
-      listen(`schools/${schoolId}/homework`, snap => {
-        setHomework(snap.val() || {})
-      })
+      // certificates, certificateSettings and homework are intentionally NOT subscribed here.
+      // The dashboard never reads them, so pulling them on every login is wasted egress. They
+      // subscribe lazily the first time their module is opened (see the lazy-module effect below)
+      // and the backup payload reads them fresh over REST, so a session that never opens those
+      // screens downloads them zero times yet still backs them up in full.
 
       listen(`schools/${schoolId}/transport`, snap => {
         setTransport(snap.val() || { routes: {}, vehicles: {}, drivers: {}, allocations: {}, fees: {}, attendance: {}, settings: {} })
@@ -2894,6 +2903,53 @@ function useSchoolWorkspace(session) {
 
     return () => { cancelled = true; unsubs.forEach(fn => fn()) }
   }, [workspace.schoolId, workspace.needsSetup, workspace.loading])
+
+  // Switching school resets which lazy modules are live, so the new workspace re-subscribes on
+  // demand instead of inheriting the previous one's opened set.
+  useEffect(() => {
+    setOpenedModules(new Set())
+    setModuleReady(new Set())
+  }, [workspace.schoolId])
+
+  // Lazy-module listeners: subscribe to certificates/homework only once their module has been
+  // opened, and keep them live for the rest of the session. Runs alongside the always-on listener
+  // effect above without tearing it down, so opening a module never re-downloads the core nodes.
+  useEffect(() => {
+    if (!isFirebaseConfigured || !firebaseApp || !workspace.schoolId || workspace.needsSetup || workspace.loading) return
+    if (!openedModules.size) return
+    const schoolId = workspace.schoolId
+    let cancelled = false
+    const unsubs = []
+    import('firebase/database').then(({ ref: dbRef, onValue, off, getDatabase }) => {
+      if (cancelled) return
+      let rtdb
+      try { rtdb = getDatabase(firebaseApp) } catch (error) {
+        console.error('[lazy-listeners] getDatabase failed:', error?.message)
+        return
+      }
+      // The module is only rendered once markReady fires, so its save handlers never read an
+      // empty node: readiness is keyed on the module's primary node landing.
+      const attach = (path, setState, readyKey) => {
+        const r = dbRef(rtdb, path)
+        const handler = snap => {
+          setState(snap.val() || {})
+          if (readyKey) setModuleReady(prev => (prev.has(readyKey) ? prev : new Set(prev).add(readyKey)))
+        }
+        onValue(r, handler)
+        unsubs.push(() => off(r, 'value', handler))
+      }
+      if (openedModules.has('certificates')) {
+        attach(`schools/${schoolId}/certificates`, setCertificates, 'certificates')
+        attach(`schools/${schoolId}/certificateSettings`, setCertificateSettings)
+      }
+      if (openedModules.has('homework')) {
+        attach(`schools/${schoolId}/homework`, setHomework, 'homework')
+      }
+    }).catch(error => {
+      console.error('[lazy-listeners] firebase/database failed to load:', error?.message)
+    })
+    return () => { cancelled = true; unsubs.forEach(fn => fn()) }
+  }, [workspace.schoolId, workspace.needsSetup, workspace.loading, openedModules])
 
   const createSchoolWorkspace = async profile => {
     const token = await session.getIdToken()
@@ -3861,6 +3917,27 @@ function useSchoolWorkspace(session) {
         if (full && typeof full === 'object' && Object.keys(full).length) feeRows = full
       } catch { /* network issue - fall through to the in-memory copy */ }
     }
+
+    // certificates, certificateSettings and homework subscribe lazily, so a session that never
+    // opened those modules holds empty state for them. Read them straight from the source at
+    // export time (same reasoning as fees/attendance) so the backup is always complete, with the
+    // in-memory copy as the fallback when the network read fails.
+    let certificateRows = certificates
+    let certificateSettingsRow = certificateSettings
+    let homeworkRows = homework
+    if (!developmentDemo) {
+      try {
+        const token = await session.getIdToken()
+        const [freshCerts, freshCertSettings, freshHomework] = await Promise.all([
+          databaseRequest(`schools/${workspace.schoolId}/certificates`, token).catch(() => null),
+          databaseRequest(`schools/${workspace.schoolId}/certificateSettings`, token).catch(() => null),
+          databaseRequest(`schools/${workspace.schoolId}/homework`, token).catch(() => null),
+        ])
+        if (freshCerts && typeof freshCerts === 'object') certificateRows = freshCerts
+        if (freshCertSettings && typeof freshCertSettings === 'object') certificateSettingsRow = freshCertSettings
+        if (freshHomework && typeof freshHomework === 'object') homeworkRows = freshHomework
+      } catch { /* network issue - fall through to the in-memory copies */ }
+    }
     return {
       format: 'northstar-school-backup',
       version: 1,
@@ -3876,7 +3953,7 @@ function useSchoolWorkspace(session) {
         }])),
         timetable: timetableData,
         timetableRecords,
-        homework,
+        homework: homeworkRows,
         transport,
         library,
         accounts,
@@ -3890,8 +3967,8 @@ function useSchoolWorkspace(session) {
         expenses,
         studentAcademics: academics,
         studentDocuments: documents,
-        certificates,
-        certificateSettings,
+        certificates: certificateRows,
+        certificateSettings: certificateSettingsRow,
         reportExams: reportData.exams,
         reportMarks: reportData.marks,
         reportCards: reportData.reports,
@@ -4965,7 +5042,7 @@ function useSchoolWorkspace(session) {
     return [...byId.values()].sort((a, b) => b.at - a.at).slice(0, ACTIVITY_FEED_LIMIT)
   }, [students, fees, notices, activities])
 
-  return { students, notices, fees, feeManager, attendance, timetableData, timetableRecords, homework, transport, library, accounts, leave, parents, parentMessages, parentNotifications, certificateRequests, leaveRequests, decideLeaveRequest, admissionRequests, approveAdmissionRequest, rejectAdmissionRequest, loadAdmissionHistory, enquiries, staff, staffAttendance, employeeConfig, approvals, expenses, academics, documents, certificates, certificateSettings, examData, reportData, idCards, idCardSettings, activities: feedActivities, backupSettings, workspace, createSchoolWorkspace, getNextAdmissionNumber, addStudent, updateStudent, updateStudentPhoto, ensureStudentPhotos, deletedStudents, deleteStudents, deleteAllStudents, restoreStudent, restoreAllStudents, permanentDeleteStudent, recordPayment, submitFeeReceipt, saveFeeGroup, deleteFeeGroup, saveFeeStructure, deleteFeeStructure, deleteFeeReceipt, restoreFeeReceipt, decideFeeApproval, saveFeeManagerConfig, createBackupPayload, restoreBackup, saveBackupSettings, saveSchoolProfile, saveParentAccount, addNotice, saveAttendance, saveEmployeeConfig, deleteEmployeeConfig, saveEmployee, deleteEmployee, saveStaffAttendance, savePeriod, saveTimetableRecord, deleteTimetableRecord, saveHomework, deleteHomework, markHomeworkDone, markHomeworkSeen, saveTransportItem, deleteTransportItem, saveExpenseItem, deleteExpenseItem, saveLibraryItem, deleteLibraryItem, saveAccountsItem, deleteAccountsItem, saveLeaveItem, deleteLeaveItem, saveEnquiry, uploadStudentDocument, loadStudentAttendance, loadSessionAttendance, saveCertificate, saveCertificateSettings, saveExamRecord, saveDateSheetRow, deleteDateSheetRow, saveAdmitCards, deleteCertificate, updateCertificateStatus, saveReportExam, deleteReportExam, saveReportMarks, saveReportCard, updateReportCard, saveIdCardSettings, saveIdCard, deleteIdCard, uploadIdCardLogo, developmentDemo }
+  return { students, notices, fees, feeManager, attendance, timetableData, timetableRecords, homework, transport, library, accounts, leave, parents, parentMessages, parentNotifications, certificateRequests, leaveRequests, decideLeaveRequest, admissionRequests, approveAdmissionRequest, rejectAdmissionRequest, loadAdmissionHistory, enquiries, staff, staffAttendance, employeeConfig, approvals, expenses, academics, documents, certificates, certificateSettings, examData, reportData, idCards, idCardSettings, activities: feedActivities, backupSettings, workspace, createSchoolWorkspace, getNextAdmissionNumber, addStudent, updateStudent, updateStudentPhoto, ensureStudentPhotos, deletedStudents, deleteStudents, deleteAllStudents, restoreStudent, restoreAllStudents, permanentDeleteStudent, recordPayment, submitFeeReceipt, saveFeeGroup, deleteFeeGroup, saveFeeStructure, deleteFeeStructure, deleteFeeReceipt, restoreFeeReceipt, decideFeeApproval, saveFeeManagerConfig, createBackupPayload, restoreBackup, saveBackupSettings, saveSchoolProfile, saveParentAccount, addNotice, saveAttendance, saveEmployeeConfig, deleteEmployeeConfig, saveEmployee, deleteEmployee, saveStaffAttendance, savePeriod, saveTimetableRecord, deleteTimetableRecord, saveHomework, deleteHomework, markHomeworkDone, markHomeworkSeen, saveTransportItem, deleteTransportItem, saveExpenseItem, deleteExpenseItem, saveLibraryItem, deleteLibraryItem, saveAccountsItem, deleteAccountsItem, saveLeaveItem, deleteLeaveItem, saveEnquiry, uploadStudentDocument, loadStudentAttendance, loadSessionAttendance, saveCertificate, saveCertificateSettings, saveExamRecord, saveDateSheetRow, deleteDateSheetRow, saveAdmitCards, deleteCertificate, updateCertificateStatus, saveReportExam, deleteReportExam, saveReportMarks, saveReportCard, updateReportCard, saveIdCardSettings, saveIdCard, deleteIdCard, uploadIdCardLogo, activateModule, moduleReady, developmentDemo }
 }
 
 export default function App() {
@@ -5026,6 +5103,12 @@ export default function App() {
   }, [])
 
   const data = useSchoolWorkspace(session)
+
+  // Lazy modules (certificates, homework) are not in the always-on listener set. Opening one
+  // marks it live so its listener attaches on demand; non-lazy pages are ignored by activateModule.
+  useEffect(() => {
+    data.activateModule?.(page)
+  }, [page, data.activateModule])
 
   // Student photos no longer ride along in the students node, so pull the one we are about to
   // show. StudentProfile re-derives its student from data.students, so the image appears as soon
@@ -5112,6 +5195,10 @@ export default function App() {
   const currentSession = data.workspace.schoolProfile.academicYear || '2026-27'
   const sessionOptions = sessionOptionsFrom(data.students, currentSession)
   const archiveSession = viewSession && viewSession !== currentSession ? viewSession : ''
+  // A lazy module (certificates/homework) subscribes on open; until its first snapshot lands its
+  // state is empty, so show the module loader rather than the manager with no data (and no live
+  // save handlers running against an empty node).
+  const lazyModulePending = LAZY_MODULES.has(page) && !data.moduleReady.has(page)
 
   const logout = async () => {
     localStorage.removeItem('northstar-school-id')
@@ -5119,5 +5206,5 @@ export default function App() {
     await signOut(auth)
     setPage('dashboard')
   }
-  return <StudentPhotoContext.Provider value={data.ensureStudentPhotos}><div className={`app-shell ${darkMode ? 'theme-dark' : 'theme-light'}`}><Sidebar page={page} setPage={next => { setViewSession(''); setPage(next) }} open={menuOpen} close={() => setMenuOpen(false)} schoolName={data.workspace.schoolName} schoolLogo={data.workspace.schoolProfile.logoURL || data.workspace.schoolProfile.logo} schoolCode={data.workspace.schoolProfile.schoolCode} cloudMode={!data.developmentDemo} profile={profile} /><main className="main-area"><Header title={archiveSession ? `${archiveSession} Archive` : current.label} subtitle={`${data.workspace.schoolName} · ${archiveSession || currentSession}`} schoolCode={data.workspace.schoolProfile.schoolCode} onMenu={() => setMenuOpen(true)} profile={profile} onSignOut={logout} students={data.students} onSelectStudent={setSelectedStudent} darkMode={darkMode} onToggleTheme={() => setDarkMode(current => !current)} sessions={sessionOptions} currentSession={currentSession} viewSession={archiveSession} onChangeSession={setViewSession} /><div className="page-content page-enter" key={archiveSession || page}><Suspense fallback={<div className="module-loading"><span className="module-loading-dot" />Loading module...</div>}>{archiveSession ? <SessionArchive session={archiveSession} sessionStartMonth={sessionStartMonthOf(data.workspace.schoolProfile)} students={data.students} fees={data.fees} loadSessionAttendance={data.loadSessionAttendance} /> : screens[page]}</Suspense></div></main>{selectedStudent && <StudentProfile student={data.students.find(student => student.id === selectedStudent.id) || selectedStudent} close={() => setSelectedStudent(null)} attendance={data.attendance} fees={data.fees} feeManager={data.feeManager} schoolProfile={data.workspace.schoolProfile} academics={data.academics} documents={data.documents} onRecordPayment={data.recordPayment} onUploadDocument={data.uploadStudentDocument} onUpdatePhoto={data.updateStudentPhoto} onEdit={s => setEditingStudent(s)} loadStudentAttendance={data.loadStudentAttendance} />}{editingStudent && <StudentModal close={() => setEditingStudent(null)} student={editingStudent} updateStudent={async (id, updates) => { await data.updateStudent(id, updates); setEditingStudent(null) }} />}</div></StudentPhotoContext.Provider>
+  return <StudentPhotoContext.Provider value={data.ensureStudentPhotos}><div className={`app-shell ${darkMode ? 'theme-dark' : 'theme-light'}`}><Sidebar page={page} setPage={next => { setViewSession(''); setPage(next) }} open={menuOpen} close={() => setMenuOpen(false)} schoolName={data.workspace.schoolName} schoolLogo={data.workspace.schoolProfile.logoURL || data.workspace.schoolProfile.logo} schoolCode={data.workspace.schoolProfile.schoolCode} cloudMode={!data.developmentDemo} profile={profile} /><main className="main-area"><Header title={archiveSession ? `${archiveSession} Archive` : current.label} subtitle={`${data.workspace.schoolName} · ${archiveSession || currentSession}`} schoolCode={data.workspace.schoolProfile.schoolCode} onMenu={() => setMenuOpen(true)} profile={profile} onSignOut={logout} students={data.students} onSelectStudent={setSelectedStudent} darkMode={darkMode} onToggleTheme={() => setDarkMode(current => !current)} sessions={sessionOptions} currentSession={currentSession} viewSession={archiveSession} onChangeSession={setViewSession} /><div className="page-content page-enter" key={archiveSession || page}><Suspense fallback={<div className="module-loading"><span className="module-loading-dot" />Loading module...</div>}>{archiveSession ? <SessionArchive session={archiveSession} sessionStartMonth={sessionStartMonthOf(data.workspace.schoolProfile)} students={data.students} fees={data.fees} loadSessionAttendance={data.loadSessionAttendance} /> : lazyModulePending ? <div className="module-loading"><span className="module-loading-dot" />Loading module...</div> : screens[page]}</Suspense></div></main>{selectedStudent && <StudentProfile student={data.students.find(student => student.id === selectedStudent.id) || selectedStudent} close={() => setSelectedStudent(null)} attendance={data.attendance} fees={data.fees} feeManager={data.feeManager} schoolProfile={data.workspace.schoolProfile} academics={data.academics} documents={data.documents} onRecordPayment={data.recordPayment} onUploadDocument={data.uploadStudentDocument} onUpdatePhoto={data.updateStudentPhoto} onEdit={s => setEditingStudent(s)} loadStudentAttendance={data.loadStudentAttendance} />}{editingStudent && <StudentModal close={() => setEditingStudent(null)} student={editingStudent} updateStudent={async (id, updates) => { await data.updateStudent(id, updates); setEditingStudent(null) }} />}</div></StudentPhotoContext.Provider>
 }
