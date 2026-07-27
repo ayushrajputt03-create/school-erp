@@ -3233,11 +3233,14 @@ function useSchoolWorkspace(session) {
     }
     if (!developmentDemo) {
       const token = await session.getIdToken()
-      await databaseRequest(`schools/${workspace.schoolId}/students/${studentId}`, token, { method: 'PUT', body: row })
-      if (inlinePhoto) {
-        await databaseRequest(`studentPhotos/${workspace.schoolId}/${studentId}`, token, { method: 'PUT', body: inlinePhoto }).catch(() => {})
-        photoCacheRef.current[studentId] = inlinePhoto
-      }
+      // Row and photo go in one atomic PATCH (same shape addStudent/updatePhoto use). Writing them
+      // as two calls let the row claim photo_inline while the bytes silently failed to land - the
+      // photo then vanished on the next reload with no error shown anywhere.
+      await databaseRequest('', token, { method: 'PATCH', body: {
+        [`schools/${workspace.schoolId}/students/${studentId}`]: row,
+        ...(inlinePhoto ? { [`studentPhotos/${workspace.schoolId}/${studentId}`]: inlinePhoto } : {}),
+      } })
+      if (inlinePhoto) photoCacheRef.current[studentId] = inlinePhoto
       const parentPhone = parentIdOf(row.parent_login_phone || row.father_phone || row.guardian_phone)
       // If the contact number changed, the old phone must stop pointing at this child, otherwise
       // the previous number could still resolve it at parent login.
