@@ -11,6 +11,30 @@
  * Each module CSS only needs layout rules for its own print target.
  */
 
+/* ── printable documents must never inherit the screen table floor ──
+ * app.css sets a bare `table{min-width:780px}` so wide admin tables scroll
+ * horizontally on small screens. That selector also catches every table inside
+ * a printed document, and min-width beats both width and max-width - so a
+ * certificate table sitting in a ~170mm page box was still laid out at 780px
+ * and its last column was clipped by the page's overflow:hidden. The TC already
+ * declared table-layout:fixed with per-column percentages; they never had a
+ * chance while the floor was in place.
+ *
+ * Reset it once here for every print surface rather than per document -
+ * `.receipt-document table{min-width:0}` was the same bug patched in one spot.
+ */
+.formal-certificate table, .admit-card table, .report-card-paper table,
+.fee-receipt-paper table, .print-target table {
+  min-width: 0;
+}
+@media print {
+  .formal-certificate table, .admit-card table, .report-card-paper table,
+  .fee-receipt-paper table, .print-target table,
+  body.erp-printing .print-target table {
+    min-width: 0 !important;
+  }
+}
+
 /* ── generic Ctrl+P: hide app chrome ──────────────────────────────── */
 @media print {
   .sidebar, .topbar, .app-sidebar, .app-topbar,

@@ -27,9 +27,40 @@ const today = () => {
   date.setMinutes(date.getMinutes() - date.getTimezoneOffset())
   return date.toISOString().slice(0, 10)
 }
-const longDate = value => value ? new Date(`${String(value).slice(0, 10)}T00:00:00`).toLocaleDateString('en-IN', { day: '2-digit', month: 'long', year: 'numeric' }) : '-'
-const shortDate = value => value ? new Date(`${String(value).slice(0, 10)}T00:00:00`).toLocaleDateString('en-GB') : '-'
-const weekDay = value => value ? new Date(`${String(value).slice(0, 10)}T00:00:00`).toLocaleDateString('en-IN', { weekday: 'long' }) : '-'
+// Dates reaching a certificate are not all ISO. Across this app a student's DOB has turned up as
+// "2010-05-14", "14/05/2010", an epoch number, and a Firebase {seconds} object. The old helpers
+// sliced the first 10 characters and appended "T00:00:00", so every non-ISO shape produced a
+// literal "Invalid Date" printed onto the certificate - worse than a blank, because it lands on a
+// document a parent keeps.
+const toCertificateDate = value => {
+  if (value === null || value === undefined || value === '') return null
+  if (value instanceof Date) return Number.isNaN(value.getTime()) ? null : value
+  // Firebase Timestamp-ish: {seconds} or {_seconds}
+  const seconds = typeof value === 'object' ? (value.seconds ?? value._seconds) : null
+  if (typeof seconds === 'number') return new Date(seconds * 1000)
+  if (typeof value === 'number') return new Date(value)
+  const text = String(value).trim()
+  if (!text) return null
+  // Epoch stored as a string
+  if (/^\d{10}$/.test(text)) return new Date(Number(text) * 1000)
+  if (/^\d{13}$/.test(text)) return new Date(Number(text))
+  // ISO, with or without a time part
+  const iso = text.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/)
+  if (iso) return new Date(Number(iso[1]), Number(iso[2]) - 1, Number(iso[3]))
+  // dd/mm/yyyy or dd-mm-yyyy (Indian order - the format the admission forms accept)
+  const dmy = text.match(/^(\d{1,2})[/-](\d{1,2})[/-](\d{4})/)
+  if (dmy) return new Date(Number(dmy[3]), Number(dmy[2]) - 1, Number(dmy[1]))
+  const parsed = new Date(text)
+  return Number.isNaN(parsed.getTime()) ? null : parsed
+}
+const formatCertificateDate = (value, options, locale = 'en-GB', fallback = '-') => {
+  const date = toCertificateDate(value)
+  if (!date || Number.isNaN(date.getTime())) return fallback
+  return date.toLocaleDateString(locale, options)
+}
+const longDate = value => formatCertificateDate(value, { day: '2-digit', month: 'long', year: 'numeric' }, 'en-IN')
+const shortDate = value => formatCertificateDate(value)
+const weekDay = value => formatCertificateDate(value, { weekday: 'long' }, 'en-IN')
 const dashDate = value => shortDate(value).replace(/\//g, '-')
 const academicYear = value => String(value || '2026-27')
 const classParts = value => {
@@ -494,7 +525,7 @@ function SimpleCertificate({ type, student, form, school, settings, certificateN
   if (type === 'bonafide') paragraphs = [
     <>This is to certify that Mr./Ms. <strong>{student.name}</strong>, {p.relation} of <strong>{student.fatherName || student.guardian}</strong>, is a bonafide student of this school.</>,
     <>{p.subject} is currently studying in Class <strong>{className}</strong>, Section <strong>{section}</strong>, during the academic year <strong>{academicYear(form.academicYear || school.academicYear)}</strong>.</>,
-    <>{p.possessive} date of birth as per school records is <strong>{shortDate(student.dob)}</strong>. {p.possessive} conduct and character is <strong>{form.conduct}</strong>.</>,
+    <>{p.possessive} date of birth as per school records is <strong>{formatCertificateDate(student.dob, undefined, 'en-GB', 'not on record')}</strong>. {p.possessive} conduct and character is <strong>{form.conduct}</strong>.</>,
     <>This certificate is issued on {p.possessiveLower} request for <strong>{form.purpose === 'Other' ? form.customPurpose : form.purpose}</strong>.</>,
   ]
   if (type === 'study') paragraphs = [
@@ -1151,7 +1182,10 @@ async function downloadTransferCertificatePdf(student, form, school, settings, c
   pdf.text(`Class: ${className} / ${section}`, 146, 103)
 
   y = 145
-  const colWidths = [12, 24, 24, 21, 35, 18, 15, 18, 17]
+  // Sums to 174mm starting at x=12, so the table ends at 186mm - inside the 9mm page border and
+  // clear of the ~190mm a printer will actually put on A4. The previous set summed to 184mm and
+  // ran to 196mm, which sat past the printable area and clipped the last column on paper.
+  const colWidths = [11, 23, 23, 20, 33, 17, 14, 17, 16]
   const headers = ['Class', 'Admission', 'Promotion', 'TC Date', 'Reason', 'Session', 'Result', 'Character', 'Sign.']
   let x = 12
   pdf.setFontSize(6.2)
