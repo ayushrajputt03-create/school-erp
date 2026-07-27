@@ -2355,7 +2355,7 @@ function noticeFromRow(row) {
 // set; instead they subscribe the first time the user opens the module (see the lazy-module
 // effect) and stay live for the rest of the session. This keeps their nodes out of every login's
 // download for the (common) case where the user never opens them.
-const LAZY_MODULES = new Set(['certificates', 'homework', 'reports', 'id-cards', 'accounts'])
+const LAZY_MODULES = new Set(['certificates', 'homework', 'reports', 'id-cards', 'accounts', 'deleted-students'])
 
 function useSchoolWorkspace(session) {
   const developmentDemo = !isFirebaseConfigured && import.meta.env.VITE_APP_ENV !== 'production'
@@ -2463,7 +2463,11 @@ function useSchoolWorkspace(session) {
     // marked attendance. They now load when their module is opened - see LAZY_MODULES and the
     // lazy-module effect. createBackupPayload reads them fresh over REST, so a session that never
     // opens those screens downloads them zero times yet still backs them up in full.
-    const LISTENERLESS_NODES = ['subscription', 'staffCount', 'admissionSequenceVersion', 'timetable', 'timetableRecords', 'library', 'enquiries', 'employeeManager', 'parentMessages', 'parentNotifications', 'certificateRequests', 'approvals', 'studentAcademics', 'studentDocuments', 'backupSettings']
+    // parentMessages, parentNotifications and certificateRequests were downloaded here on every
+    // login and then read by nothing - no screen renders them and the backup does not include
+    // them. The nodes still exist in the database and the parent portal still writes to them;
+    // only the pointless client fetch is gone. Wire them lazily if an admin screen is built.
+    const LISTENERLESS_NODES = ['subscription', 'staffCount', 'admissionSequenceVersion', 'timetable', 'timetableRecords', 'library', 'enquiries', 'employeeManager', 'approvals', 'studentAcademics', 'studentDocuments', 'backupSettings']
     async function fetchScopedSchool(schoolId, token) {
       const profile = await fetchPrimarySchool(`schools/${schoolId}/profile`, token)
       if (profile === undefined) return undefined
@@ -2803,9 +2807,10 @@ function useSchoolWorkspace(session) {
         }
       })
 
-      listen(`schools/${schoolId}/deletedStudents`, snap => {
-        setDeletedStudents(snap.val() || {})
-      })
+      // deletedStudents holds a full copy of every soft-deleted student row, so it is one of the
+      // heaviest nodes in the workspace, and only the Deleted Students screen reads it. It
+      // subscribes lazily. The soft-delete handler writes per id, so archiving still works with
+      // the module closed and the listener not attached.
 
       const monthStartDate = new Date()
       const monthStart = `${monthStartDate.getFullYear()}-${String(monthStartDate.getMonth() + 1).padStart(2, '0')}-01`
@@ -2981,6 +2986,9 @@ function useSchoolWorkspace(session) {
       }
       if (openedModules.has('accounts')) {
         attach(`schools/${schoolId}/accounts`, setAccounts, 'accounts')
+      }
+      if (openedModules.has('deleted-students')) {
+        attach(`schools/${schoolId}/deletedStudents`, setDeletedStudents, 'deleted-students')
       }
     }).catch(error => {
       console.error('[lazy-listeners] firebase/database failed to load:', error?.message)
