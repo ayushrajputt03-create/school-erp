@@ -239,3 +239,29 @@
   .report-two-column { display: block !important; }
   .report-form, .rt-picker { display: none !important; }
 }
+
+/* Marks-only table. The subject needs the room; the marks column is a short number, so the
+   fixed layout is split rather than left at an even 50/50. */
+.rt-table-marks td:first-child, .rt .rt-table-marks th:first-child { width: 64%; }
+
+/* Editable marks cell.
+   The read-only span and the click-to-edit button must look identical, otherwise the card
+   would print differently depending on whether editing was available. Only the hover state
+   hints that the cell is interactive, and it is stripped in print. */
+.rt-mark { font-weight: 750; }
+.rt-mark-max { font-style: normal; font-weight: 500; opacity: .55; }
+button.rt-mark-edit {
+  border: 0; background: transparent; padding: .3mm .8mm; margin: -.3mm -.8mm;
+  font: inherit; color: inherit; border-radius: .8mm; cursor: text;
+}
+button.rt-mark-edit:hover { background: rgba(0, 0, 0, .07); box-shadow: inset 0 0 0 .25mm rgba(0, 0, 0, .18); }
+.rt-mark-input {
+  width: 92%; border: .25mm solid var(--primary, #052659); border-radius: .8mm;
+  background: #fff; color: #111; font: inherit; font-weight: 750; text-align: center;
+  padding: .2mm; outline: 0;
+}
+
+@media print {
+  button.rt-mark-edit:hover { background: transparent; box-shadow: none; }
+  .rt-mark-input { border: 0; background: transparent; }
+}

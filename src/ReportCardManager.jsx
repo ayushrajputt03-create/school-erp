@@ -6,7 +6,7 @@ import {
 } from 'lucide-react'
 import DatePicker from './DatePicker'
 import { safePrint as sharedSafePrint } from './print-utils'
-import { REPORT_TEMPLATES, templateById } from './reportCardTemplates'
+import { REPORT_TEMPLATES, templateById, MarkCell } from './reportCardTemplates'
 import './ReportCardManager.css'
 
 // Remembered per browser rather than written to the school record: picking a design is a
@@ -225,7 +225,7 @@ function MarksEntry({ students, reportData, onSaveMarks, onSaveReport }) {
   </div>
 }
 
-function ReportCardPaper({ student, exam, record, school, classRecords }) {
+function ReportCardPaper({ student, exam, record, school, classRecords, onEditMark }) {
   const summary = calculateReport(exam, record, classRecords)
   const photo = profilePhoto(student)
   const parts = classParts(student.className)
@@ -249,7 +249,7 @@ function ReportCardPaper({ student, exam, record, school, classRecords }) {
         <div><span>Session</span><strong>{exam.session || school.academicYear || '2026-27'}</strong></div>
         <div><span>Attendance</span><strong>{record.attendance || '-'}%</strong></div>
       </section>
-      <table className="report-card-table premium-marks-table"><thead><tr><th>Subject</th><th>Max Marks</th><th>Obtained</th><th>Grade</th><th>Remarks</th></tr></thead><tbody>{summary.subjects.map(row => <tr key={row.subject}><td>{row.subject}</td><td>{row.maxMarks}</td><td>{row.obtained}</td><td><span className={`grade-pill grade-${row.grade.replace('+', 'plus')}`}>{row.grade}</span></td><td>{row.remarks || '-'}</td></tr>)}</tbody></table>
+      <table className="report-card-table premium-marks-table rt-table-marks"><thead><tr><th>Subject</th><th>Marks</th></tr></thead><tbody>{summary.subjects.map((row, index) => <tr key={row.subject}><td>{row.subject}</td><td className="rt-total"><MarkCell value={row.obtained} max={row.maxMarks} onEdit={onEditMark && (value => onEditMark(index, value))} /></td></tr>)}</tbody></table>
       <section className="premium-result-box">
         <div className={`percent-ring ${tone}`} style={{ '--score': `${Math.min(100, summary.percentage)}%` }}><strong>{summary.percentage}%</strong><span>Overall</span></div>
         <div className="premium-summary-grid">
@@ -293,9 +293,9 @@ function TemplatePicker({ value, onChange }) {
 
 // Chooses which design renders. 'classic' keeps the original ReportCardPaper untouched, so a
 // school that never opens the picker prints exactly what it printed before.
-function ReportCardSurface({ templateId, student, exam, record, school, classRecords }) {
+function ReportCardSurface({ templateId, student, exam, record, school, classRecords, onEditMark }) {
   const template = templateById(templateId)
-  if (!template.Component) return <ReportCardPaper student={student} exam={exam} record={record} school={school} classRecords={classRecords} />
+  if (!template.Component) return <ReportCardPaper student={student} exam={exam} record={record} school={school} classRecords={classRecords} onEditMark={onEditMark} />
   const { Component } = template
   return <Component
     school={school}
@@ -306,10 +306,11 @@ function ReportCardSurface({ templateId, student, exam, record, school, classRec
     parts={classParts(student.className)}
     photo={profilePhoto(student)}
     logo={school.logo || school.logoURL || ''}
+    onEditMark={onEditMark}
   />
 }
 
-function ReportGenerator({ students, school, reportData, onSaveReport, onUpdateReport }) {
+function ReportGenerator({ students, school, reportData, onSaveMarks, onSaveReport, onUpdateReport }) {
   const exams = Object.values(reportData.exams || {})
   const [examId, setExamId] = useState(exams[0]?.id || '')
   const [student, setStudent] = useState(null)
@@ -344,6 +345,26 @@ function ReportGenerator({ students, school, reportData, onSaveReport, onUpdateR
       setLoading(false)
     }
   }
+  // Editing a mark directly on the card. Writes the same two records Marks Entry writes (both
+  // keyed examId_studentId), so the card, the Marks Entry grid and the parent portal can never
+  // drift apart. A locked report is refused rather than silently ignored.
+  const editMark = async (index, value) => {
+    if (!record || !student) return
+    if (record.locked) { setMessage('This report is locked. Unlock it before editing marks.'); return }
+    const subjects = (record.subjects || []).map((row, i) => i === index ? { ...row, obtained: value } : row)
+    const next = { ...record, subjects, examId: exam.id, studentId: student.id, studentName: student.name }
+    const updated = { ...next, summary: calculateReport(exam, next, classRows), updatedAt: Date.now() }
+    setGenerated(updated)
+    setMessage('')
+    try {
+      await onSaveMarks(updated)
+      await onSaveReport({ ...updated, id: key })
+    } catch (error) {
+      console.error('Inline marks update failed', error)
+      setMessage(`Marks update failed: ${error.message}`)
+    }
+  }
+
   return <div className="report-two-column">
     <section className="panel report-form">
       <div className="panel-header"><div><h3>Report Card Generator</h3><p>Generate one student or bulk class-wise report cards.</p></div></div>
@@ -355,7 +376,7 @@ function ReportGenerator({ students, school, reportData, onSaveReport, onUpdateR
       <div className="report-actions"><button className="secondary-button" disabled={!record} onClick={() => safePrint('.report-card-paper')}><Printer size={15} /> Print Report Card</button><button className="secondary-button" disabled={!record} onClick={() => downloadReportPdf(`${student?.name || 'student'}-report-card.pdf`)}><Download size={15} /> Download PDF</button><button className="secondary-button" disabled={!record} onClick={() => safePrint('.report-card-paper')}><Users size={15} /> Bulk Print Class</button><button className="secondary-button" disabled={!record} onClick={() => downloadReportPdf('bulk-report-cards.pdf')}><Download size={15} /> Bulk PDF</button></div>
       {record && <div className="report-admin-controls"><button onClick={() => onUpdateReport(key, { status: 'published' })}><Eye size={14} /> Publish</button><button onClick={() => onUpdateReport(key, { status: 'draft' })}><Unlock size={14} /> Unpublish</button><button onClick={() => onUpdateReport(key, { locked: true })}><Lock size={14} /> Lock</button><button onClick={() => onUpdateReport(key, { locked: false })}><Unlock size={14} /> Unlock</button></div>}
     </section>
-    <section className="report-preview-wrap">{record && student ? <ReportCardSurface templateId={templateId} student={student} exam={exam} record={record} school={school} classRecords={classRows} /> : <div className="empty-state large"><FileText size={30} /><strong>No report selected</strong><p>First save marks, select student, then click Generate Result.</p></div>}</section>
+    <section className="report-preview-wrap">{record && student ? <ReportCardSurface templateId={templateId} student={student} exam={exam} record={record} school={school} classRecords={classRows} onEditMark={editMark} /> : <div className="empty-state large"><FileText size={30} /><strong>No report selected</strong><p>First save marks, select student, then click Generate Result.</p></div>}</section>
   </div>
 }
 
@@ -411,7 +432,7 @@ export default function ReportCardManager({ students, school, reportData, onSave
     </div>
     {tab === 'setup' && <ExamSetup exams={normalizedReportData.exams} onSave={onSaveExam} onDelete={onDeleteExam} />}
     {tab === 'marks' && <MarksEntry students={students} reportData={normalizedReportData} onSaveMarks={onSaveMarks} onSaveReport={onSaveReport} />}
-    {tab === 'generator' && <ReportGenerator students={students} school={school} reportData={normalizedReportData} onSaveReport={onSaveReport} onUpdateReport={onUpdateReport} />}
+    {tab === 'generator' && <ReportGenerator students={students} school={school} reportData={normalizedReportData} onSaveMarks={onSaveMarks} onSaveReport={onSaveReport} onUpdateReport={onUpdateReport} />}
     {tab === 'analytics' && <Analytics students={students} reportData={normalizedReportData} />}
     {tab === 'portal' && <ParentPortal students={students} school={school} reportData={normalizedReportData} />}
   </div>

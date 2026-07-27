@@ -10,8 +10,47 @@
 // Themes are CSS variables, so nine designs come from two layouts. Every template keeps the
 // outer .report-card-paper class because the existing print and PDF paths select on it.
 
-import React from 'react'
+import React, { useState } from 'react'
 import './reportCardTemplates.css'
+
+// Marks cell. Read-only by default; with onEdit it turns into an input on click.
+//
+// Deliberately renders plain text until clicked rather than always being an <input>: print and
+// the html2canvas PDF path capture whatever is in the DOM, so a card that is editable on screen
+// still prints identically to a read-only one. Nothing is focused while printing.
+export function MarkCell({ value, max, onEdit }) {
+  const [editing, setEditing] = useState(false)
+  const [draft, setDraft] = useState('')
+  const shown = <>{value === '' || value === undefined || value === null ? '—' : value}{max ? <i className="rt-mark-max"> / {max}</i> : null}</>
+
+  if (!onEdit) return <span className="rt-mark">{shown}</span>
+
+  if (!editing) {
+    return <button
+      type="button"
+      className="rt-mark rt-mark-edit"
+      title="Click to edit marks"
+      onClick={() => { setDraft(value === undefined || value === null ? '' : String(value)); setEditing(true) }}
+    >{shown}</button>
+  }
+
+  const commit = () => {
+    setEditing(false)
+    if (draft !== String(value ?? '')) onEdit(draft)
+  }
+  return <input
+    className="rt-mark-input"
+    type="number"
+    autoFocus
+    value={draft}
+    onChange={event => setDraft(event.target.value)}
+    onBlur={commit}
+    onKeyDown={event => {
+      if (event.key === 'Enter') { event.preventDefault(); commit() }
+      if (event.key === 'Escape') setEditing(false)
+    }}
+  />
+}
 
 const stars = percent => {
   const filled = percent >= 85 ? 4 : percent >= 70 ? 3 : percent >= 50 ? 2 : 1
@@ -48,7 +87,7 @@ function Footer({ record, note }) {
 
 // --- Formal layout: marks table, for senior classes -------------------------------------
 
-function FormalTemplate({ theme, school, student, exam, record, summary, parts, photo, logo }) {
+function FormalTemplate({ theme, school, student, exam, record, summary, parts, photo, logo, onEditMark }) {
   const session = exam.session || school.academicYear || ''
   return <article className={`report-card-paper rt rt-formal theme-${theme}`}>
     <div className="rt-inner">
@@ -78,13 +117,13 @@ function FormalTemplate({ theme, school, student, exam, record, summary, parts, 
       </section>
 
       <div className="rt-heading"><h3>Scholastic Performance</h3><span>Maximum {summary.totalMax} marks</span></div>
-      <table className="rt-table">
-        <thead><tr><th>Subject</th><th>Max</th><th>Obtained</th><th>Remark</th></tr></thead>
-        <tbody>{summary.subjects.map(row => <tr key={row.subject}>
-          <td>{row.subject}</td><td>{row.maxMarks}</td><td className="rt-total">{row.obtained}</td>
-          <td>{row.remarks || '—'}</td>
+      <table className="rt-table rt-table-marks">
+        <thead><tr><th>Subject</th><th>Marks</th></tr></thead>
+        <tbody>{summary.subjects.map((row, index) => <tr key={row.subject}>
+          <td>{row.subject}</td>
+          <td className="rt-total"><MarkCell value={row.obtained} max={row.maxMarks} onEdit={onEditMark && (value => onEditMark(index, value))} /></td>
         </tr>)}</tbody>
-        <tfoot><tr><td>Overall</td><td>{summary.totalMax}</td><td className="rt-total">{summary.obtained}</td><td>{summary.promotionStatus}</td></tr></tfoot>
+        <tfoot><tr><td>Overall</td><td className="rt-total">{summary.obtained} / {summary.totalMax}</td></tr></tfoot>
       </table>
 
       <div className="rt-lower">
@@ -130,7 +169,7 @@ const KID_COPY = {
   rainbow: { icon: '🌈', title: 'My Colourful Progress Report', sub: 'Celebrating learning, creativity and happy achievements', journey: 'Learning & Academic Development', remark: 'A Special Message From My Teacher', sticker: '⭐', foot: 'Keep learning, creating and shining!' },
 }
 
-function KidsTemplate({ theme, school, student, exam, record, summary, parts, photo, logo }) {
+function KidsTemplate({ theme, school, student, exam, record, summary, parts, photo, logo, onEditMark }) {
   const copy = KID_COPY[theme] || KID_COPY.happy
   const session = exam.session || school.academicYear || ''
   return <article className={`report-card-paper rt rt-kids theme-${theme}`}>
@@ -160,12 +199,11 @@ function KidsTemplate({ theme, school, student, exam, record, summary, parts, ph
       </section>
 
       <div className="rt-heading"><div className="rt-bubble">📚</div><h3>{copy.journey}</h3><span>Out of {summary.totalMax} marks</span></div>
-      <table className="rt-table">
-        <thead><tr><th>Learning Area</th><th>Marks</th><th>Stars</th><th>Progress</th></tr></thead>
-        <tbody>{summary.subjects.map(row => <tr key={row.subject}>
-          <td>{row.subject}</td><td>{row.obtained} / {row.maxMarks}</td>
-          <td className="rt-stars">{stars(row.percent)}</td>
-          <td><span className="rt-pill">{progressWord(row.percent)}</span></td>
+      <table className="rt-table rt-table-marks">
+        <thead><tr><th>Learning Area</th><th>Marks</th></tr></thead>
+        <tbody>{summary.subjects.map((row, index) => <tr key={row.subject}>
+          <td>{row.subject}</td>
+          <td className="rt-total"><MarkCell value={row.obtained} max={row.maxMarks} onEdit={onEditMark && (value => onEditMark(index, value))} /></td>
         </tr>)}</tbody>
       </table>
 

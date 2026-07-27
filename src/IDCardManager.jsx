@@ -311,7 +311,10 @@ function CardPreview({ person, school, settings, template, form, side, selectedF
       {fields.motto && <p className="motto">"{school.motto || 'Learn. Lead. Serve.'}"</p>}
       {fields.address && <p><strong>Address:</strong> {school.address || person.address || 'School address'}</p>}
       {fields.contact && <p><strong>Contact:</strong> {school.phone || person.contact || 'Not provided'} {school.email ? `| ${school.email}` : ''}</p>}
-      {fields.qrCode && <div className="back-qr"><QRPreview value={verification} /><span>Scan to verify ERP profile</span></div>}
+      {/* The back face carries no QR. The front already has one encoding the same verification
+          URL, so a second copy only ate space on a card that has none to spare. backFields.qrCode
+          is left in the stored settings rather than migrated away - it is harmless, and rewriting
+          every school's saved design to drop one flag is not worth the risk. */}
       <div className="id-sign-row">
         {fields.signature && <div><i />Principal Sign</div>}
         {fields.seal && <div className="seal">Seal</div>}
