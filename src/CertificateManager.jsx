@@ -512,7 +512,7 @@ function TransferCertificate({ student, form, school, settings, certificateNumbe
     </section>
     <table className="academic-history-table">
       <thead><tr><th>Class</th><th>Date of Admission</th><th>Date of Promotion</th><th>Date of TC</th><th>Reason for leaving the School</th><th>Session</th><th>Result</th><th>Character</th><th>Signature</th></tr></thead>
-      <tbody>{academicRows.map((row, index) => <tr key={`${row.className || row.class}-${index}`}><td>{row.className || row.class || '-'}</td><td>{dashDate(row.admissionDate || row.dateAdmission)}</td><td>{dashDate(row.promotionDate || row.datePromotion)}</td><td>{dashDate(row.tcDate || row.dateTc)}</td><td>{row.reason || '-'}</td><td>{row.session || '-'}</td><td>{row.result || '-'}</td><td>{row.character || '-'}</td><td></td></tr>)}</tbody>
+      <tbody>{academicRows.map((row, index) => <tr key={`${row.className || row.class}-${index}`}><td>{row.className || row.class || '-'}</td><td>{dashDate(row.admissionDate || row.dateAdmission)}</td><td>{dashDate(row.promotionDate || row.datePromotion)}</td><td>{dashDate(row.tcDate || row.dateTc)}</td><td>{row.reason || '-'}</td><td>{row.session || '-'}</td><td>{row.result || '-'}</td><td>{row.character || '-'}</td><td className="tc-row-sign">{school.principalSignatureURL ? <img src={school.principalSignatureURL} alt="" /> : ''}</td></tr>)}</tbody>
     </table>
     <section className="tc-certification"><p>{form.bottomText || settings.defaultBottomText || tcBottomText}</p></section>
     <div className="tc-signature-date"><strong>Date: {dashDate(form.issueDate)}</strong></div>
@@ -1193,12 +1193,27 @@ async function downloadTransferCertificatePdf(student, form, school, settings, c
   let x = 12
   pdf.setFontSize(6.2)
   headers.forEach((header, i) => { pdf.rect(x, y, colWidths[i], 8); pdf.text(header, x + colWidths[i] / 2, y + 5, { align: 'center' }); x += colWidths[i] })
-  academicRows.forEach((row, rowIndex) => {
+  // The last column carries the issuing signature on every row, the way the printed reference
+  // certificates do - so it is drawn as an image and never gets the "-" placeholder text.
+  const SIGN_COL = headers.length - 1
+  const rowSignData = await imageUrlToDataUrl(school.principalSignatureURL || '')
+  for (const [rowIndex, row] of academicRows.entries()) {
     x = 12
     const rowY = y + 8 + rowIndex * 9
     const cells = [row.className || row.class, dashDate(row.admissionDate || row.dateAdmission), dashDate(row.promotionDate || row.datePromotion), dashDate(row.tcDate || row.dateTc), row.reason, row.session, row.result, row.character, '']
-    cells.forEach((cell, i) => { pdf.rect(x, rowY, colWidths[i], 9); pdf.text(pdf.splitTextToSize(String(cell || '-'), colWidths[i] - 2), x + colWidths[i] / 2, rowY + 5, { align: 'center' }); x += colWidths[i] })
-  })
+    for (const [i, cell] of cells.entries()) {
+      pdf.rect(x, rowY, colWidths[i], 9)
+      if (i === SIGN_COL) {
+        if (rowSignData) {
+          const box = await fitImageInBox(rowSignData, x + 1, rowY + 1, colWidths[i] - 2, 7)
+          try { pdf.addImage(rowSignData, 'PNG', box.x, box.y, box.width, box.height) } catch { /* unsupported image data */ }
+        }
+      } else {
+        pdf.text(pdf.splitTextToSize(String(cell || '-'), colWidths[i] - 2), x + colWidths[i] / 2, rowY + 5, { align: 'center' })
+      }
+      x += colWidths[i]
+    }
+  }
 
   const certY = Math.min(215, y + 14 + academicRows.length * 9)
   pdf.setFontSize(8.5)

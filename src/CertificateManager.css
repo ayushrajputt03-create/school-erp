@@ -296,3 +296,21 @@
   .tc-signatures .principal-sign-row .admit-sign{height:13mm!important;max-width:34mm!important}
   .tc-signatures .principal-sign-row .admit-seal{height:15mm!important;max-width:26mm!important}
 }
+
+/* ── Reference-TC details ─────────────────────────────────────────────────
+   Matching the printed transfer certificates schools actually issue. */
+
+/* A real school crest is an irregular shape on white, not a framed tile, and
+   the printed reference has no box around it. The border is kept only for the
+   "SCHOOL LOGO" placeholder, where it is the only thing marking the slot. */
+.formal-logo:has(img){border:0!important;border-radius:0!important}
+
+/* Signature column: the issuing signature is pre-printed on every history row
+   on the reference certificate, not left blank for hand-signing. */
+.tc-row-sign{padding:0.5mm!important;line-height:0}
+.tc-row-sign img{height:5mm;width:auto;max-width:100%;max-height:none;object-fit:contain;display:block;margin:0 auto}
+@media print{
+  .formal-logo:has(img){border:0!important;border-radius:0!important}
+  .tc-row-sign{padding:0.4mm!important;line-height:0!important}
+  .tc-row-sign img{height:4.2mm!important;max-width:100%!important;max-height:none!important}
+}
