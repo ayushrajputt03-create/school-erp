@@ -90,9 +90,12 @@ const numberWords = value => {
   return String(n)
 }
 const dateInWords = value => {
-  if (!value) return '-'
-  const date = new Date(`${String(value).slice(0, 10)}T00:00:00`)
-  const ordinals = ['', 'FIRST', 'SECOND', 'THIRD', 'FOURTH', 'FIFTH', 'SIXTH', 'SEVENTH', 'EIGHTH', 'NINTH', 'TENTH', 'ELEVENTH', 'TWELFTH', 'THIRTEENTH', 'FOURTEENTH', 'FIFTEENTH', 'SIXTEENTH', 'SEVENTEENTH', 'EIGHTEENTH', 'NINETEENTH', 'TWENTIETH', 'TWENTY FIRST', 'TWENTY SECOND', 'TWENTY THIRD', 'TWENTY FOURTH', 'TWENTY FIFTH', 'TWENTY SIXTH', 'TWENTY SEVENTH', 'TWENTY EIGHTH', 'TWENTY NINTH', 'THIRTIETH', 'THIRTY FIRST']
+  // Shares toCertificateDate with the other helpers. On its own this used the old ISO-only parse,
+  // so a non-ISO DOB gave ordinals[NaN] -> "undefined" and a month of "INVALID DATE", printing the
+  // literal "undefined INVALID DATE" in the certificate's In Words row.
+  const date = toCertificateDate(value)
+  if (!date || Number.isNaN(date.getTime())) return '-'
+  const ordinals =['', 'FIRST', 'SECOND', 'THIRD', 'FOURTH', 'FIFTH', 'SIXTH', 'SEVENTH', 'EIGHTH', 'NINTH', 'TENTH', 'ELEVENTH', 'TWELFTH', 'THIRTEENTH', 'FOURTEENTH', 'FIFTEENTH', 'SIXTEENTH', 'SEVENTEENTH', 'EIGHTEENTH', 'NINETEENTH', 'TWENTIETH', 'TWENTY FIRST', 'TWENTY SECOND', 'TWENTY THIRD', 'TWENTY FOURTH', 'TWENTY FIFTH', 'TWENTY SIXTH', 'TWENTY SEVENTH', 'TWENTY EIGHTH', 'TWENTY NINTH', 'THIRTIETH', 'THIRTY FIRST']
   const month = date.toLocaleDateString('en-IN', { month: 'long' }).toUpperCase()
   return `${ordinals[date.getDate()]} ${month} ${numberWords(date.getFullYear())}`
 }
