@@ -2355,7 +2355,7 @@ function noticeFromRow(row) {
 // set; instead they subscribe the first time the user opens the module (see the lazy-module
 // effect) and stay live for the rest of the session. This keeps their nodes out of every login's
 // download for the (common) case where the user never opens them.
-const LAZY_MODULES = new Set(['certificates', 'homework'])
+const LAZY_MODULES = new Set(['certificates', 'homework', 'reports', 'id-cards', 'accounts'])
 
 function useSchoolWorkspace(session) {
   const developmentDemo = !isFirebaseConfigured && import.meta.env.VITE_APP_ENV !== 'production'
@@ -2457,7 +2457,13 @@ function useSchoolWorkspace(session) {
     // available they are the sole supplier of those nodes, so the bootstrap fetches only the
     // small pieces it actually inspects (profile, subscription, counters) plus the modules that
     // have no listener, and the heavy nodes are downloaded exactly once, by the listener.
-    const LISTENERLESS_NODES = ['subscription', 'staffCount', 'admissionSequenceVersion', 'timetable', 'timetableRecords', 'library', 'accounts', 'enquiries', 'employeeManager', 'parentMessages', 'parentNotifications', 'certificateRequests', 'approvals', 'studentAcademics', 'studentDocuments', 'exams', 'dateSheet', 'admitCards', 'reportExams', 'reportMarks', 'reportCards', 'idCards', 'idCardSettings', 'backupSettings']
+    // Report marks/cards, ID cards, admit cards and the accounts ledger are the nodes that grow
+    // fastest with the roll (marks are per student per exam per subject) and the dashboard reads
+    // none of them. They used to be fetched here on EVERY login even for a session that only
+    // marked attendance. They now load when their module is opened - see LAZY_MODULES and the
+    // lazy-module effect. createBackupPayload reads them fresh over REST, so a session that never
+    // opens those screens downloads them zero times yet still backs them up in full.
+    const LISTENERLESS_NODES = ['subscription', 'staffCount', 'admissionSequenceVersion', 'timetable', 'timetableRecords', 'library', 'enquiries', 'employeeManager', 'parentMessages', 'parentNotifications', 'certificateRequests', 'approvals', 'studentAcademics', 'studentDocuments', 'backupSettings']
     async function fetchScopedSchool(schoolId, token) {
       const profile = await fetchPrimarySchool(`schools/${schoolId}/profile`, token)
       if (profile === undefined) return undefined
@@ -2954,9 +2960,27 @@ function useSchoolWorkspace(session) {
       if (openedModules.has('certificates')) {
         attach(`schools/${schoolId}/certificates`, setCertificates, 'certificates')
         attach(`schools/${schoolId}/certificateSettings`, setCertificateSettings)
+        // Admit cards live inside the certificates module, so they load with it.
+        attach(`schools/${schoolId}/exams`, value => setExamData(prev => ({ ...prev, exams: value })))
+        attach(`schools/${schoolId}/dateSheet`, value => setExamData(prev => ({ ...prev, dateSheet: value })))
+        attach(`schools/${schoolId}/admitCards`, value => setExamData(prev => ({ ...prev, admitCards: value })))
       }
       if (openedModules.has('homework')) {
         attach(`schools/${schoolId}/homework`, setHomework, 'homework')
+      }
+      if (openedModules.has('reports')) {
+        // Marks are the readiness key: the manager's save handlers merge into this node, so it
+        // must be the real one before the module renders, never an empty placeholder.
+        attach(`schools/${schoolId}/reportMarks`, value => setReportData(prev => ({ ...prev, marks: value })), 'reports')
+        attach(`schools/${schoolId}/reportExams`, value => setReportData(prev => ({ ...prev, exams: value })))
+        attach(`schools/${schoolId}/reportCards`, value => setReportData(prev => ({ ...prev, reports: value })))
+      }
+      if (openedModules.has('id-cards')) {
+        attach(`schools/${schoolId}/idCards`, setIdCards, 'id-cards')
+        attach(`schools/${schoolId}/idCardSettings`, setIdCardSettings)
+      }
+      if (openedModules.has('accounts')) {
+        attach(`schools/${schoolId}/accounts`, setAccounts, 'accounts')
       }
     }).catch(error => {
       console.error('[lazy-listeners] firebase/database failed to load:', error?.message)
@@ -3939,17 +3963,29 @@ function useSchoolWorkspace(session) {
     let certificateRows = certificates
     let certificateSettingsRow = certificateSettings
     let homeworkRows = homework
+    let accountRows = accounts
+    let reportExamRows = reportData.exams
+    let reportMarkRows = reportData.marks
+    let reportCardRows = reportData.reports
     if (!developmentDemo) {
       try {
         const token = await session.getIdToken()
-        const [freshCerts, freshCertSettings, freshHomework] = await Promise.all([
+        const [freshCerts, freshCertSettings, freshHomework, freshAccounts, freshReportExams, freshReportMarks, freshReportCards] = await Promise.all([
           databaseRequest(`schools/${workspace.schoolId}/certificates`, token).catch(() => null),
           databaseRequest(`schools/${workspace.schoolId}/certificateSettings`, token).catch(() => null),
           databaseRequest(`schools/${workspace.schoolId}/homework`, token).catch(() => null),
+          databaseRequest(`schools/${workspace.schoolId}/accounts`, token).catch(() => null),
+          databaseRequest(`schools/${workspace.schoolId}/reportExams`, token).catch(() => null),
+          databaseRequest(`schools/${workspace.schoolId}/reportMarks`, token).catch(() => null),
+          databaseRequest(`schools/${workspace.schoolId}/reportCards`, token).catch(() => null),
         ])
         if (freshCerts && typeof freshCerts === 'object') certificateRows = freshCerts
         if (freshCertSettings && typeof freshCertSettings === 'object') certificateSettingsRow = freshCertSettings
         if (freshHomework && typeof freshHomework === 'object') homeworkRows = freshHomework
+        if (freshAccounts && typeof freshAccounts === 'object') accountRows = freshAccounts
+        if (freshReportExams && typeof freshReportExams === 'object') reportExamRows = freshReportExams
+        if (freshReportMarks && typeof freshReportMarks === 'object') reportMarkRows = freshReportMarks
+        if (freshReportCards && typeof freshReportCards === 'object') reportCardRows = freshReportCards
       } catch { /* network issue - fall through to the in-memory copies */ }
     }
     return {
@@ -3970,7 +4006,7 @@ function useSchoolWorkspace(session) {
         homework: homeworkRows,
         transport,
         library,
-        accounts,
+        accounts: accountRows,
         enquiries: Object.fromEntries(enquiries.map(item => [item.id, { ...item, id: undefined }])),
         feeManager,
         staff,
@@ -3983,9 +4019,9 @@ function useSchoolWorkspace(session) {
         studentDocuments: documents,
         certificates: certificateRows,
         certificateSettings: certificateSettingsRow,
-        reportExams: reportData.exams,
-        reportMarks: reportData.marks,
-        reportCards: reportData.reports,
+        reportExams: reportExamRows,
+        reportMarks: reportMarkRows,
+        reportCards: reportCardRows,
       },
     }
   }
