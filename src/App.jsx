@@ -2915,8 +2915,20 @@ function useSchoolWorkspace(session) {
   // opened, and keep them live for the rest of the session. Runs alongside the always-on listener
   // effect above without tearing it down, so opening a module never re-downloads the core nodes.
   useEffect(() => {
-    if (!isFirebaseConfigured || !firebaseApp || !workspace.schoolId || workspace.needsSetup || workspace.loading) return
     if (!openedModules.size) return
+    // Readiness gates whether the module renders at all, so every path out of this effect has to
+    // reach it. Previously the bail-outs just returned, which left a demo workspace (no Firebase)
+    // or a failed chunk load sitting on "Loading module..." forever, with no error and no retry.
+    const markReady = () => setModuleReady(prev => {
+      const next = new Set(prev)
+      openedModules.forEach(name => next.add(name))
+      return next
+    })
+    // No backend at all: nothing will ever arrive, so render against whatever local state holds
+    // rather than waiting for a snapshot that cannot come.
+    if (!isFirebaseConfigured || !firebaseApp) { markReady(); return }
+    // Transient - this effect re-runs once the workspace resolves, so waiting is correct here.
+    if (!workspace.schoolId || workspace.needsSetup || workspace.loading) return
     const schoolId = workspace.schoolId
     let cancelled = false
     const unsubs = []
@@ -2925,6 +2937,7 @@ function useSchoolWorkspace(session) {
       let rtdb
       try { rtdb = getDatabase(firebaseApp) } catch (error) {
         console.error('[lazy-listeners] getDatabase failed:', error?.message)
+        markReady()
         return
       }
       // The module is only rendered once markReady fires, so its save handlers never read an
@@ -2947,6 +2960,7 @@ function useSchoolWorkspace(session) {
       }
     }).catch(error => {
       console.error('[lazy-listeners] firebase/database failed to load:', error?.message)
+      markReady()
     })
     return () => { cancelled = true; unsubs.forEach(fn => fn()) }
   }, [workspace.schoolId, workspace.needsSetup, workspace.loading, openedModules])
