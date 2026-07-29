@@ -167,6 +167,42 @@ export async function sendReset(email) {
   if (error) throw new Error(error.message)
 }
 
+/**
+ * Password badalna. Dono taraf pehle purana password jaanchte hain — Supabase ka
+ * updateUser akela ye nahi poochta, aur bina jaanch ke khula laptop kisi aur ka
+ * password badal sakta hai.
+ */
+export async function changePassword(currentPassword, newPassword) {
+  if (!useSupabase) {
+    const { updatePassword, EmailAuthProvider, reauthenticateWithCredential } = await import('firebase/auth')
+    const user = auth.currentUser
+    if (!user) throw new Error('Pehle login karo.')
+    await reauthenticateWithCredential(user, EmailAuthProvider.credential(user.email, currentPassword))
+    return updatePassword(user, newPassword)
+  }
+
+  const { data: sess } = await supabase.auth.getSession()
+  const email = sess?.session?.user?.email
+  if (!email) throw new Error('Pehle login karo.')
+
+  const { error: reauth } = await supabase.auth.signInWithPassword({ email, password: currentPassword })
+  if (reauth) throw new Error('Purana password galat hai.')
+
+  const { error } = await supabase.auth.updateUser({ password: newPassword })
+  if (error) throw new Error(translateAuthError(error.message))
+}
+
+/**
+ * Abhi ka access token. Supabase raaste me adapter token dekhta hi nahi
+ * (RLS session se chalti hai), par purana code har jagah token maangta hai —
+ * isliye ye wahi shakal bana ke rakhta hai.
+ */
+export async function getToken() {
+  if (!useSupabase) return auth?.currentUser ? auth.currentUser.getIdToken() : ''
+  const { data } = await supabase.auth.getSession()
+  return data?.session?.access_token || ''
+}
+
 /** Kya abhi koi logged in hai — idle timeout iske liye poochta hai. */
 export function hasCurrentUser() {
   if (!useSupabase) return Boolean(auth?.currentUser)

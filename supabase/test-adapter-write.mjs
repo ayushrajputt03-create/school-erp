@@ -42,7 +42,7 @@ const { rows: [school] } = await client.query('select id from schools where lega
 const cleanup = async () => {
   await client.query('delete from attendance where school_id = $1', [school.id])
   await client.query('delete from students where school_id = $1 and legacy_id like $2', [school.id, 'test\\_%'])
-  await client.query("delete from kv where school_id = $1 and path = 'testNode'", [school.id])
+  await client.query("delete from kv where school_id = $1 and path in ('testNode','testNode/multi')", [school.id])
 }
 await cleanup()
 
@@ -144,6 +144,95 @@ await check('kv PATCH baaki keys nahi udata', async () => {
   if (back?.size !== 20) return `size update nahi hua: ${back?.size}`
   return back?.theme === 'navy' || 'theme ud gaya'
 })
+
+// ============================================================
+// Multi-path update — App.jsx me likhne ka sabse aam tareeka (21 jagah),
+// aur TeacherApp attendance bhi isi se save karta hai. Path khaali rehta hai
+// aur har KEY khud ek poora path hoti hai.
+// ============================================================
+console.log('\n=== MULTI-PATH UPDATE (khaali path par PATCH) ===')
+
+const STUDENT_B = 'test_student_002'
+
+await check('ek hi call me alag-alag node likhe jayen', async () => {
+  await databaseRequest('', null, {
+    method: 'PATCH',
+    body: {
+      [`${S}/students/${STUDENT_B}`]: {
+        full_name: 'Doosra Kumar', admission_number: '9002',
+        class_name: '5', section: 'A', active: true,
+      },
+      [`${S}/testNode/multi`]: { likha: true },
+    },
+  })
+  const student = await databaseRequest(`${S}/students/${STUDENT_B}`, null)
+  const kv = await databaseRequest(`${S}/testNode/multi`, null)
+  if (student?.full_name !== 'Doosra Kumar') return `student nahi bana: ${JSON.stringify(student)}`
+  return kv?.likha === true || `kv nahi bana: ${JSON.stringify(kv)}`
+})
+
+await check('poori class ki attendance ek call me (TeacherApp jaisa)', async () => {
+  const changes = {}
+  for (const [sid, status] of [[STUDENT, 'P'], [STUDENT_B, 'A']]) {
+    const id = `2026-07-29_${sid}`
+    changes[`${S}/attendance/${id}`] = {
+      id, studentId: sid, student_id: sid, class: '5', section: 'A',
+      date: '2026-07-29', status, mark: status, markedBy: 'test-teacher',
+    }
+  }
+  await databaseRequest('', null, { method: 'PATCH', body: changes })
+  const { rows } = await client.query(
+    "select count(*)::int n from attendance where school_id=$1 and date='2026-07-29'", [school.id]
+  )
+  return rows[0].n === 2 || `2 ki jagah ${rows[0].n} rows`
+})
+
+await check('gehre field par likhna (path ke ant me field ka naam)', async () => {
+  await databaseRequest('', null, {
+    method: 'PATCH',
+    body: { [`${S}/students/${STUDENT_B}/guardian_name`]: 'Test Chacha' },
+  })
+  const back = await databaseRequest(`${S}/students/${STUDENT_B}`, null)
+  if (back?.guardian_name !== 'Test Chacha') return `field nahi laga: ${back?.guardian_name}`
+  // baaki document ud to nahi gaya
+  return back?.full_name === 'Doosra Kumar' || 'baaki document ud gaya'
+})
+
+await check('multi-path me null us record ko mitata hai', async () => {
+  await databaseRequest('', null, {
+    method: 'PATCH',
+    body: { [`${S}/attendance/2026-07-29_${STUDENT_B}`]: null },
+  })
+  const { rows } = await client.query(
+    "select count(*)::int n from attendance where school_id=$1 and date='2026-07-29'", [school.id]
+  )
+  return rows[0].n === 1 || `1 ki jagah ${rows[0].n} rows`
+})
+
+// Ye sabse zaroori hai: fan-out atomic nahi hai. Agar beech ka koi path fail ho
+// to error me wahi path dikhna chahiye — warna aadha save hone par pata hi nahi
+// chalega ki kya laga aur kya nahi.
+await check('koi path fail ho to error me uska naam aaye', async () => {
+  let message = ''
+  try {
+    await databaseRequest('', null, {
+      method: 'PATCH',
+      body: {
+        [`${S}/students/test_student_003`]: { full_name: 'Teesra', class_name: '5' },
+        [`${S}/attendance/2026-07-29_koi_nahi`]: { date: '2026-07-29', studentId: 'koi_nahi', status: 'P' },
+      },
+    })
+  } catch (err) { message = err.message }
+  if (!message) return 'fail hi nahi hua — galat student par attendance lag gayi'
+  if (!message.includes('koi_nahi')) return `error me path nahi hai: ${message}`
+  // aur jo path theek tha wo lag jana chahiye
+  const good = await databaseRequest(`${S}/students/test_student_003`, null)
+  return good?.full_name === 'Teesra' || 'sahi path bhi nahi laga'
+})
+
+// is section ka kachra hata do — aage ke test poore school ki ginti karte hain
+await client.query("delete from attendance where school_id=$1 and date='2026-07-29'", [school.id])
+await client.query('delete from students where school_id=$1 and legacy_id in ($2,$3)', [school.id, STUDENT_B, 'test_student_003'])
 
 console.log('\n=== MITANA ===')
 

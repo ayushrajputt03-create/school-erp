@@ -4,15 +4,19 @@ import {
   Home, LayoutDashboard, LoaderCircle, LogOut, Menu, MessageSquareText, Pencil,
   Search, User, X, Eye, EyeOff, Check, Clock3, Users, Bell, Save, Camera, Umbrella
 } from 'lucide-react'
-import { onAuthStateChanged, signInWithCustomToken, signOut, updatePassword, EmailAuthProvider, reauthenticateWithCredential } from 'firebase/auth'
+import { signInWithCustomToken } from 'firebase/auth'
 import { ref, onValue, query, orderByChild, startAt, equalTo } from 'firebase/database'
 import { auth, rtdb } from './lib/firebase'
+import { useSupabase } from './lib/supabaseClient'
+import { databaseRequest as supabaseRequest, subscribe as supabaseSubscribe } from './lib/dataAdapter'
+import { watchAuth, signOutUser, getToken, changePassword } from './lib/authAdapter'
 import DatePicker from './DatePicker'
 import './teacher-app.css'
 
 const databaseUrl = import.meta.env.VITE_FIREBASE_DATABASE_URL?.replace(/\/$/, '')
 
 async function dbRequest(path, token, options = {}) {
+  if (useSupabase) return supabaseRequest(path, token, options)
   const controller = new AbortController()
   const timeout = setTimeout(() => controller.abort(), 12000)
   const url = `${databaseUrl}/${path}.json?auth=${encodeURIComponent(token)}${options.query ? `&${options.query}` : ''}`
@@ -115,7 +119,10 @@ async function loadTeacherSession(token, uid) {
       attendance: parseAttendanceToTeacherFormat(attData, studentsData),
     }
   } catch (error) {
-    if (/Firebase 401|Firebase 403|teachersIndex|schools\//i.test(error.message || '')) {
+    // Ye fallback firebase-admin wale API par jaata hai. Supabase mode me wo
+    // API chalegi nahi, aur adapter ka error ("...schools/...") is regex me
+    // fas jaata — to asli dikkat chhup jaati aur API ka error dikhta.
+    if (!useSupabase && /Firebase 401|Firebase 403|teachersIndex|schools\//i.test(error.message || '')) {
       return loadTeacherSessionFromApi(token)
     }
     throw error
@@ -175,6 +182,14 @@ function TeacherLogin() {
     if (phone.length < 10) { setError('Enter a valid 10-digit mobile number.'); setLoading(false); return }
     if (!dob.trim()) { setError('Enter your date of birth.'); setLoading(false); return }
     try {
+      // Staff login abhi bhi Firebase custom token par khada hai: /api/teacher-login
+      // school code + phone + DOB jaanch ke ek custom token banata hai. Supabase me
+      // custom token hota hi nahi — uske liye server ko magic-link token dena hoga
+      // aur har staff ka auth.users record banana hoga. Wo abhi hua nahi hai,
+      // isliye yahan saaf mana karte hain — chupchap galat error dene se behtar.
+      if (useSupabase) {
+        throw new Error('Staff login abhi Supabase par chaalu nahi hua hai. School admin se sampark karo.')
+      }
       const response = await fetch('/api/teacher-login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -316,7 +331,7 @@ function TeacherAttendance({ teacher, students, attendance, token, schoolId, onS
     if (isPast) return
     setSaving(true)
     try {
-      const tok = await auth.currentUser.getIdToken()
+      const tok = await getToken()
       const { className, section } = classParts(selectedClass)
       const now = Date.now()
       const changes = {}
@@ -433,7 +448,7 @@ function TeacherHomework({ teacher, homework, students, token, schoolId }) {
     if (!form.title.trim() || !form.className) return
     setPosting(true)
     try {
-      const tok = await auth.currentUser.getIdToken()
+      const tok = await getToken()
       const id = `hw_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`
       const row = {
         id, title: form.title.trim(), description: form.description.trim(), className: form.className,
@@ -452,7 +467,7 @@ function TeacherHomework({ teacher, homework, students, token, schoolId }) {
   const deleteHw = async id => {
     if (!confirm('Delete this homework?')) return
     try {
-      const tok = await auth.currentUser.getIdToken()
+      const tok = await getToken()
       await dbRequest(`schools/${schoolId}/homework/${id}`, tok, { method: 'DELETE' })
     } catch (err) { alert('Error: ' + err.message) }
   }
@@ -521,10 +536,7 @@ function TeacherProfile({ teacher, schoolProfile }) {
     if (pwForm.newPw.length < 8) { setPwMsg('Password must be at least 8 characters.'); return }
     setChanging(true); setPwMsg('')
     try {
-      const user = auth.currentUser
-      const credential = EmailAuthProvider.credential(user.email, pwForm.current)
-      await reauthenticateWithCredential(user, credential)
-      await updatePassword(user, pwForm.newPw)
+      await changePassword(pwForm.current, pwForm.newPw)
       setPwMsg('Password changed successfully!')
       setPwForm({ current: '', newPw: '', confirm: '' })
     } catch (err) {
@@ -643,11 +655,10 @@ export default function TeacherApp() {
   const [sidebarOpen, setSidebarOpen] = useState(false)
 
   useEffect(() => {
-    const unsub = onAuthStateChanged(auth, user => {
+    return watchAuth(user => {
       setSession(user)
       setAuthLoading(false)
     })
-    return unsub
   }, [])
 
   useEffect(() => {
@@ -684,11 +695,16 @@ export default function TeacherApp() {
   // in-progress marks in its own local state (seeded only when date/class/students change),
   // so a live push never clobbers marks the teacher is entering.
   useEffect(() => {
-    if (!session || !schoolId || !rtdb) return undefined
+    if (!session || !schoolId || (!rtdb && !useSupabase)) return undefined
     let active = true
     const unsubs = []
     const sub = (path, handler) => {
-      const node = ref(rtdb, `schools/${schoolId}/${path}`)
+      const full = `schools/${schoolId}/${path}`
+      if (useSupabase) {
+        unsubs.push(supabaseSubscribe(full, snap => { if (active) handler(snap.val()) }))
+        return
+      }
+      const node = ref(rtdb, full)
       const unsubscribe = onValue(node, snap => { if (active) handler(snap.val()) }, () => { /* permission/transient errors: keep initial snapshot */ })
       unsubs.push(unsubscribe)
     }
@@ -701,8 +717,15 @@ export default function TeacherApp() {
     // the whole year's history. Requires "attendance": { ".indexOn": ["date"] } in the rules.
     const md = new Date()
     const monthStart = `${md.getFullYear()}-${String(md.getMonth() + 1).padStart(2, '0')}-01`
-    const attQuery = query(ref(rtdb, `schools/${schoolId}/attendance`), orderByChild('date'), startAt(monthStart))
-    unsubs.push(onValue(attQuery, snap => { if (active) setAttendance(parseAttendanceToTeacherFormat(snap.val())) }, () => {}))
+    const onAttendance = snap => { if (active) setAttendance(parseAttendanceToTeacherFormat(snap.val())) }
+    if (useSupabase) {
+      unsubs.push(supabaseSubscribe(`schools/${schoolId}/attendance`, onAttendance, {
+        query: `orderBy="date"&startAt="${monthStart}"`,
+      }))
+    } else {
+      const attQuery = query(ref(rtdb, `schools/${schoolId}/attendance`), orderByChild('date'), startAt(monthStart))
+      unsubs.push(onValue(attQuery, onAttendance, () => {}))
+    }
     return () => { active = false; unsubs.forEach(fn => fn()) }
   }, [session, schoolId])
 
@@ -714,20 +737,27 @@ export default function TeacherApp() {
   // a stable string - otherwise these listeners would tear down and resubscribe constantly.
   const myClassSectionsKey = myClassSections.join(',')
   useEffect(() => {
-    if (!session || !schoolId || !rtdb || !myClassSectionsKey) { setLeaveRequests({}); return undefined }
+    if (!session || !schoolId || (!rtdb && !useSupabase) || !myClassSectionsKey) { setLeaveRequests({}); return undefined }
     let active = true
     const unsubs = []
     myClassSectionsKey.split(',').forEach(classSection => {
-      const scoped = query(ref(rtdb, `schools/${schoolId}/leaveRequests`), orderByChild('classSection'), equalTo(classSection))
-      unsubs.push(onValue(scoped, snap => {
+      const onScoped = snap => {
         if (!active) return
         setLeaveRequests(current => ({ ...current, [classSection]: snap.val() || {} }))
-      }, () => { /* permission/transient errors: keep whatever we already have */ }))
+      }
+      if (useSupabase) {
+        unsubs.push(supabaseSubscribe(`schools/${schoolId}/leaveRequests`, onScoped, {
+          query: `orderBy="classSection"&equalTo="${classSection}"`,
+        }))
+        return
+      }
+      const scoped = query(ref(rtdb, `schools/${schoolId}/leaveRequests`), orderByChild('classSection'), equalTo(classSection))
+      unsubs.push(onValue(scoped, onScoped, () => { /* permission/transient errors: keep whatever we already have */ }))
     })
     return () => { active = false; unsubs.forEach(fn => fn()) }
   }, [session, schoolId, myClassSectionsKey])
 
-  const doLogout = async () => { await signOut(auth); window.location.href = '/' }
+  const doLogout = async () => { await signOutUser(); window.location.href = '/' }
 
   if (window.location.pathname === '/teacher/login' || window.location.pathname === '/teacher/login/') {
     if (authLoading) return <div className="teacher-loading"><LoaderCircle className="spin" size={28} /> Loading...</div>

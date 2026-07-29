@@ -207,7 +207,12 @@ function applyRestQuery(query, def, rawQuery) {
   const orderBy = unquote(params.get('orderBy'))
   if (!orderBy) return query
 
-  const COLUMN = { date: 'date', status: 'status', studentId: 'student_id', className: 'class_name' }
+  const COLUMN = {
+    date: 'date', status: 'status', studentId: 'student_id', className: 'class_name',
+    // TeacherApp leave requests apni class tak seemit rakhta hai — ye chhoot
+    // jaata to har teacher ko poore school ki requests dikhtin
+    classSection: 'class_section',
+  }
   const col = COLUMN[orderBy]
   if (!col) return query
 
@@ -400,10 +405,59 @@ async function rootGet(root, rest) {
 /* public API — Firebase wale signature ke saath                       */
 /* ------------------------------------------------------------------ */
 
+/**
+ * RTDB ka "multi-path update": khaali path par PATCH, jiski har key poora path
+ * hoti hai —
+ *   { "schools/s1/attendance/2026-07-29_stu1": {...},
+ *     "schools/s1/students/stu1/lastSeen": 123,
+ *     "schools/s1/homework/hw9": null }        <- null matlab mitao
+ *
+ * Poore app me likhne ka sabse aam tareeka yahi hai (akele App.jsx me 21 jagah),
+ * isliye iske bina flag palatte hi lagbhag har save toot jaata.
+ *
+ * Ek farak jaan lena zaroori hai: RTDB ye saara update ek saath karta hai —
+ * ya sab lagta hai ya kuch nahi. Yahan har path apni alag likhaayi hai, to
+ * beech me fail hone par kuch path lag chuke honge. Isliye error me wo saaf
+ * likha jaata hai, ki aadha lagne par pata to chale.
+ */
+async function multiPathPatch(body) {
+  const entries = Object.entries(body || {})
+  if (!entries.length) return null
+
+  const done = []
+  const failed = []
+
+  // ek-ek karke bhejte to ek class ki attendance (40 bachche) me 80 roundtrip
+  // lag jaate. Alag-alag path ek doosre se judte nahi, isliye thode saath me.
+  const LIMIT = 6
+  for (let i = 0; i < entries.length; i += LIMIT) {
+    await Promise.all(entries.slice(i, i + LIMIT).map(async ([childPath, value]) => {
+      try {
+        value === null
+          ? await databaseRequest(childPath, null, { method: 'DELETE' })
+          : await databaseRequest(childPath, null, { method: 'PUT', body: value })
+        done.push(childPath)
+      } catch (error) {
+        failed.push(`${childPath}: ${error.message}`)
+      }
+    }))
+  }
+
+  if (failed.length) {
+    throw new Error(
+      `${failed.length}/${entries.length} path nahi likhe ja sake ` +
+      `(${done.length} lag chuke hain):\n${failed.join('\n')}`
+    )
+  }
+  return body
+}
+
 export async function databaseRequest(path, _token, options = {}) {
   if (!supabase) throw new Error('Supabase client taiyaar nahi hai')
   const method = (options.method || 'GET').toUpperCase()
   const { root, schoolLegacy, node, rest = [] } = parsePath(path)
+
+  if (!root && method === 'PATCH') return multiPathPatch(options.body)
 
   if (root !== 'schools') {
     if (method !== 'GET') throw new Error(`${root} par likhna adapter me support nahi hai`)
