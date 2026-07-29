@@ -18,6 +18,17 @@ if (!file) {
 }
 
 const sql = fs.readFileSync(file, 'utf8')
+
+// Ye script line ke hisaab se batch karta hai (neeche dekho). Function body
+// `$$ ... $$` batch seemaa ke beech kat jaye to aadhi body alag query ban jaati
+// hai aur "no language specified" jaisi ulti-seedhi error milti hai — jo asli
+// galti se koi rishta nahi rakhti. Aisi file ke liye apply-migration.mjs hai.
+if (sql.includes('$$')) {
+  console.error(`${file} me $$ function body hai — ye script use beech se kaat degi.`)
+  console.error(`chalao: node supabase/apply-migration.mjs ${file}`)
+  process.exit(1)
+}
+
 const statements = sql.split('\n').filter((l) => l.trim())
 
 console.log(`file      : ${file}`)

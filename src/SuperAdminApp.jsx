@@ -5,8 +5,10 @@ import {
   Menu, Pencil, RefreshCw, Search, Settings, ShieldCheck, Tag, TriangleAlert,
   Users, WalletCards, X,
 } from 'lucide-react'
-import { onAuthStateChanged, signInWithEmailAndPassword, signOut } from 'firebase/auth'
-import { auth, isFirebaseConfigured } from './lib/firebase'
+import { isFirebaseConfigured } from './lib/firebase'
+import { useSupabase } from './lib/supabaseClient'
+import { signIn, signOutUser, watchAuth } from './lib/authAdapter'
+import { superAdminPatch, superAdminSchools, superAdminTouchLogin } from './lib/dataAdapter'
 import DatePicker from './DatePicker'
 import './super-admin.css'
 
@@ -109,10 +111,10 @@ function SuperAdminLogin({ user, checking, denied }) {
     setBusy(true)
     setError('')
     try {
-      const result = await signInWithEmailAndPassword(auth, form.email.trim(), form.password)
+      const result = await signIn(form.email.trim(), form.password)
       if (result.user.email?.toLowerCase() !== ownerEmail) {
-        await signOut(auth)
-        throw new Error('This Firebase account is not authorized as the NXT owner.')
+        await signOutUser()
+        throw new Error('This account is not authorized as the NXT owner.')
       }
       navigate('/super-admin/dashboard', true)
     } catch (loginError) {
@@ -128,7 +130,7 @@ function SuperAdminLogin({ user, checking, denied }) {
       <span>Owner Console</span>
       <h1>Control every school from one secure workspace.</h1>
       <p>Subscriptions, revenue, due payments and school operations stay separated from every school administrator.</p>
-      <div className="sa-security-note"><ShieldCheck size={20} /><div><strong>Firebase protected</strong><small>Only the registered super admin UID can read all schools.</small></div></div>
+      <div className="sa-security-note"><ShieldCheck size={20} /><div><strong>Server side protected</strong><small>Only the registered super admin account can read all schools.</small></div></div>
     </section>
     <section className="sa-login-form">
       <form onSubmit={submit}>
@@ -457,15 +459,23 @@ export default function SuperAdminApp() {
     }
   }
 
+  // Supabase par ye 22 request nahi, ek hai — RLS har school ko uske apne
+  // owner tak seemit rakhti hai, isliye console ke liye ek SECURITY DEFINER
+  // function hai jo bilkul yahi shape lautata hai. Dekho: migration 0019.
+  const fetchAllSchools = async currentUser => {
+    if (useSupabase) return superAdminSchools()
+    const token = await currentUser.getIdToken()
+    const index = await databaseRequest('schools', token, { query: { shallow: 'true' } })
+    const ids = Object.keys(index || {})
+    const summaries = await Promise.all(ids.map(id => fetchSchoolSummary(id, token)))
+    return Object.fromEntries(ids.map((id, i) => [id, summaries[i]]))
+  }
+
   const loadSchools = async (currentUser, silent = false) => {
     if (!silent) setLoading(true)
     setError('')
     try {
-      const token = await currentUser.getIdToken()
-      const index = await databaseRequest('schools', token, { query: { shallow: 'true' } })
-      const ids = Object.keys(index || {})
-      const summaries = await Promise.all(ids.map(id => fetchSchoolSummary(id, token)))
-      setSchools(Object.fromEntries(ids.map((id, i) => [id, summaries[i]])))
+      setSchools(await fetchAllSchools(currentUser))
     } catch (loadError) {
       if (!silent) setError(loadError.message)
     } finally {
@@ -474,12 +484,14 @@ export default function SuperAdminApp() {
   }
 
   useEffect(() => {
-    if (!isFirebaseConfigured) {
+    // Supabase mode me Firebase ka env hona zaroori nahi — ye check waise hi
+    // reh jaata to console "Firebase environment is not configured" par atak jaata.
+    if (!useSupabase && !isFirebaseConfigured) {
       setChecking(false)
       setDenied('Firebase environment is not configured.')
       return
     }
-    return onAuthStateChanged(auth, async currentUser => {
+    return watchAuth(async currentUser => {
       setUser(currentUser)
       setDenied('')
       if (!currentUser) {
@@ -493,10 +505,14 @@ export default function SuperAdminApp() {
         return
       }
       try {
-        const token = await currentUser.getIdToken()
-        const profile = await databaseRequest(`superAdmin/${currentUser.uid}`, token)
-        if (!profile) await databaseRequest(`superAdmin/${currentUser.uid}`, token, { method: 'PUT', body: { uid: currentUser.uid, name: currentUser.displayName || 'NXT Owner', email: currentUser.email, phone: '', role: 'super-admin', createdAt: Date.now(), lastLoginAt: Date.now() } })
-        else await databaseRequest(`superAdmin/${currentUser.uid}/lastLoginAt`, token, { method: 'PUT', body: Date.now() })
+        if (useSupabase) {
+          await superAdminTouchLogin(currentUser.uid, currentUser.displayName || 'NXT Owner')
+        } else {
+          const token = await currentUser.getIdToken()
+          const profile = await databaseRequest(`superAdmin/${currentUser.uid}`, token)
+          if (!profile) await databaseRequest(`superAdmin/${currentUser.uid}`, token, { method: 'PUT', body: { uid: currentUser.uid, name: currentUser.displayName || 'NXT Owner', email: currentUser.email, phone: '', role: 'super-admin', createdAt: Date.now(), lastLoginAt: Date.now() } })
+          else await databaseRequest(`superAdmin/${currentUser.uid}/lastLoginAt`, token, { method: 'PUT', body: Date.now() })
+        }
         await loadSchools(currentUser)
         if (window.location.pathname === '/super-admin/login') navigate('/super-admin/dashboard', true)
       } catch (accessError) {
@@ -523,12 +539,12 @@ export default function SuperAdminApp() {
     setSelected(value ? { id: selected.id, ...value, subscription: subscriptionFor(value) } : null)
   }
   const patchRoot = async changes => {
-    const token = await user.getIdToken()
-    await databaseRequest('', token, { method: 'PATCH', body: changes })
-    const index = await databaseRequest('schools', token, { query: { shallow: 'true' } })
-    const ids = Object.keys(index || {})
-    const summaries = await Promise.all(ids.map(id => fetchSchoolSummary(id, token)))
-    const data = Object.fromEntries(ids.map((id, i) => [id, summaries[i]]))
+    if (useSupabase) {
+      await superAdminPatch(changes)
+    } else {
+      await databaseRequest('', await user.getIdToken(), { method: 'PATCH', body: changes })
+    }
+    const data = await fetchAllSchools(user)
     setSchools(data)
     syncSelected(data)
   }
@@ -657,7 +673,7 @@ export default function SuperAdminApp() {
       <div className="sa-brand"><img src="/nxt-logo-transparent.png" alt="" /><div><strong>SCHOOL99</strong><span>SUPER ADMIN</span></div><button onClick={() => setMenuOpen(false)}><X size={18} /></button></div>
       <div className="sa-owner"><span>{(user.displayName || 'NXT Owner').slice(0, 2).toUpperCase()}</span><div><strong>{user.displayName || 'NXT Owner'}</strong><small>{user.email}</small></div></div>
       <nav>{nav.map(([id, label, Icon]) => <button key={id} className={page === id ? 'active' : ''} onClick={() => { setPage(id); setMenuOpen(false) }}><Icon size={17} />{label}{id === 'due' && calculateStats(rows, payments).due > 0 && <b>{calculateStats(rows, payments).due}</b>}</button>)}</nav>
-      <button className="sa-signout" onClick={async () => { await signOut(auth); navigate('/super-admin/login', true) }}><LogOut size={17} />Sign out</button>
+      <button className="sa-signout" onClick={async () => { await signOutUser(); navigate('/super-admin/login', true) }}><LogOut size={17} />Sign out</button>
     </aside>
     {menuOpen && <button className="sa-overlay" onClick={() => setMenuOpen(false)} />}
     <main className="sa-main">

@@ -710,3 +710,31 @@ export async function reserveReceiptNumber(schoolLegacyId, seedFloor) {
   if (error) throw new Error(error.message)
   return Number(data)
 }
+
+/* ------------------------------------------------------------------ */
+/* owner console (super admin)                                         */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Owner console har school ka data maangta hai, jo RLS jaanbujh kar rokti hai —
+ * aur ayushrajputt03@gmail.com khud bhi ek school ka owner hai, to use bina
+ * kisi khaas intezaam ke sirf apna hi school dikhta.
+ *
+ * Har table ki RLS me "ya super admin ho" jodne ke bajaye migration 0019 me teen
+ * SECURITY DEFINER function hain jo utna hi karte hain jitna console ko chahiye.
+ * Baaki poore app ki RLS jaisi thi waisi hai.
+ */
+const rpc = async (name, args) => {
+  const { data, error } = await supabase.rpc(name, args)
+  if (error) throw new Error(error.message)
+  return data
+}
+
+/** { [schoolLegacyId]: { profile, subscription, payments, createdAt, students, staff, teachers } } */
+export const superAdminSchools = () => rpc('super_admin_schools')
+
+/** RTDB jaisa multi-path update, par yahan poora ek hi transaction me lagta hai */
+export const superAdminPatch = (changes) => rpc('super_admin_patch', { p_changes: changes || {} })
+
+export const superAdminTouchLogin = (legacyUid, name) =>
+  rpc('super_admin_touch_login', { p_legacy_uid: legacyUid || null, p_name: name || null })
