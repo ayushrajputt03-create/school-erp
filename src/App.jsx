@@ -2970,31 +2970,20 @@ function useSchoolWorkspace(session) {
     })
     // No backend at all: nothing will ever arrive, so render against whatever local state holds
     // rather than waiting for a snapshot that cannot come.
-    if (!isFirebaseConfigured || !firebaseApp) { markReady(); return }
+    if (!isFirebaseConfigured && !useSupabase) { markReady(); return }
+    if (!useSupabase && !firebaseApp) { markReady(); return }
     // Transient - this effect re-runs once the workspace resolves, so waiting is correct here.
     if (!workspace.schoolId || workspace.needsSetup || workspace.loading) return
     const schoolId = workspace.schoolId
     let cancelled = false
     const unsubs = []
-    import('firebase/database').then(({ ref: dbRef, onValue, off, getDatabase }) => {
-      if (cancelled) return
-      let rtdb
-      try { rtdb = getDatabase(firebaseApp) } catch (error) {
-        console.error('[lazy-listeners] getDatabase failed:', error?.message)
-        markReady()
-        return
-      }
-      // The module is only rendered once markReady fires, so its save handlers never read an
-      // empty node: readiness is keyed on the module's primary node landing.
-      const attach = (path, setState, readyKey) => {
-        const r = dbRef(rtdb, path)
-        const handler = snap => {
-          setState(snap.val() || {})
-          if (readyKey) setModuleReady(prev => (prev.has(readyKey) ? prev : new Set(prev).add(readyKey)))
-        }
-        onValue(r, handler)
-        unsubs.push(() => off(r, 'value', handler))
-      }
+
+    // Which nodes each lazy module needs. Kept separate from how they are subscribed so the
+    // Firebase and Supabase paths can never drift apart — this effect used to reach straight
+    // into firebase/database, which meant that in Supabase mode every one of these modules sat
+    // on "Loading module..." forever: the RTDB listener could never fire (no Firebase session),
+    // so markReady was never reached and there was no error to see either.
+    const attachAll = (attach) => {
       if (openedModules.has('certificates')) {
         attach(`schools/${schoolId}/certificates`, setCertificates, 'certificates')
         attach(`schools/${schoolId}/certificateSettings`, setCertificateSettings)
@@ -3023,6 +3012,36 @@ function useSchoolWorkspace(session) {
       if (openedModules.has('deleted-students')) {
         attach(`schools/${schoolId}/deletedStudents`, setDeletedStudents, 'deleted-students')
       }
+    }
+
+    // The module is only rendered once markReady fires, so its save handlers never read an
+    // empty node: readiness is keyed on the module's primary node landing.
+    const onSnapshot = (setState, readyKey) => (snap) => {
+      setState(snap.val() || {})
+      if (readyKey) setModuleReady(prev => (prev.has(readyKey) ? prev : new Set(prev).add(readyKey)))
+    }
+
+    if (useSupabase) {
+      attachAll((path, setState, readyKey) => {
+        unsubs.push(supabaseSubscribe(path, onSnapshot(setState, readyKey)))
+      })
+      return () => { cancelled = true; unsubs.forEach(fn => fn()) }
+    }
+
+    import('firebase/database').then(({ ref: dbRef, onValue, off, getDatabase }) => {
+      if (cancelled) return
+      let rtdb
+      try { rtdb = getDatabase(firebaseApp) } catch (error) {
+        console.error('[lazy-listeners] getDatabase failed:', error?.message)
+        markReady()
+        return
+      }
+      attachAll((path, setState, readyKey) => {
+        const r = dbRef(rtdb, path)
+        const handler = onSnapshot(setState, readyKey)
+        onValue(r, handler)
+        unsubs.push(() => off(r, 'value', handler))
+      })
     }).catch(error => {
       console.error('[lazy-listeners] firebase/database failed to load:', error?.message)
       markReady()

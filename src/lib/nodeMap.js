@@ -55,6 +55,11 @@ export const NODES = {
   students: {
     table: 'students',
     key: 'legacy_id',
+    // `select *` in tables ke 85 column bhejta hai, jabki rowToDoc sirf source,
+    // photo_path, photo_url aur deleted_at padhta hai — baaki sab source ki hi
+    // nakal hai jo taar par jaake phenk di jaati hai. deletedStudents (544 rows)
+    // isi wajah se 9.8 second le raha tha.
+    select: 'legacy_id, source, photo_path, photo_url, deleted_at',
     softDelete: { column: 'deleted_at', activeOnly: true },
     project: (d) => ({
       full_name: d.full_name || d.name || 'Unnamed',
@@ -84,6 +89,7 @@ export const NODES = {
   deletedStudents: {
     table: 'students',
     key: 'legacy_id',
+    select: 'legacy_id, source, photo_path, photo_url, deleted_at',
     softDelete: { column: 'deleted_at', deletedOnly: true },
     project: (d) => ({
       full_name: d.full_name || d.name || 'Unnamed',
