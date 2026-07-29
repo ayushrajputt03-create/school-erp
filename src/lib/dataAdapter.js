@@ -557,26 +557,108 @@ const snapshotOf = (value) => ({
 })
 
 /**
+ * Ek school ke liye EK realtime channel, sabke beech baanta hua.
+ *
+ * Pehle har subscribe apna channel banata tha — login par 14 listener matlab
+ * 14 channel, har ek ka apna subscribe. Supabase me ek channel par kai table
+ * sun sakte hain, to ek hi kaafi hai.
+ */
+const rooms = new Map() // schoolId -> { listeners: Map<table, Set<fn>>, channels: [], pending: Set, timer }
+
+/**
+ * realtime-js ka pakka niyam: `subscribe()` ke BAAD us channel par `.on()` lagana
+ * seedha error deta hai ("cannot add postgres_changes callbacks after subscribe").
+ * Isliye ek school = ek channel nahi ho sakta, kyunki listeners alag-alag waqt
+ * par aate hain (har subscribe pehle apna data padhta hai, phir judta hai).
+ *
+ * Isliye jo table ek hi window me maange jaate hain unhe ikattha karke EK
+ * channel banate hain. Login ke saare listener lagbhag saath hi aate hain, to
+ * 14 channel ki jagah ek-do bante hain. Baad me koi naya table aaye to uske
+ * liye alag channel ban jaata hai — galat kabhi nahi hota, bas ek channel extra.
+ */
+function room(schoolId) {
+  let r = rooms.get(schoolId)
+  if (!r) { r = { listeners: new Map(), channels: [], pending: new Set(), timer: null }; rooms.set(schoolId, r) }
+  return r
+}
+
+function flush(schoolId) {
+  const r = rooms.get(schoolId)
+  if (!r || !r.pending.size) return
+  const tables = [...r.pending]
+  r.pending.clear()
+
+  const channel = supabase.channel(`nxt:${schoolId}:${r.channels.length}`)
+  for (const table of tables) {
+    channel.on(
+      'postgres_changes',
+      { event: '*', schema: 'public', table, filter: `school_id=eq.${schoolId}` },
+      () => { for (const cb of r.listeners.get(table) || []) cb() }
+    )
+  }
+  channel.subscribe()
+  r.channels.push(channel)
+}
+
+function listenOnTable(schoolId, table, fn) {
+  const r = room(schoolId)
+  if (!r.listeners.has(table)) {
+    r.listeners.set(table, new Set())
+    r.pending.add(table)
+    clearTimeout(r.timer)
+    r.timer = setTimeout(() => flush(schoolId), 50)
+  }
+  r.listeners.get(table).add(fn)
+
+  return () => {
+    r.listeners.get(table)?.delete(fn)
+    if ([...r.listeners.values()].some((s) => s.size)) return
+    clearTimeout(r.timer)
+    rooms.delete(schoolId)
+    for (const ch of r.channels) supabase.removeChannel(ch)
+  }
+}
+
+/**
  * RTDB ke onValue jaisa. Farak sirf itna ki Supabase me realtime
  * har table pe alag se chaalu karna padta hai — table pe koi bhi badlav
  * aane pe hum poora node dobara padh ke handler ko de dete hain.
  */
 export function subscribe(path, handler, options = {}) {
   let cancelled = false
-  let channel = null
+  let unsubs = []
+  let timer = null
+  let running = false
+  let again = false
 
-  const refetch = async () => {
+  const read = async () => {
+    if (running) { again = true; return }   // ek hi waqt me do refetch nahi
+    running = true
     try {
       const value = await databaseRequest(path, null, options)
       if (!cancelled) handler(snapshotOf(value))
     } catch (error) {
       console.error(`[adapter] ${path} padhne me dikkat:`, error.message)
       if (!cancelled) handler(snapshotOf(null))
+    } finally {
+      running = false
+      if (again && !cancelled) { again = false; read() }
     }
   }
 
+  /**
+   * Har row ke badlav par poora node dobara padhna mehnga hai: ek class ki
+   * attendance save karne par 40 row badalti hain, yaani 662 rows ka node
+   * 40 baar. Thoda ruk ke ek hi baar padhte hain.
+   */
+  const refetch = () => {
+    if (cancelled) return
+    clearTimeout(timer)
+    timer = setTimeout(read, 250)
+  }
+
   const start = async () => {
-    await refetch()
+    await read()
     if (cancelled) return
 
     const { schoolLegacy, node } = parsePath(path)
@@ -591,21 +673,40 @@ export function subscribe(path, handler, options = {}) {
     const schoolId = await schoolUuid(schoolLegacy)
     if (!schoolId || cancelled) return
 
-    channel = supabase.channel(`nxt:${path}`)
-    for (const table of tables) {
-      channel.on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table, filter: `school_id=eq.${schoolId}` },
-        () => { refetch() }
-      )
-    }
-    channel.subscribe()
+    for (const table of tables) unsubs.push(listenOnTable(schoolId, table, refetch))
   }
 
   start()
 
   return () => {
     cancelled = true
-    if (channel) supabase.removeChannel(channel)
+    clearTimeout(timer)
+    unsubs.forEach((fn) => fn())
+    unsubs = []
   }
+}
+
+/* ------------------------------------------------------------------ */
+/* atomic counters                                                     */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Agla fee receipt number pakka karta hai.
+ *
+ * Firebase me ye RTDB ka runTransaction tha. Yahan Postgres ka function hai
+ * (`insert ... on conflict do update`), jo ek hi statement me chalta hai —
+ * do log ek saath receipt banayen to dono ko alag number milta hai.
+ *
+ * seedFloor wo sabse bada number hai jo is client ko dikh raha hai. Counter
+ * usse peeche kabhi nahi jaata, isliye purani receipt ka number dobara nahi milta.
+ */
+export async function reserveReceiptNumber(schoolLegacyId, seedFloor) {
+  const schoolId = await schoolUuid(schoolLegacyId)
+  if (!schoolId) throw new Error('School nahi mila — receipt number nahi mil saka')
+  const { data, error } = await supabase.rpc('reserve_receipt_sequence', {
+    p_school: schoolId,
+    p_seed: Math.max(0, Number(seedFloor) || 0),
+  })
+  if (error) throw new Error(error.message)
+  return Number(data)
 }

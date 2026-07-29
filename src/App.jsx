@@ -82,7 +82,7 @@ import { onAuthStateChanged, signOut } from 'firebase/auth'
 import { deleteObject, getDownloadURL, ref as storageRef, uploadBytes } from 'firebase/storage'
 import { auth, isFirebaseConfigured, storage, firebaseApp, rtdb } from './lib/firebase'
 import { useSupabase } from './lib/supabaseClient'
-import { databaseRequest as supabaseRequest, subscribe as supabaseSubscribe } from './lib/dataAdapter'
+import { databaseRequest as supabaseRequest, subscribe as supabaseSubscribe, reserveReceiptNumber } from './lib/dataAdapter'
 import { watchAuth, signOutUser, hasCurrentUser, rememberCurrentUser } from './lib/authAdapter'
 
 const databaseUrl = import.meta.env.VITE_FIREBASE_DATABASE_URL?.replace(/\/$/, '')
@@ -3761,7 +3761,18 @@ function useSchoolWorkspace(session) {
   // transaction only ever moves the counter forward, so a stale or missing counter can never
   // hand out a number that an existing receipt already uses.
   const reserveReceiptSequence = async seedFloor => {
-    if (developmentDemo || !rtdb) return seedFloor + 1
+    if (developmentDemo) return seedFloor + 1
+    if (useSupabase) {
+      // Postgres me ye ek hi statement hai (insert ... on conflict do update),
+      // isliye utna hi atomic jitna RTDB ka runTransaction tha: do log ek saath
+      // receipt banayen to dono ko alag number milta hai.
+      const reserved = await reserveReceiptNumber(workspace.schoolId, seedFloor)
+      if (!Number.isFinite(reserved)) {
+        throw new Error('Could not reserve a receipt number. Check your connection and submit again.')
+      }
+      return reserved
+    }
+    if (!rtdb) return seedFloor + 1
     const { ref: dbRef, runTransaction } = await import('firebase/database')
     const counter = dbRef(rtdb, `schools/${workspace.schoolId}/feeManager/receiptCounter`)
     const result = await runTransaction(counter, current => Math.max(Number(current) || 0, seedFloor) + 1)
