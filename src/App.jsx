@@ -83,6 +83,7 @@ import { deleteObject, getDownloadURL, ref as storageRef, uploadBytes } from 'fi
 import { auth, isFirebaseConfigured, storage, firebaseApp, rtdb } from './lib/firebase'
 import { useSupabase } from './lib/supabaseClient'
 import { databaseRequest as supabaseRequest, subscribe as supabaseSubscribe } from './lib/dataAdapter'
+import { watchAuth, signOutUser, hasCurrentUser, rememberCurrentUser } from './lib/authAdapter'
 
 const databaseUrl = import.meta.env.VITE_FIREBASE_DATABASE_URL?.replace(/\/$/, '')
 const useFirebaseStorage = import.meta.env.VITE_USE_FIREBASE_STORAGE === 'true'
@@ -5156,22 +5157,23 @@ export default function App() {
   }, [darkMode])
 
   useEffect(() => {
-    if (!isFirebaseConfigured) return
+    if (!isFirebaseConfigured && !useSupabase) return
     const IDLE_TIMEOUT = 30 * 60 * 1000
     let idleTimer = null
     const resetIdleTimer = () => {
       clearTimeout(idleTimer)
       idleTimer = setTimeout(() => {
-        if (auth.currentUser) {
+        if (hasCurrentUser()) {
           localStorage.removeItem('northstar-school-id')
-          signOut(auth)
+          signOutUser()
         }
       }, IDLE_TIMEOUT)
     }
     const events = ['mousedown', 'keydown', 'touchstart', 'scroll']
     events.forEach(event => window.addEventListener(event, resetIdleTimer, { passive: true }))
     resetIdleTimer()
-    const unsubscribe = onAuthStateChanged(auth, user => {
+    const unsubscribe = watchAuth(user => {
+      rememberCurrentUser(user)
       setSession(user)
       setAuthLoading(false)
       if (user) {
@@ -5237,10 +5239,10 @@ export default function App() {
     return <main className="setup-error"><ShieldCheck size={30} /><h1>Secure setup required</h1><p>Firebase environment variables are missing. Configure the deployment before launch.</p></main>
   }
   if (authLoading) return <SplashScreen persistent />
-  if (isFirebaseConfigured && !session) return <AuthScreen />
+  if ((isFirebaseConfigured || useSupabase) && !session) return <AuthScreen />
 
   if (data.workspace.loading || loginSplash) return <SplashScreen persistent={data.workspace.loading} onComplete={loginSplash ? () => { setLoginSplash(false); setPage('dashboard') } : undefined} />
-  if (data.workspace.error) return <main className="setup-error"><ShieldCheck size={30} /><h1>Workspace unavailable</h1><p>{data.workspace.error}</p><div style={{ display: 'flex', gap: 10 }}><button className="primary-button" onClick={() => window.location.reload()}>Reload</button><button className="secondary-button" onClick={() => signOut(auth)}>Sign out</button></div></main>
+  if (data.workspace.error) return <main className="setup-error"><ShieldCheck size={30} /><h1>Workspace unavailable</h1><p>{data.workspace.error}</p><div style={{ display: 'flex', gap: 10 }}><button className="primary-button" onClick={() => window.location.reload()}>Reload</button><button className="secondary-button" onClick={() => signOutUser()}>Sign out</button></div></main>
   if (data.workspace.needsSetup) return <SchoolSetup user={session} onSubmit={data.createSchoolWorkspace} />
 
   const userName = session?.displayName || session?.email?.split('@')[0] || 'Demo Admin'
@@ -5293,7 +5295,7 @@ export default function App() {
   const logout = async () => {
     localStorage.removeItem('northstar-school-id')
     localStorage.removeItem('northstar-pending-school-profile')
-    await signOut(auth)
+    await signOutUser()
     setPage('dashboard')
   }
   return <StudentPhotoContext.Provider value={data.ensureStudentPhotos}><div className={`app-shell ${darkMode ? 'theme-dark' : 'theme-light'}`}><Sidebar page={page} setPage={next => { setViewSession(''); setPage(next) }} open={menuOpen} close={() => setMenuOpen(false)} schoolName={data.workspace.schoolName} schoolLogo={data.workspace.schoolProfile.logoURL || data.workspace.schoolProfile.logo} schoolCode={data.workspace.schoolProfile.schoolCode} cloudMode={!data.developmentDemo} profile={profile} /><main className="main-area"><Header title={archiveSession ? `${archiveSession} Archive` : current.label} subtitle={`${data.workspace.schoolName} · ${archiveSession || currentSession}`} schoolCode={data.workspace.schoolProfile.schoolCode} onMenu={() => setMenuOpen(true)} profile={profile} onSignOut={logout} students={data.students} onSelectStudent={setSelectedStudent} darkMode={darkMode} onToggleTheme={() => setDarkMode(current => !current)} sessions={sessionOptions} currentSession={currentSession} viewSession={archiveSession} onChangeSession={setViewSession} /><div className="page-content page-enter" key={archiveSession || page}><Suspense fallback={<div className="module-loading"><span className="module-loading-dot" />Loading module...</div>}>{archiveSession ? <SessionArchive session={archiveSession} sessionStartMonth={sessionStartMonthOf(data.workspace.schoolProfile)} students={data.students} fees={data.fees} loadSessionAttendance={data.loadSessionAttendance} /> : lazyModulePending ? <div className="module-loading"><span className="module-loading-dot" />Loading module...</div> : screens[page]}</Suspense></div></main>{selectedStudent && <StudentProfile student={data.students.find(student => student.id === selectedStudent.id) || selectedStudent} close={() => setSelectedStudent(null)} attendance={data.attendance} fees={data.fees} feeManager={data.feeManager} schoolProfile={data.workspace.schoolProfile} academics={data.academics} documents={data.documents} onRecordPayment={data.recordPayment} onUploadDocument={data.uploadStudentDocument} onUpdatePhoto={data.updateStudentPhoto} onEdit={s => setEditingStudent(s)} loadStudentAttendance={data.loadStudentAttendance} />}{editingStudent && <StudentModal close={() => setEditingStudent(null)} student={editingStudent} updateStudent={async (id, updates) => { await data.updateStudent(id, updates); setEditingStudent(null) }} />}</div></StudentPhotoContext.Provider>

@@ -1,14 +1,6 @@
 import React, { useMemo, useState } from 'react'
 import { Eye, EyeOff, LoaderCircle, Mail } from 'lucide-react'
-import {
-  createUserWithEmailAndPassword,
-  GoogleAuthProvider,
-  sendPasswordResetEmail,
-  signInWithEmailAndPassword,
-  signInWithPopup,
-  updateProfile,
-} from 'firebase/auth'
-import { auth } from './lib/firebase'
+import { signIn, signUp, signInWithGoogle, sendReset } from './lib/authAdapter'
 import { academicYears, boardOptions, classOptions, generateSchoolCode, indianStates, recognitionOptions } from './schoolOptions'
 
 function GoogleLogo() {
@@ -54,9 +46,10 @@ export default function AuthScreen() {
     setMessage('')
     setGoogleLoading(true)
     try {
-      const provider = new GoogleAuthProvider()
-      const result = await signInWithPopup(auth, provider)
-      if (!result.user) throw new Error('Google did not return a user account.')
+      const result = await signInWithGoogle()
+      // Supabase OAuth redirect karta hai (popup nahi) — wahan result.user nahi aata,
+      // isliye ye jaanch sirf Firebase wale raaste par laagu hai.
+      if (result?.user === null) throw new Error('Google did not return a user account.')
     } catch (authError) {
       setError(readableAuthError(authError))
     } finally {
@@ -90,10 +83,9 @@ export default function AuthScreen() {
           classesOffered: form.classesOffered,
           logo: form.logo,
         }))
-        const credential = await createUserWithEmailAndPassword(auth, form.email, form.password)
-        await updateProfile(credential.user, { displayName: form.schoolName })
+        await signUp(form.email, form.password, form.schoolName)
       } else {
-        await signInWithEmailAndPassword(auth, form.email, form.password)
+        await signIn(form.email, form.password)
       }
     } catch (authError) {
       if (mode === 'signup') localStorage.removeItem('northstar-pending-school-profile')
@@ -111,7 +103,7 @@ export default function AuthScreen() {
       return
     }
     try {
-      await sendPasswordResetEmail(auth, form.email.trim())
+      await sendReset(form.email.trim())
       setMessage('Password reset link sent to your email.')
     } catch (authError) {
       setError(authError.message.replace('Firebase: ', ''))
