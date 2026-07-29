@@ -217,9 +217,16 @@ export function rememberCurrentUser(user) { currentUserCache = user }
  * app pehle se sambhalta hai; ye sirf Supabase wale raaste ke liye hai.
  */
 function translateAuthError(message) {
-  const m = String(message || '').toLowerCase()
+  const raw = String(message ?? '').trim()
+  // Server 500 de to supabase-js AuthRetryableFetchError deta hai jiska message
+  // "{}" hota hai — screen par bas "{}" chhap jaata tha aur kuch pata nahi
+  // chalta. (Ek baar sach me hua: auth.users me NULL token columns.)
+  if (!raw || raw === '{}' || raw === '[object Object]') {
+    return 'Server se jawab nahi mila. Thodi der baad try karo — dikkat bani rahe to batao.'
+  }
+  const m = raw.toLowerCase()
   if (m.includes('invalid login credentials')) return 'Email ya password galat hai.'
   if (m.includes('email not confirmed')) return 'Email abhi confirm nahi hua hai.'
   if (m.includes('too many requests') || m.includes('rate limit')) return 'Bahut zyada koshishein. Thodi der baad try karo.'
-  return message
+  return raw
 }

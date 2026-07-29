@@ -99,14 +99,22 @@ try {
   for (const r of rows) {
     // auth.users
     await client.query(
+      // Ye token columns khaali string se bharna ZAROORI hai. Inhe chhod dene par
+      // wo NULL reh jaate hain, aur GoTrue inhe Go ke `string` me padhta hai —
+      // har login 500 deta hai "converting NULL to string is unsupported", jabki
+      // password bilkul sahi hota hai. Screen par sirf "kuch galat hai" aata hai.
       `insert into auth.users (
          instance_id, id, aud, role, email, encrypted_password,
          email_confirmed_at, last_sign_in_at, raw_app_meta_data, raw_user_meta_data,
-         created_at, updated_at, banned_until
+         created_at, updated_at, banned_until,
+         confirmation_token, recovery_token, email_change_token_new,
+         email_change_token_current, email_change,
+         phone_change, phone_change_token, reauthentication_token
        ) values (
          '00000000-0000-0000-0000-000000000000', $1, 'authenticated', 'authenticated', $2, $3,
          $4, $5, '{"provider":"email","providers":["email"]}'::jsonb, '{}'::jsonb,
-         $6, $6, $7
+         $6, $6, $7,
+         '', '', '', '', '', '', '', ''
        )
        on conflict (id) do update set
          email              = excluded.email,

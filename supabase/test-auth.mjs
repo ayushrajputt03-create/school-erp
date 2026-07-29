@@ -129,6 +129,39 @@ await check('galat password par login na ho', async () => {
   return Boolean(error) || 'GALAT PASSWORD SE BHI LOGIN HO GAYA'
 })
 
+// ============================================================
+// Ye test isliye hai kyunki upar wala test ise pakad NAHI paaya.
+//
+// Upar ka user admin.createUser() se banta hai, jo ye columns khud '' kar deta
+// hai. Par ASLI 5 users SQL insert se aaye the, jahan ye NULL reh gaye — aur
+// GoTrue inhe Go ke `string` me padhta hai, `*string` me nahi. Nateeja: har
+// asli login par 500, "converting NULL to string is unsupported", jabki hash
+// bilkul sahi tha. Browser me sirf "{}" dikhta tha.
+//
+// Isliye ab asli rows ko seedha jaancho, banaye hue test user ko nahi.
+// ============================================================
+console.log('\n=== ASLI IMPORT KI ROWS (GoTrue in par 500 deta tha) ===')
+
+await check('kisi bhi asli user me token column NULL na ho', async () => {
+  const cols = [
+    'confirmation_token', 'recovery_token', 'email_change_token_new',
+    'email_change_token_current', 'email_change',
+    'phone_change', 'phone_change_token', 'reauthentication_token',
+  ]
+  const { rows } = await client.query(
+    `select email, ${cols.map((c) => `(${c} is null) as ${c}`).join(', ')}
+       from auth.users where id <> $1`, [userId]
+  )
+  const bad = rows
+    .map((r) => [r.email, cols.filter((c) => r[c])])
+    .filter(([, list]) => list.length)
+  if (bad.length) {
+    return `in users ka login 500 dega:\n          ` +
+      bad.map(([email, list]) => `${email} -> ${list.join(', ')}`).join('\n          ')
+  }
+  return true
+})
+
 console.log('\n=== uid ka naksha (yahi sabse aasani se tootta hai) ===')
 
 await check('session ka uid Supabase uuid nahi, purana Firebase uid dena chahiye', async () => {
