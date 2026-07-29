@@ -81,11 +81,17 @@ const isActiveStudent = student => studentStatusKey(student) === 'active'
 import { onAuthStateChanged, signOut } from 'firebase/auth'
 import { deleteObject, getDownloadURL, ref as storageRef, uploadBytes } from 'firebase/storage'
 import { auth, isFirebaseConfigured, storage, firebaseApp, rtdb } from './lib/firebase'
+import { useSupabase } from './lib/supabaseClient'
+import { databaseRequest as supabaseRequest, subscribe as supabaseSubscribe } from './lib/dataAdapter'
 
 const databaseUrl = import.meta.env.VITE_FIREBASE_DATABASE_URL?.replace(/\/$/, '')
 const useFirebaseStorage = import.meta.env.VITE_USE_FIREBASE_STORAGE === 'true'
 
 async function databaseRequest(path, token, options = {}) {
+  // Supabase mode: wahi path, wahi shakal ka jawab — sirf peeche ka engine badalta hai.
+  // VITE_USE_SUPABASE=false karte hi neeche wala Firebase raasta chalne lagta hai.
+  if (useSupabase) return supabaseRequest(path, token, options)
+
   const controller = new AbortController()
   const timeout = setTimeout(() => controller.abort(), 12000)
   const url = `${databaseUrl}/${path ? `${path}.json` : '.json'}?auth=${encodeURIComponent(token)}${options.query ? `&${options.query}` : ''}`
@@ -2755,15 +2761,26 @@ function useSchoolWorkspace(session) {
     }, 8000)
     unsubs.push(() => clearTimeout(watchdog))
 
-    import('firebase/database').then(({ ref: dbRef, onValue, off, getDatabase, query, orderByChild, startAt, equalTo }) => {
+    // Supabase mode me firebase/database load hi mat karo — na wo chahiye,
+    // na configured hoga. Aage ka poora block waisa hi rehta hai; sirf
+    // listen/listenFromDate andar se doosre engine pe chale jaate hain.
+    const databaseModule = useSupabase ? Promise.resolve({}) : import('firebase/database')
+
+    databaseModule.then(({ ref: dbRef, onValue, off, getDatabase, query, orderByChild, startAt, equalTo }) => {
       if (cancelled) return
       let rtdb
-      try { rtdb = getDatabase(firebaseApp) } catch (error) {
-        console.error('[listeners] getDatabase failed - live updates are OFF for this session:', error?.message)
-        return
+      if (!useSupabase) {
+        try { rtdb = getDatabase(firebaseApp) } catch (error) {
+          console.error('[listeners] getDatabase failed - live updates are OFF for this session:', error?.message)
+          return
+        }
       }
 
       function listen(path, handler) {
+        if (useSupabase) {
+          unsubs.push(supabaseSubscribe(path, handler))
+          return
+        }
         const r = dbRef(rtdb, path)
         onValue(r, handler, { onlyOnce: false })
         unsubs.push(() => off(r, 'value', handler))
@@ -2775,6 +2792,11 @@ function useSchoolWorkspace(session) {
       // student profiles and backups is fetched on demand elsewhere (see loadStudentAttendance
       // and createBackupPayload). Requires "attendance": { ".indexOn": ["date"] } in the rules.
       function listenFromDate(path, childKey, startValue, handler) {
+        if (useSupabase) {
+          // Postgres me ye where clause ban jaata hai — index pehle se laga hai
+          unsubs.push(supabaseSubscribe(path, handler, { query: `orderBy="${childKey}"&startAt="${startValue}"` }))
+          return
+        }
         const q = query(dbRef(rtdb, path), orderByChild(childKey), startAt(startValue))
         onValue(q, handler, { onlyOnce: false })
         unsubs.push(() => off(q, 'value', handler))
@@ -2859,23 +2881,33 @@ function useSchoolWorkspace(session) {
 
       // Scoped to pending only - the queue the admin actually acts on. Requires
       // "admissionRequests": { ".indexOn": ["status"] } in the rules.
-      const pendingAdmissions = query(dbRef(rtdb, `schools/${schoolId}/admissionRequests`), orderByChild('status'), equalTo('pending'))
-      // A failed query must not present as an empty queue - "no applications" and "the query
-      // broke" look identical on screen and that ambiguity already cost a day of debugging.
-      // If the indexed query errors (e.g. .indexOn dropped by a console rules edit), fall back
-      // to reading the node whole and filtering here.
-      onValue(pendingAdmissions, snap => { delivered.add('admissionRequests'); setAdmissionRequests(snap.val() || {}) }, error => {
-        console.warn('[admissions] pending query failed, falling back to full read:', error?.message)
-        const fallbackRef = dbRef(rtdb, `schools/${schoolId}/admissionRequests`)
-        const fallbackHandler = snap => {
-          delivered.add('admissionRequests')
-          const all = snap.val() || {}
-          setAdmissionRequests(Object.fromEntries(Object.entries(all).filter(([, row]) => row?.status === 'pending')))
-        }
-        onValue(fallbackRef, fallbackHandler, () => {})
-        unsubs.push(() => off(fallbackRef, 'value', fallbackHandler))
-      })
-      unsubs.push(() => off(pendingAdmissions, 'value'))
+      // Supabase mode me ye where status='pending' ban jaata hai, aur RLS/index
+      // dono database me hain — indexOn gir jaane wali dikkat hi nahi rehti.
+      if (useSupabase) {
+        unsubs.push(supabaseSubscribe(
+          `schools/${schoolId}/admissionRequests`,
+          snap => { delivered.add('admissionRequests'); setAdmissionRequests(snap.val() || {}) },
+          { query: 'orderBy="status"&equalTo="pending"' }
+        ))
+      } else {
+        const pendingAdmissions = query(dbRef(rtdb, `schools/${schoolId}/admissionRequests`), orderByChild('status'), equalTo('pending'))
+        // A failed query must not present as an empty queue - "no applications" and "the query
+        // broke" look identical on screen and that ambiguity already cost a day of debugging.
+        // If the indexed query errors (e.g. .indexOn dropped by a console rules edit), fall back
+        // to reading the node whole and filtering here.
+        onValue(pendingAdmissions, snap => { delivered.add('admissionRequests'); setAdmissionRequests(snap.val() || {}) }, error => {
+          console.warn('[admissions] pending query failed, falling back to full read:', error?.message)
+          const fallbackRef = dbRef(rtdb, `schools/${schoolId}/admissionRequests`)
+          const fallbackHandler = snap => {
+            delivered.add('admissionRequests')
+            const all = snap.val() || {}
+            setAdmissionRequests(Object.fromEntries(Object.entries(all).filter(([, row]) => row?.status === 'pending')))
+          }
+          onValue(fallbackRef, fallbackHandler, () => {})
+          unsubs.push(() => off(fallbackRef, 'value', fallbackHandler))
+        })
+        unsubs.push(() => off(pendingAdmissions, 'value'))
+      }
 
       // certificates, certificateSettings and homework are intentionally NOT subscribed here.
       // The dashboard never reads them, so pulling them on every login is wasted egress. They
