@@ -1,21 +1,10 @@
-﻿const { getApps, getApp, initializeApp, cert } = require('firebase-admin/app')
-const { getDatabase } = require('firebase-admin/database')
-const crypto = require('crypto')
+﻿const crypto = require('crypto')
+// Har database raasta _parent-store.js me hai - Firebase ke liye ek roop,
+// Supabase ke liye doosra, dono ka ek hi interface. Is file me sirf niyam hain:
+// password kaise banta hai, session kitni der chalta hai, kaunsa bachcha kis
+// parent ka hai. Wo niyam dono backend par bilkul ek jaise chalte hain.
+const { createStore, digits } = require('./_parent-store')
 
-function getAdminApp() {
-  if (getApps().length) return getApp()
-  const raw = process.env.FIREBASE_SERVICE_ACCOUNT_JSON || ''
-  if (!raw) throw new Error('Server config missing: FIREBASE_SERVICE_ACCOUNT_JSON not set.')
-  let credentials
-  try { credentials = JSON.parse(raw) } catch { throw new Error('Server config error: FIREBASE_SERVICE_ACCOUNT_JSON is not valid JSON.') }
-  if (!credentials.project_id) throw new Error('Server config error: service account missing project_id.')
-  return initializeApp({
-    credential: cert(credentials),
-    databaseURL: process.env.FIREBASE_DATABASE_URL || process.env.VITE_FIREBASE_DATABASE_URL,
-  })
-}
-
-const digits = value => String(value || '').replace(/\D/g, '')
 const now = () => Date.now()
 // Parent passwords are hashed with scrypt (Node built-in, memory-hard, per-user random salt).
 // The previous scheme was an unsalted single-round SHA-256, which a leaked database would give
@@ -98,42 +87,14 @@ const publicSchool = school => {
   }
 }
 
-async function findSchool(database, schoolCode, app) {
-  const code = String(schoolCode || '').trim().toUpperCase()
-  const codeSnap = await database.ref(`schoolCodes/${code}`).once('value')
-  const mapping = codeSnap.val()
-  if (mapping?.schoolId) {
-    const existsSnap = await database.ref(`schools/${mapping.schoolId}/profile`).once('value')
-    if (existsSnap.exists()) return { schoolId: mapping.schoolId }
-  }
-  // Fallback for a school whose schoolCodes entry is missing. Previously this read the entire
-  // schools tree - every school's students, fees and attendance - to compare one string each.
-  // List the ids shallowly instead and read only profile/schoolCode from each.
-  try {
-    const databaseUrl = process.env.FIREBASE_DATABASE_URL || process.env.VITE_FIREBASE_DATABASE_URL
-    const accessToken = await app.options.credential.getAccessToken()
-    const listed = await fetch(`${databaseUrl}/schools.json?shallow=true&access_token=${accessToken.access_token}`)
-    if (!listed.ok) throw new Error(`shallow list failed (${listed.status})`)
-    const ids = Object.keys(await listed.json() || {})
-    const codes = await Promise.all(ids.map(async id => [id, (await database.ref(`schools/${id}/profile/schoolCode`).once('value')).val()]))
-    const hit = codes.find(([, value]) => String(value || '').toUpperCase() === code)
-    return hit ? { schoolId: hit[0] } : null
-  } catch (error) {
-    console.warn('[parent-portal] school code lookup fallback failed:', error.message)
-    return null
-  }
+async function findSchool(store, schoolCode) {
+  const schoolId = await store.schoolIdByCode(String(schoolCode || '').trim().toUpperCase())
+  return schoolId ? { schoolId } : null
 }
 
 function studentParentPhone(row) {
   const raw = digits(row.parent_login_phone || row.parentLoginPhone || row.father_phone || row.fatherPhone || row.guardian_phone || row.guardianPhone || row.phone || row.mobile || row.contactNumber || row.mother_phone || row.motherPhone)
   return raw.length > 10 ? raw.slice(-10) : raw
-}
-
-async function loadStudentsByIds(database, schoolId, ids) {
-  const snaps = await Promise.all(ids.map(id => database.ref(`schools/${schoolId}/students/${id}`).once('value')))
-  const students = {}
-  snaps.forEach((snap, index) => { if (snap.exists()) students[ids[index]] = snap.val() })
-  return students
 }
 
 // Resolves a phone to its parent account and that parent's children WITHOUT reading the school's
@@ -144,25 +105,24 @@ async function loadStudentsByIds(database, schoolId, ids) {
 //   parents/{phone}.students            - the parent account, once it exists
 //   parentStudentIndex/{phone}/{id}     - written by admissions, and backfilled for old records
 // Only the resolved ids are then fetched individually.
-async function ensureParent(database, schoolId, phone, schoolCode = '') {
+async function ensureParent(store, schoolId, phone, schoolCode = '') {
   const rawDigits = digits(phone)
   const parentId = rawDigits.length > 10 ? rawDigits.slice(-10) : rawDigits
   if (!parentId) return null
-  const parentRef = database.ref(`schools/${schoolId}/parents/${parentId}`)
-  const [parentSnap, indexSnap] = await Promise.all([
-    parentRef.once('value'),
-    database.ref(`schools/${schoolId}/parentStudentIndex/${parentId}`).once('value'),
+  const [existing, index] = await Promise.all([
+    store.parent(schoolId, parentId),
+    store.parentStudentIndex(schoolId, parentId),
   ])
-  let parent = parentSnap.val()
+  let parent = existing
   const knownIds = normalizeStudentsList(parent?.students)
-  const indexedIds = normalizeStudentsList(indexSnap.val())
+  const indexedIds = normalizeStudentsList(index)
   const linkedIds = [...new Set([...knownIds, ...indexedIds])]
   // Neither an account nor an index entry: this phone is genuinely not registered. We do not fall
   // back to scanning students - see backfillParentStudentIndex in App.jsx, which populates the
   // index for legacy records the next time an admin opens the workspace.
   if (!linkedIds.length) return null
 
-  const students = await loadStudentsByIds(database, schoolId, linkedIds)
+  const students = await store.studentsByIds(schoolId, linkedIds)
   const presentIds = Object.keys(students)
   if (!presentIds.length) return null
 
@@ -182,11 +142,11 @@ async function ensureParent(database, schoolId, phone, schoolCode = '') {
       createdAt: now(),
       updatedAt: now(),
     }
-    await parentRef.set(parent)
+    await store.createParent(schoolId, parentId, parent)
   } else if (presentIds.length !== knownIds.length || presentIds.some(id => !knownIds.includes(id))) {
     // Only write when the child list actually changed, so a normal login stays read-only.
     parent = { ...parent, id: parentId, phone: parent.phone || parentId, students: Object.fromEntries(presentIds.map(id => [id, true])), updatedAt: now() }
-    await parentRef.update({ students: parent.students, updatedAt: parent.updatedAt })
+    await store.updateParent(schoolId, parentId, { students: parent.students, updatedAt: parent.updatedAt })
   }
   return { parentId, parent, students }
 }
@@ -196,11 +156,10 @@ async function ensureParent(database, schoolId, phone, schoolCode = '') {
 // It exists so the index can be rebuilt by hand if backfillParentStudentIndex has not run and a
 // parent cannot log in. Reading the whole students node is exactly the cost this change removed,
 // so call it deliberately, once, from a one-off script - not from a request handler.
-async function scanStudentsForParentPhone(database, schoolId, phone) {
+async function scanStudentsForParentPhone(store, schoolId, phone) {
   const rawDigits = digits(phone)
   const parentId = rawDigits.length > 10 ? rawDigits.slice(-10) : rawDigits
-  const studentsSnap = await database.ref(`schools/${schoolId}/students`).once('value')
-  return Object.entries(studentsSnap.val() || {})
+  return Object.entries(await store.allStudents(schoolId) || {})
     .filter(([, row]) => studentParentPhone(row) === parentId)
     .map(([id]) => id)
 }
@@ -235,14 +194,12 @@ function sanitizeStudent(id, row = {}) {
 // migrated off it, so photo_url comes back empty and photo_inline is true. Fetch those few
 // separately - a parent has one to three children, so this is a handful of reads. Students whose
 // photo is still inline, or on a Storage URL, are already resolved and are skipped.
-async function withStudentPhotos(database, schoolId, students, rows) {
+async function withStudentPhotos(store, schoolId, students, rows) {
   const needing = students.filter(student => !student.photoURL && rows[student.id]?.photo_inline === true)
   if (!needing.length) return students
   const fetched = await Promise.all(needing.map(async student => {
     try {
-      const snap = await database.ref(`studentPhotos/${schoolId}/${student.id}`).once('value')
-      const value = snap.val()
-      return [student.id, typeof value === 'string' ? value : '']
+      return [student.id, await store.photoUrl(schoolId, student.id)]
     } catch {
       return [student.id, '']
     }
@@ -262,32 +219,30 @@ function filterNotices(notices, student) {
 }
 
 // Build the parent dashboard payload using SCOPED reads instead of downloading the whole school.
-// Per-student data (fees, attendance, report cards, certificates) is fetched with indexed
-// orderByChild('studentId').equalTo() queries; per-parent data (messages, notifications) with
-// orderByChild('parentId'). Only genuinely school-wide data (notices, timetable, transport,
-// library, homework) is read as a whole node â€” none of which grows per-student like fees/
-// attendance do. `preloadedStudents` lets the login flow reuse the students node it already read.
-async function buildDataPayload(database, schoolId, parentId, parent, selectedStudentId = '', preloadedStudents = null) {
-  const base = database.ref(`schools/${schoolId}`)
+// Per-student data (fees, attendance, report cards, certificates) is fetched by studentId;
+// per-parent data (messages, notifications) by parentId. Only genuinely school-wide data
+// (notices, timetable, transport, library, homework) is read as a whole node â€” none of which
+// grows per-student like fees/attendance do. `preloadedStudents` lets the login flow reuse the
+// students it already read.
+async function buildDataPayload(store, schoolId, parentId, parent, selectedStudentId = '', preloadedStudents = null) {
   const studentIds = normalizeStudentsList(parent.students)
 
   let studentRows = {}
   if (preloadedStudents) {
     studentIds.forEach(id => { if (preloadedStudents[id]) studentRows[id] = preloadedStudents[id] })
   } else {
-    const snaps = await Promise.all(studentIds.map(id => base.child(`students/${id}`).once('value')))
-    snaps.forEach((snap, index) => { const val = snap.val(); if (val) studentRows[studentIds[index]] = val })
+    studentRows = await store.studentsByIds(schoolId, studentIds)
   }
-  const students = await withStudentPhotos(database, schoolId, Object.entries(studentRows).map(([id, row]) => sanitizeStudent(id, row)), studentRows)
+  const students = await withStudentPhotos(store, schoolId, Object.entries(studentRows).map(([id, row]) => sanitizeStudent(id, row)), studentRows)
   const selected = students.find(row => row.id === selectedStudentId) || students[0]
   if (!selected) throw new Error('No linked student found for this parent.')
 
-  const byStudent = node => base.child(node).orderByChild('studentId').equalTo(selected.id).once('value')
-  const byParent = node => base.child(node).orderByChild('parentId').equalTo(parentId).once('value')
-  const [profileSnap, feesSnap, feeStructuresSnap, attendanceSnap, reportSnap, certSnap, certReqSnap, leaveReqSnap, msgSnap, notifSnap, homeworkSnap, noticesSnap, timetableSnap, transportSnap, librarySnap] = await Promise.all([
-    base.child('profile').once('value'),
+  const byStudent = node => store.byStudent(schoolId, node, selected.id)
+  const byParent = node => store.byParent(schoolId, node, parentId)
+  const [profile, feesMap, feeStructures, attendanceMap, reportMap, certMap, certReqMap, leaveReqMap, msgMap, notifMap, homeworkMap, noticesMap, timetable, transport, library] = await Promise.all([
+    store.profile(schoolId),
     byStudent('fees'),
-    base.child('feeManager/structures').once('value'),
+    store.node(schoolId, 'feeManager/structures'),
     byStudent('attendance'),
     byStudent('reportCards'),
     byStudent('certificates'),
@@ -295,42 +250,41 @@ async function buildDataPayload(database, schoolId, parentId, parent, selectedSt
     byStudent('leaveRequests'),
     byParent('parentMessages'),
     byParent('parentNotifications'),
-    base.child('homework').once('value'),
-    base.child('notices').once('value'),
-    base.child('timetable').once('value'),
-    base.child('transport').once('value'),
-    base.child('library').once('value'),
+    store.node(schoolId, 'homework'),
+    store.node(schoolId, 'notices'),
+    store.node(schoolId, 'timetable'),
+    store.node(schoolId, 'transport'),
+    store.node(schoolId, 'library'),
   ])
 
-  const rows = snap => Object.entries(snap.val() || {}).map(([id, row]) => ({ id, ...row }))
-  const profile = profileSnap.val() || {}
+  const rows = value => Object.entries(value || {}).map(([id, row]) => ({ id, ...row }))
 
-  const attendance = rows(attendanceSnap).sort((a, b) => String(b.date || '').localeCompare(String(a.date || '')))
-  const fees = rows(feesSnap).sort((a, b) => (b.paidAt || b.updatedAt || 0) - (a.paidAt || a.updatedAt || 0))
-  const homework = rows(homeworkSnap)
+  const attendance = rows(attendanceMap).sort((a, b) => String(b.date || '').localeCompare(String(a.date || '')))
+  const fees = rows(feesMap).sort((a, b) => (b.paidAt || b.updatedAt || 0) - (a.paidAt || a.updatedAt || 0))
+  const homework = rows(homeworkMap)
     .filter(row => String(row.className || row.class || '') === String(selected.class || '') && String(row.section || '') === String(selected.section || ''))
     .sort((a, b) => String(a.dueDate || '').localeCompare(String(b.dueDate || '')))
-  const reportCards = rows(reportSnap).filter(row => row.status === 'published' || row.published || row.locked)
-  const certificates = rows(certSnap).sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0))
-  const certificateRequests = rows(certReqSnap).filter(row => row.parentId === parentId)
-  const leaveRequests = rows(leaveReqSnap).filter(row => row.parentId === parentId).sort((a, b) => (b.submittedAt || 0) - (a.submittedAt || 0))
-  const messages = rows(msgSnap).sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0))
-  const notifications = rows(notifSnap).sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0))
+  const reportCards = rows(reportMap).filter(row => row.status === 'published' || row.published || row.locked)
+  const certificates = rows(certMap).sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0))
+  const certificateRequests = rows(certReqMap).filter(row => row.parentId === parentId)
+  const leaveRequests = rows(leaveReqMap).filter(row => row.parentId === parentId).sort((a, b) => (b.submittedAt || 0) - (a.submittedAt || 0))
+  const messages = rows(msgMap).sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0))
+  const notifications = rows(notifMap).sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0))
 
-  const transport = transportSnap.val() || {}
-  const transportAllocations = Object.entries(transport.allocations || {}).map(([id, row]) => ({ id, ...row }))
+  const bus = transport || {}
+  const transportAllocations = rows(bus.allocations)
   const allocation = transportAllocations.find(row => row.studentId === selected.id) || {}
-  const route = transport.routes?.[allocation.routeId || selected.routeId] || {}
-  const vehicle = transport.vehicles?.[allocation.vehicleId || route.vehicleId] || {}
-  const driver = transport.drivers?.[allocation.driverId || vehicle.driverId || route.driverId] || {}
+  const route = bus.routes?.[allocation.routeId || selected.routeId] || {}
+  const vehicle = bus.vehicles?.[allocation.vehicleId || route.vehicleId] || {}
+  const driver = bus.drivers?.[allocation.driverId || vehicle.driverId || route.driverId] || {}
   const todayKey = new Date().toISOString().slice(0, 10)
-  const transportAttendance = Object.values(transport.attendance || {}).filter(row => row.date === todayKey && (row.records || []).some(item => item.studentId === selected.id))
+  const transportAttendance = Object.values(bus.attendance || {}).filter(row => row.date === todayKey && (row.records || []).some(item => item.studentId === selected.id))
 
-  const library = librarySnap.val() || {}
+  const books = library || {}
 
   return {
     schoolId,
-    school: publicSchool({ profile }),
+    school: publicSchool({ profile: profile || {} }),
     parent: { id: parentId, name: parent.name || 'Parent', phone: parent.phone, email: parent.email || '', address: parent.address || '', language: parent.language || 'english', mustChangePassword: Boolean(parent.mustChangePassword) },
     students,
     selectedStudent: selected,
@@ -338,33 +292,31 @@ async function buildDataPayload(database, schoolId, parentId, parent, selectedSt
     fees,
     // Fee structure config is tiny and lets the portal compute the multi-month pending
     // breakdown with the exact same shared logic the admin app uses.
-    feeStructures: feeStructuresSnap.val() || {},
+    feeStructures: feeStructures || {},
     homework,
-    notices: filterNotices(noticesSnap.val(), selected),
+    notices: filterNotices(noticesMap, selected),
     reportCards,
     certificates,
     certificateRequests,
     leaveRequests,
     messages,
     notifications,
-    timetable: timetableSnap.val() || {},
+    timetable: timetable || {},
     transport: { allocation, route, vehicle, driver, today: transportAttendance },
     library: {
-      fines: Object.entries(library.fines || {}).map(([id, row]) => ({ id, ...row })).filter(row => row.studentId === selected.id),
-      issues: Object.entries(library.issues || {}).map(([id, row]) => ({ id, ...row })).filter(row => row.studentId === selected.id),
+      fines: rows(books.fines).filter(row => row.studentId === selected.id),
+      issues: rows(books.issues).filter(row => row.studentId === selected.id),
     },
     fetchedAt: now(),
   }
 }
 
-async function requireSession(database, body) {
+async function requireSession(store, body) {
   const { schoolId, parentId, sessionToken } = body || {}
   if (!schoolId || !parentId || !sessionToken) throw new Error('Parent session expired. Please login again.')
-  const sessionSnap = await database.ref(`schools/${schoolId}/parentSessions/${parentId}/${sessionToken}`).once('value')
-  const session = sessionSnap.val()
+  const session = await store.session(schoolId, parentId, sessionToken)
   if (!session || session.expiresAt < now()) throw new Error('Parent session expired. Please login again.')
-  const parentSnap = await database.ref(`schools/${schoolId}/parents/${parentId}`).once('value')
-  const parent = parentSnap.val()
+  const parent = await store.parent(schoolId, parentId)
   if (!parent || parent.status === 'inactive') throw new Error('Parent account is inactive.')
   return { schoolId, parentId, parent }
 }
@@ -372,8 +324,7 @@ async function requireSession(database, body) {
 module.exports = async function handler(request, response) {
   if (request.method !== 'POST') return response.status(405).json({ error: 'Method not allowed' })
   try {
-    const app = getAdminApp()
-    const database = getDatabase(app)
+    const store = createStore()
     const body = request.body || {}
     const action = body.action
 
@@ -383,16 +334,14 @@ module.exports = async function handler(request, response) {
       const password = String(body.password || '')
       if (schoolCode.length < 6) throw new Error('Invalid School Code')
       if (phone.length !== 10) throw new Error('Phone number must be 10 digits.')
-      const found = await findSchool(database, schoolCode, app)
+      const found = await findSchool(store, schoolCode)
       if (!found) throw new Error('Invalid School Code')
       const { schoolId } = found
-      const ensured = await ensureParent(database, schoolId, phone, schoolCode)
+      const ensured = await ensureParent(store, schoolId, phone, schoolCode)
       if (!ensured) throw new Error('Phone number not registered. Contact school.')
       const { parentId, parent, students } = ensured
       if (parent.status === 'inactive') throw new Error('Parent account is inactive. Contact school.')
-      const attemptsRef = database.ref(`schools/${schoolId}/parentLoginAttempts/${parentId}`)
-      const attemptsSnap = await attemptsRef.once('value')
-      const attempts = attemptsSnap.val() || {}
+      const attempts = await store.loginAttempts(schoolId, parentId)
       if (attempts.lockUntil && attempts.lockUntil > now()) throw new Error('Too many wrong attempts. Try again after 15 minutes.')
       const linkedIds = normalizeStudentsList(parent.students)
       const linkedStudents = linkedIds.map(id => students[id]).filter(Boolean)
@@ -402,54 +351,54 @@ module.exports = async function handler(request, response) {
       const validDob = verifyDobPassword(password, rawDob(eldest))
       if (!validCustom && !validDob) {
         const failed = Number(attempts.failed || 0) + 1
-        await attemptsRef.set({ failed, lockUntil: failed >= 5 ? now() + 15 * 60 * 1000 : 0, updatedAt: now() })
+        await store.setLoginAttempts(schoolId, parentId, { failed, lockUntil: failed >= 5 ? now() + 15 * 60 * 1000 : 0, updatedAt: now() })
         throw new Error("Incorrect password. Default is child's DOB (e.g., 15032008)")
       }
-      await attemptsRef.remove()
+      await store.clearLoginAttempts(schoolId, parentId)
       // Transparent upgrade: a parent who just authenticated against a legacy SHA-256 digest gets
       // re-hashed with scrypt here, so the old format disappears as people log in. No reset needed.
       if (validCustom && isLegacyHash(parent.passwordHash)) {
-        await database.ref(`schools/${schoolId}/parents/${parentId}/passwordHash`).set(await hashPassword(password)).catch(() => {})
+        await store.updateParent(schoolId, parentId, { passwordHash: await hashPassword(password) }).catch(() => {})
       }
       const sessionToken = tokenFor()
-      await database.ref(`schools/${schoolId}/parentSessions/${parentId}/${sessionToken}`).set({ createdAt: now(), expiresAt: now() + 30 * 60 * 1000 })
-      await database.ref(`schools/${schoolId}/parents/${parentId}`).update({ lastLogin: now(), updatedAt: now() })
-      return response.status(200).json({ ok: true, sessionToken, schoolId, parentId, mustChangePassword: Boolean(parent.mustChangePassword), data: await buildDataPayload(database, schoolId, parentId, parent, '', students) })
+      await store.setSession(schoolId, parentId, sessionToken, { createdAt: now(), expiresAt: now() + 30 * 60 * 1000 })
+      await store.updateParent(schoolId, parentId, { lastLogin: now(), updatedAt: now() })
+      return response.status(200).json({ ok: true, sessionToken, schoolId, parentId, mustChangePassword: Boolean(parent.mustChangePassword), data: await buildDataPayload(store, schoolId, parentId, parent, '', students) })
     }
 
     if (action === 'data') {
-      const context = await requireSession(database, body)
-      await database.ref(`schools/${context.schoolId}/parentSessions/${context.parentId}/${body.sessionToken}/expiresAt`).set(now() + 30 * 60 * 1000)
-      return response.status(200).json({ ok: true, data: await buildDataPayload(database, context.schoolId, context.parentId, context.parent, body.studentId) })
+      const context = await requireSession(store, body)
+      await store.touchSession(context.schoolId, context.parentId, body.sessionToken, now() + 30 * 60 * 1000)
+      return response.status(200).json({ ok: true, data: await buildDataPayload(store, context.schoolId, context.parentId, context.parent, body.studentId) })
     }
 
     if (action === 'setPassword') {
-      const context = await requireSession(database, body)
+      const context = await requireSession(store, body)
       const password = String(body.password || '')
       if (!/[A-Z]/.test(password) || !/\d/.test(password) || password.length < 8) throw new Error('Password must be 8+ chars with 1 capital and 1 number.')
       const firstStudentId = normalizeStudentsList(context.parent.students)[0]
-      const firstRow = firstStudentId ? (await database.ref(`schools/${context.schoolId}/students/${firstStudentId}`).once('value')).val() || {} : {}
+      const firstRow = (firstStudentId ? await store.student(context.schoolId, firstStudentId) : null) || {}
       const dob = firstRow.dob || firstRow.date_of_birth || firstRow.dateOfBirth || ''
       if (verifyDobPassword(password, dob)) throw new Error('New password cannot be same as DOB.')
-      await database.ref(`schools/${context.schoolId}/parents/${context.parentId}`).update({ passwordHash: await hashPassword(password), mustChangePassword: false, passwordSetAt: now(), updatedAt: now() })
+      await store.updateParent(context.schoolId, context.parentId, { passwordHash: await hashPassword(password), mustChangePassword: false, passwordSetAt: now(), updatedAt: now() })
       return response.status(200).json({ ok: true })
     }
 
     if (action === 'forgot') {
       const schoolCode = String(body.schoolCode || '').trim().toUpperCase()
       const phone = digits(body.phone)
-      const found = await findSchool(database, schoolCode, app)
+      const found = await findSchool(store, schoolCode)
       if (!found) throw new Error('Invalid School Code')
-      const ensured = await ensureParent(database, found.schoolId, phone, schoolCode)
+      const ensured = await ensureParent(store, found.schoolId, phone, schoolCode)
       if (!ensured) throw new Error('Phone number not registered. Contact school.')
-      await database.ref(`schools/${found.schoolId}/parents/${ensured.parentId}`).update({ passwordHash: null, mustChangePassword: true, updatedAt: now() })
+      await store.updateParent(found.schoolId, ensured.parentId, { passwordHash: null, mustChangePassword: true, updatedAt: now() })
       return response.status(200).json({ ok: true, message: "Password reset to child's date of birth." })
     }
 
     if (action === 'message') {
-      const context = await requireSession(database, body)
+      const context = await requireSession(store, body)
       const id = `msg_${now()}`
-      await database.ref(`schools/${context.schoolId}/parentMessages/${id}`).set({
+      await store.push(context.schoolId, 'parentMessages', id, {
         id,
         parentId: context.parentId,
         parentName: context.parent.name || 'Parent',
@@ -463,10 +412,10 @@ module.exports = async function handler(request, response) {
     }
 
     if (action === 'certificateRequest') {
-      const context = await requireSession(database, body)
-      const student = (await database.ref(`schools/${context.schoolId}/students/${body.studentId}`).once('value')).val() || {}
+      const context = await requireSession(store, body)
+      const student = (await store.student(context.schoolId, body.studentId)) || {}
       const id = `cert_req_${now()}`
-      await database.ref(`schools/${context.schoolId}/certificateRequests/${id}`).set({
+      await store.push(context.schoolId, 'certificateRequests', id, {
         id,
         parentId: context.parentId,
         parentName: context.parent.name || 'Parent',
@@ -481,7 +430,7 @@ module.exports = async function handler(request, response) {
     }
 
     if (action === 'leaveRequest') {
-      const context = await requireSession(database, body)
+      const context = await requireSession(store, body)
       const studentId = String(body.studentId || '')
       // The session proves who the parent is, so the child must be checked against that parent's
       // own list - otherwise any signed-in parent could file a request against another student.
@@ -495,9 +444,9 @@ module.exports = async function handler(request, response) {
       if (!/^\d{4}-\d{2}-\d{2}$/.test(toDate)) throw new Error('Choose a valid end date.')
       if (toDate < fromDate) throw new Error('End date cannot be before the start date.')
       if (reason.length < 3) throw new Error('Please write a short reason for the leave.')
-      const student = (await database.ref(`schools/${context.schoolId}/students/${studentId}`).once('value')).val() || {}
+      const student = (await store.student(context.schoolId, studentId)) || {}
       const id = `leave_req_${now()}_${crypto.randomBytes(3).toString('hex')}`
-      await database.ref(`schools/${context.schoolId}/leaveRequests/${id}`).set({
+      await store.push(context.schoolId, 'leaveRequests', id, {
         id,
         parentId: context.parentId,
         parentName: context.parent.name || 'Parent',
@@ -517,8 +466,8 @@ module.exports = async function handler(request, response) {
     }
 
     if (action === 'updateProfile') {
-      const context = await requireSession(database, body)
-      await database.ref(`schools/${context.schoolId}/parents/${context.parentId}`).update({
+      const context = await requireSession(store, body)
+      await store.updateParent(context.schoolId, context.parentId, {
         name: String(body.name || context.parent.name || '').trim(),
         email: String(body.email || '').trim(),
         address: String(body.address || '').trim(),
@@ -529,11 +478,8 @@ module.exports = async function handler(request, response) {
     }
 
     if (action === 'markRead') {
-      const context = await requireSession(database, body)
-      const ids = Array.isArray(body.ids) ? body.ids : []
-      const updates = {}
-      ids.forEach(id => { updates[`schools/${context.schoolId}/parentNotifications/${id}/isRead`] = true })
-      if (ids.length) await database.ref().update(updates)
+      const context = await requireSession(store, body)
+      await store.markNotificationsRead(context.schoolId, Array.isArray(body.ids) ? body.ids : [])
       return response.status(200).json({ ok: true })
     }
 
@@ -544,7 +490,10 @@ module.exports = async function handler(request, response) {
   }
 }
 
-// Exposed for tests only. ensureParent decides which database paths a parent login touches, and
-// the property worth guarding is a negative one - that it never reads the whole students node -
+// Exposed for tests only. ensureParent decides which store calls a parent login makes, and the
+// property worth guarding is a negative one - that it never asks for the whole students node -
 // which can only be asserted against the real implementation.
-module.exports.__internals = { ensureParent, loadStudentsByIds, scanStudentsForParentPhone }
+module.exports.__internals = {
+  ensureParent, scanStudentsForParentPhone, buildDataPayload, requireSession, findSchool,
+  hashPassword, verifyPassword, verifyDobPassword, dobVariants, dateKey, sanitizeStudent,
+}
