@@ -86,7 +86,10 @@ import { databaseRequest as supabaseRequest, subscribe as supabaseSubscribe, res
 import { watchAuth, signOutUser, hasCurrentUser, rememberCurrentUser } from './lib/authAdapter'
 
 const databaseUrl = import.meta.env.VITE_FIREBASE_DATABASE_URL?.replace(/\/$/, '')
-const useFirebaseStorage = import.meta.env.VITE_USE_FIREBASE_STORAGE === 'true'
+// Supabase par user Firebase Auth me sign-in nahi hota, isliye Firebase Storage
+// ki rules har upload thukra deti hain. Photo/attachment ke teeno call site pehle
+// se compressed-inline fallback rakhte hain — bas Firebase ko try hi mat karo.
+const useFirebaseStorage = import.meta.env.VITE_USE_FIREBASE_STORAGE === 'true' && !useSupabase
 
 async function databaseRequest(path, token, options = {}) {
   // Supabase mode: wahi path, wahi shakal ka jawab — sirf peeche ka engine badalta hai.
