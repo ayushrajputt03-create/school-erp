@@ -347,7 +347,22 @@ async function deleteOne(schoolId, def, legacyId) {
   )
   if (!query) return
   const { error } = await query
-  if (error) throw new Error(error.message)
+  if (error) throw new Error(friendlyDeleteError(error, def))
+}
+
+/**
+ * Postgres ka foreign-key error admin ke kisi kaam ka nahi hota. Sabse aam
+ * maamla: student ki fee receipts hain, isliye use permanently delete nahi kar
+ * sakte (constraint ON DELETE RESTRICT hai — pehle SET NULL thi aur receipt ka
+ * payer chup-chaap ud jaata tha).
+ */
+function friendlyDeleteError(error, def) {
+  // 23503 = foreign_key_violation
+  if (error.code !== '23503') return error.message
+  if (def.table === 'students') {
+    return 'Is student ke fee receipts jude hue hain, isliye record permanently delete nahi ho sakta. Hisaab ka record bachaye rakhna zaroori hai — student trash me hi rahega.'
+  }
+  return `Is record se dusre records jude hue hain, isliye delete nahi ho sakta. (${error.message})`
 }
 
 async function writeOne(schoolId, def, legacyId, body, method, innerPath = []) {
