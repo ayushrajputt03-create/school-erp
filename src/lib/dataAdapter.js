@@ -48,6 +48,51 @@ async function studentUuid(schoolId, legacyId) {
 }
 
 /* ------------------------------------------------------------------ */
+/* student-photos: private bucket -> signed URL                        */
+/* ------------------------------------------------------------------ */
+
+// `school-assets` public hai (logo, seal, signature) — uska path seedha
+// <img src> ban jaata hai. Par `student-photos` PRIVATE hai, isliye bachche ki
+// photo ka bare path browser me bekaar hai. Signed URL banana padta hai, wahi
+// jo parent portal server-side banata hai (api/_parent-store.js).
+const PHOTO_TTL_SECONDS = 60 * 60
+
+// Cache TTL se 5 minute pehle mar jaata hai, taaki beech-rasta expire hui URL
+// kabhi render na ho.
+const PHOTO_CACHE_MS = (PHOTO_TTL_SECONDS - 300) * 1000
+
+const photoCache = new Map()
+
+/** paths -> Map(path, signedUrl). Ek hi round trip me poori class sign hoti hai. */
+async function signPhotoPaths(paths) {
+  const now = Date.now()
+  const out = new Map()
+  const pending = []
+
+  for (const path of paths) {
+    const hit = photoCache.get(path)
+    if (hit && hit.expiresAt > now) out.set(path, hit.url)
+    else if (!pending.includes(path)) pending.push(path)
+  }
+  if (!pending.length) return out
+
+  const { data, error } = await supabase.storage
+    .from('student-photos')
+    .createSignedUrls(pending, PHOTO_TTL_SECONDS)
+
+  // Photo na dikhe to initials fallback chal jaata hai — isliye yahan throw
+  // nahi karte, warna ek missing file poori student list gira degi.
+  if (error) return out
+
+  for (const row of data || []) {
+    if (!row?.path || !row?.signedUrl) continue
+    photoCache.set(row.path, { url: row.signedUrl, expiresAt: now + PHOTO_CACHE_MS })
+    out.set(row.path, row.signedUrl)
+  }
+  return out
+}
+
+/* ------------------------------------------------------------------ */
 /* path parsing                                                        */
 /* ------------------------------------------------------------------ */
 
@@ -388,13 +433,27 @@ async function rootGet(root, rest) {
     const schoolId = await schoolUuid(schoolLegacy)
     if (!schoolId) return null
     let q = supabase.from('students').select('legacy_id, photo_path, photo_url').eq('school_id', schoolId)
+
+    // photo_url purane inline/base64 aur bahar hosted photos ke liye hai — wo
+    // waisi ki waisi chalti hai. photo_path private bucket ka hai, use sign karo.
     if (studentLegacy) {
       const { data } = await q.eq('legacy_id', studentLegacy).maybeSingle()
-      return data?.photo_url || data?.photo_path || null
+      if (data?.photo_url) return data.photo_url
+      if (!data?.photo_path) return null
+      const signed = await signPhotoPaths([data.photo_path])
+      return signed.get(data.photo_path) ?? null
     }
+
     const { data } = await q.not('photo_path', 'is', null)
+    const rows = data || []
+    const signed = await signPhotoPaths(rows.filter(r => !r.photo_url && r.photo_path).map(r => r.photo_path))
     const out = {}
-    for (const r of data || []) out[r.legacy_id] = r.photo_url || r.photo_path
+    for (const r of rows) {
+      // Sign fail ho gaya to key hi mat daalo — bare path <img> ko toda hua
+      // icon dikhata hai, jabki gayab key par initials fallback aata hai.
+      const url = r.photo_url || signed.get(r.photo_path)
+      if (url) out[r.legacy_id] = url
+    }
     return out
   }
 
