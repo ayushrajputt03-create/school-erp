@@ -599,7 +599,7 @@ function Sidebar({ page, setPage, open, close, schoolName, schoolLogo, schoolCod
           <div className="trial-card">
             <Sparkles size={18} />
             <strong>{cloudMode ? 'Cloud workspace' : 'Development demo'}</strong>
-            <p>{cloudMode ? 'Securely synced with Firebase.' : 'Changes stay on this device.'}</p>
+            <p>{cloudMode ? 'Securely synced to the cloud.' : 'Changes stay on this device.'}</p>
           </div>
         </div>
       </aside>
@@ -878,7 +878,7 @@ function Dashboard({ students, notices, fees, attendance, activities, staff, sta
   return (
     <>
       <div className="welcome-row">
-        <div><span className="eyebrow">{new Date().toLocaleDateString('en-IN', { weekday: 'long', day: 'numeric', month: 'long' })}</span><h2>School command center</h2><p>Live operational data from your Firebase workspace.</p></div>
+        <div><span className="eyebrow">{new Date().toLocaleDateString('en-IN', { weekday: 'long', day: 'numeric', month: 'long' })}</span><h2>School command center</h2><p>Live operational data from your school workspace.</p></div>
         <button className="primary-button" onClick={() => setPage('admissions')}><Plus size={17} /> Add student</button>
       </div>
       <StudentSearch students={students} onSelect={onSelectStudent} prominent />
@@ -980,7 +980,7 @@ function Dashboard({ students, notices, fees, attendance, activities, staff, sta
           <div className="transport-widget-alerts">{upcomingLeaveRequests.map(item => <div key={item.id} className={item.status === 'pending' ? 'warn' : 'danger'}>{item.employeeName} - {item.leaveType} - {dateLabel(item.fromDate)}</div>)}{!upcomingLeaveRequests.length && <div className="empty-state">No upcoming leave requests.</div>}</div>
         </div>
         <div className="panel finance-report">
-          <div className="panel-header"><div><h3>Earning / Expense Report</h3><p>Firebase financial transactions</p></div><select value={financeRange} onChange={event => setFinanceRange(event.target.value)}><option>This Week</option><option>This Month</option><option>This Year</option></select></div>
+          <div className="panel-header"><div><h3>Earning / Expense Report</h3><p>Recorded financial transactions</p></div><select value={financeRange} onChange={event => setFinanceRange(event.target.value)}><option>This Week</option><option>This Month</option><option>This Year</option></select></div>
           <div className="finance-bars"><div><span>Income</span><div><i className="income" style={{ width: `${income / financeMax * 100}%` }} /></div><strong>{money(income)}</strong></div><div><span>Expense</span><div><i className="expense" style={{ width: `${expense / financeMax * 100}%` }} /></div><strong>{money(expense)}</strong></div></div>
           <div className="finance-balance"><TrendingUp size={17} /><span>Net balance</span><strong>{money(income - expense)}</strong></div>
         </div>
@@ -5265,8 +5265,11 @@ export default function App() {
   }, [session, data.workspace.loading, data.workspace.needsSetup])
 
   if (window.location.pathname.startsWith('/parent')) return <ParentPortal />
-  if (!isFirebaseConfigured && import.meta.env.VITE_APP_ENV === 'production') {
-    return <main className="setup-error"><ShieldCheck size={30} /><h1>Secure setup required</h1><p>Firebase environment variables are missing. Configure the deployment before launch.</p></main>
+  // Ye gate dono backend ko ginta hai. Pehle sirf Firebase dekhta tha, to Supabase
+  // par cutover karte hi (Firebase env hata dene par) poora production is error
+  // screen par atak jaata — jabki app bilkul theek chal raha hota.
+  if (!isFirebaseConfigured && !useSupabase && import.meta.env.VITE_APP_ENV === 'production') {
+    return <main className="setup-error"><ShieldCheck size={30} /><h1>Secure setup required</h1><p>Backend environment variables are missing. Configure the deployment before launch.</p></main>
   }
   if (authLoading) return <SplashScreen persistent />
   if ((isFirebaseConfigured || useSupabase) && !session) return <AuthScreen />

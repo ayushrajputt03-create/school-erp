@@ -11,7 +11,7 @@ import './landing.css'
 const NAV_LINKS = [['features', 'Features'], ['workflow', 'Workflow'], ['pricing', 'Pricing'], ['faq', 'FAQ'], ['contact', 'Contact']]
 
 const TRUST_TECH = [
-  { icon: Database, label: 'Firebase' },
+  { icon: Database, label: 'Cloud Database' },
   { icon: Zap, label: 'React SPA' },
   { icon: Cloud, label: 'Cloud Infrastructure' },
   { icon: KeyRound, label: 'Secure Auth' },
@@ -84,7 +84,7 @@ const SECURITY = [
   { icon: Cloud, title: 'Automated Backups', desc: 'Scheduled backups keep data safe.' },
   { icon: Lock, title: 'Role-Based Permissions', desc: 'Granular access per user role.' },
   { icon: Activity, title: 'Audit Logs', desc: 'Track key actions across the system.' },
-  { icon: KeyRound, title: 'Firebase Authentication', desc: 'Enterprise-grade sign-in security.' },
+  { icon: KeyRound, title: 'Secure Authentication', desc: 'Enterprise-grade sign-in security.' },
 ]
 
 const PRICING = [
@@ -107,7 +107,7 @@ const TESTIMONIALS = [
 const FAQS = [
   { q: 'Is there a free trial?', a: 'Yes — get your first 3 months completely free with full access to every feature, plus free setup and training.' },
   { q: 'How long does setup take?', a: 'Most schools are fully live within 30 minutes. No technical knowledge is required.' },
-  { q: 'Is school data secure?', a: 'Absolutely. We use Firebase enterprise security with complete data isolation between schools and automated backups.' },
+  { q: 'Is school data secure?', a: 'Absolutely. We use enterprise-grade cloud security with complete data isolation between schools and automated backups.' },
   { q: 'Can parents access the system?', a: 'Yes. Parents get their own portal to track attendance, fees, results and notices in real time.' },
   { q: 'What support is available?', a: 'We provide WhatsApp and email support with quick response times, plus onboarding help.' },
 ]

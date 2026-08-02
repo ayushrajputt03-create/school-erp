@@ -137,7 +137,7 @@ function SuperAdminLogin({ user, checking, denied }) {
         <div className="sa-login-heading"><img src="/favicon-master.png" alt="" /><div><span>SUPER ADMIN</span><h2>Owner sign in</h2></div></div>
         <p>Use your personal NXT owner account.</p>
         <label>Email<input type="email" required value={form.email} onChange={event => setForm({ ...form, email: event.target.value })} autoComplete="email" /></label>
-        <label>Password<input type="password" required value={form.password} onChange={event => setForm({ ...form, password: event.target.value })} autoComplete="current-password" placeholder="Enter your Firebase password" /></label>
+        <label>Password<input type="password" required value={form.password} onChange={event => setForm({ ...form, password: event.target.value })} autoComplete="current-password" placeholder="Enter your password" /></label>
         {error && <div className="sa-error"><TriangleAlert size={16} />{error}</div>}
         <button className="sa-primary" disabled={busy || checking}>{busy || checking ? 'Checking access...' : 'Login to Owner Console'}</button>
         <button type="button" className="sa-back" onClick={() => window.location.assign('/')}>Back to school login</button>
@@ -161,7 +161,7 @@ function DashboardHome({ rows, payments, setPage, openSchool }) {
   const due = rows.filter(row => ['due', 'trial'].includes(row.subscription.status)).slice(0, 5)
   return <>
     <div className="sa-stat-grid">
-      <StatCard label="Total Schools Registered" value={rows.length} icon={Building2} tone="blue" note="All Firebase workspaces" />
+      <StatCard label="Total Schools Registered" value={rows.length} icon={Building2} tone="blue" note="All registered workspaces" />
       <StatCard label="Paying Schools" value={stats.paying} icon={CheckCircle2} tone="green" note="Chargeable subscriptions" />
       <StatCard label="Free Schools" value={stats.free} icon={Gift} tone="violet" note="No charge granted" />
       <StatCard label="Pending Payments" value={stats.due} icon={TriangleAlert} tone="red" note="Due and expired plans" />
