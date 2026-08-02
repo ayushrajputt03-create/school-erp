@@ -141,6 +141,16 @@ check('sirf apna school dikhta hai',
 const { data: fees } = await anon.from('fee_receipts').select('id').limit(5)
 check('teacher ko fee receipts nahi dikhtin', (fees || []).length === 0, `${(fees || []).length} rows`)
 
+// Sabse zaroori: saathi staff ka record nahi dikhna chahiye. staff.source me
+// phone aur dob dono hain, aur staff login hai hi school code + phone + DOB —
+// yaani ek teacher ka khaata poore school ke staff ka khaata ban jaata.
+const { data: colleagues } = await anon.from('staff').select('legacy_id, source')
+check('teacher ko sirf apni staff row dikhti hai',
+  (colleagues || []).length === 1 && colleagues[0].legacy_id === SANDBOX.staffId,
+  (colleagues || []).map(c => c.legacy_id).join(', '))
+const leakedDobs = (colleagues || []).filter(c => c.legacy_id !== SANDBOX.staffId && c.source?.dob)
+check('kisi saathi ka DOB nahi mila', leakedDobs.length === 0, `${leakedDobs.length} leak`)
+
 await anon.auth.signOut()
 
 /* ---- database me kya bana ---- */
