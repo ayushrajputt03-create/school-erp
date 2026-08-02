@@ -132,6 +132,32 @@ function rowToDoc(row, def) {
   return doc
 }
 
+// Sirf in do tables me photo ke column hain; rowToDoc unhe alag se chadhata hai.
+// Baaki kisi table me ye column hai hi nahi, aur maang lene par PostgREST 400 dega.
+const PHOTO_TABLES = new Set(['students', 'staff'])
+
+/**
+ * Jab node apna `select` nahi bataata, to `*` maangne ka koi matlab nahi hai:
+ * rowToDoc doc poora `source` se banata hai, aur typed column tabhi padhta hai
+ * jab node me `fill` ho. Bina fill wale node ke saare typed column taar par
+ * bekaar jaate hain — fee_receipts me ye row ka aadha hissa tha (3,044 B se
+ * 1,448 B, kyunki feeItems `fee_items` column me aur `source.feeItems` me,
+ * dono jagah pada hai).
+ *
+ * Ye badlav lossless hai: jo column pehle doc me pahunchte hi nahi the, wahi
+ * hataye ja rahe hain.
+ */
+function defaultSelect(def) {
+  // fill() row ke kaunse column padhta hai, ye yahan se pata nahi chal sakta —
+  // isliye aise node ko narrow karna surakshit nahi. Wo apna select khud bataye.
+  if (def.fill) return '*'
+  const cols = [def.key || 'legacy_id', 'source']
+  if (PHOTO_TABLES.has(def.table)) cols.push('photo_path', 'photo_url')
+  // rowToDoc students ke deleted_at ko deletedAt banata hai
+  if (def.table === 'students') cols.push('deleted_at')
+  return cols.join(', ')
+}
+
 function docsKeyedById(rows, def) {
   const out = {}
   for (const row of rows) {
@@ -222,7 +248,7 @@ async function compositeGet(schoolId, node, rest) {
   for (const sub of COMPOSITE[node]) {
     const def = SUB_NODES[`${node}/${sub}`]
     if (def) {
-      const { data, error } = await supabase.from(def.table).select('*').eq('school_id', schoolId)
+      const { data, error } = await supabase.from(def.table).select(def.select || defaultSelect(def)).eq('school_id', schoolId)
       if (error) throw new Error(error.message)
       parts[sub] = docsKeyedById(data || [], def)
     }
@@ -296,7 +322,7 @@ async function applyKeyFilter(query, def, schoolId, legacyId) {
 }
 
 async function tableGet(schoolId, def, rest, options) {
-  let query = supabase.from(def.table).select(def.select || '*').eq('school_id', schoolId)
+  let query = supabase.from(def.table).select(def.select || defaultSelect(def)).eq('school_id', schoolId)
   query = applySoftDelete(query, def)
 
   if (rest.length) {
