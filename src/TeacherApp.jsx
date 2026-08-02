@@ -4,12 +4,11 @@ import {
   Home, LayoutDashboard, LoaderCircle, LogOut, Menu, MessageSquareText, Pencil,
   Search, User, X, Eye, EyeOff, Check, Clock3, Users, Bell, Save, Camera, Umbrella
 } from 'lucide-react'
-import { signInWithCustomToken } from 'firebase/auth'
 import { ref, onValue, query, orderByChild, startAt, equalTo } from 'firebase/database'
-import { auth, rtdb } from './lib/firebase'
+import { rtdb } from './lib/firebase'
 import { useSupabase } from './lib/supabaseClient'
 import { databaseRequest as supabaseRequest, subscribe as supabaseSubscribe } from './lib/dataAdapter'
-import { watchAuth, signOutUser, getToken, changePassword } from './lib/authAdapter'
+import { watchAuth, signOutUser, getToken, changePassword, signInWithStaffGrant } from './lib/authAdapter'
 import DatePicker from './DatePicker'
 import './teacher-app.css'
 
@@ -182,22 +181,18 @@ function TeacherLogin() {
     if (phone.length < 10) { setError('Enter a valid 10-digit mobile number.'); setLoading(false); return }
     if (!dob.trim()) { setError('Enter your date of birth.'); setLoading(false); return }
     try {
-      // Staff login abhi bhi Firebase custom token par khada hai: /api/teacher-login
-      // school code + phone + DOB jaanch ke ek custom token banata hai. Supabase me
-      // custom token hota hi nahi — uske liye server ko magic-link token dena hoga
-      // aur har staff ka auth.users record banana hoga. Wo abhi hua nahi hai,
-      // isliye yahan saaf mana karte hain — chupchap galat error dene se behtar.
-      if (useSupabase) {
-        throw new Error('Staff login abhi Supabase par chaalu nahi hua hai. School admin se sampark karo.')
-      }
+      // /api/teacher-login school code + phone + DOB jaanchta hai. Uske baad jo
+      // "grant" milta hai wo backend ke hisaab se alag hota hai — Firebase par
+      // custom token, Supabase par magic link ka hashed token — par authAdapter
+      // dono ko ek hi tarah se session me badal deta hai.
       const response = await fetch('/api/teacher-login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ schoolCode: code, phone, password: dob.trim() }),
       })
       const data = await response.json().catch(() => ({}))
-      if (!response.ok || !data.token) throw new Error(data.error || 'Login failed.')
-      await signInWithCustomToken(auth, data.token)
+      if (!response.ok || !(data.token || data.tokenHash)) throw new Error(data.error || 'Login failed.')
+      await signInWithStaffGrant(data)
     } catch (err) {
       setError(err?.message?.replace('Firebase: ', '') || 'Login failed.')
     } finally { setLoading(false) }

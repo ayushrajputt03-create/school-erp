@@ -1,24 +1,7 @@
-const { getApps, getApp, initializeApp, cert } = require('firebase-admin/app')
-const { getAuth } = require('firebase-admin/auth')
-const { getDatabase } = require('firebase-admin/database')
+// Staff login: school code + mobile + date of birth. Har jaanch yahin rehti
+// hai; Firebase/Supabase ke raaste _staff-store.js me hain.
+const { createStore, digits, phone10 } = require('./_staff-store')
 
-function getAdminApp() {
-  if (getApps().length) return getApp()
-  const raw = process.env.FIREBASE_SERVICE_ACCOUNT_JSON || ''
-  if (!raw) throw new Error('Server config missing: FIREBASE_SERVICE_ACCOUNT_JSON not set.')
-  let credentials
-  try { credentials = JSON.parse(raw) } catch { throw new Error('Server config error: FIREBASE_SERVICE_ACCOUNT_JSON is not valid JSON.') }
-  if (!credentials.project_id) throw new Error('Server config error: service account missing project_id.')
-  return initializeApp({
-    credential: cert(credentials),
-    databaseURL: process.env.FIREBASE_DATABASE_URL || process.env.VITE_FIREBASE_DATABASE_URL,
-  })
-}
-
-const digits = value => String(value || '').replace(/\D/g, '')
-// Match Indian mobile numbers by their last 10 digits so "07290810294", "+917290810294"
-// and "7290810294" all compare equal — this is the data-mismatch that broke staff login.
-const phone10 = value => { const d = digits(value); return d.length > 10 ? d.slice(-10) : d }
 const splitCsv = value => Array.isArray(value) ? value.filter(Boolean) : String(value || '').split(',').map(s => s.trim()).filter(Boolean)
 
 const dateKey = value => {
@@ -40,45 +23,6 @@ const verifyDobPassword = (input, dob) => {
   const clean = digits(input)
   if (!clean) return false
   return dobVariants(dob).some(variant => clean === digits(variant) || String(input || '') === variant)
-}
-
-// Only the staff and teachers collections are needed to authenticate a login. Reading
-// schools/{id} pulled every student, fee, attendance and certificate record along with them.
-async function loadStaffCollections(database, schoolId) {
-  const [staffSnap, teachersSnap] = await Promise.all([
-    database.ref(`schools/${schoolId}/staff`).once('value'),
-    database.ref(`schools/${schoolId}/teachers`).once('value'),
-  ])
-  if (!staffSnap.exists() && !teachersSnap.exists()) return null
-  return { staff: staffSnap.val() || {}, teachers: teachersSnap.val() || {} }
-}
-
-// Fallback for a school whose schoolCodes entry is missing. The old version downloaded the whole
-// schools tree - every school's entire dataset - to compare one string per school. This lists the
-// ids shallowly and then reads just profile/schoolCode from each.
-async function findSchoolIdByScan(app, database, code) {
-  const databaseUrl = process.env.FIREBASE_DATABASE_URL || process.env.VITE_FIREBASE_DATABASE_URL
-  const accessToken = await app.options.credential.getAccessToken()
-  const listed = await fetch(`${databaseUrl}/schools.json?shallow=true&access_token=${accessToken.access_token}`)
-  if (!listed.ok) throw new Error(`Could not list schools (${listed.status})`)
-  const ids = Object.keys(await listed.json() || {})
-  const codes = await Promise.all(ids.map(async id => [id, (await database.ref(`schools/${id}/profile/schoolCode`).once('value')).val()]))
-  const hit = codes.find(([, value]) => String(value || '').toUpperCase() === code)
-  return hit ? hit[0] : null
-}
-
-async function findSchool(database, schoolCode, app) {
-  const code = String(schoolCode || '').trim().toUpperCase()
-  const codeSnap = await database.ref(`schoolCodes/${code}`).once('value')
-  const mapping = codeSnap.val()
-  if (mapping?.schoolId) {
-    const school = await loadStaffCollections(database, mapping.schoolId)
-    if (school) return { schoolId: mapping.schoolId, school }
-  }
-  const scannedId = await findSchoolIdByScan(app, database, code).catch(() => null)
-  if (!scannedId) return null
-  const school = await loadStaffCollections(database, scannedId)
-  return school ? { schoolId: scannedId, school } : null
 }
 
 function buildStaffProfile(id, e, schoolId) {
@@ -104,6 +48,18 @@ function buildStaffProfile(id, e, schoolId) {
   }
 }
 
+// Phone se staff dhoondhna. Pehle unified staff collection (har employee, koi
+// bhi department), phir purana teachers collection (jo "Create Teacher Login"
+// se bane the).
+function findByPhone(school, phone) {
+  const staff = school.staff || {}
+  const inStaff = Object.entries(staff).find(([, e]) => phone10(e.phone) === phone && e.active !== false)
+  if (inStaff) return { match: inStaff, source: 'staff' }
+  const teachers = school.teachers || {}
+  const inTeachers = Object.entries(teachers).find(([, t]) => phone10(t.phone) === phone && t.isActive !== false)
+  return inTeachers ? { match: inTeachers, source: 'teachers' } : null
+}
+
 module.exports = async (req, res) => {
   res.setHeader('Access-Control-Allow-Origin', '*')
   res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS')
@@ -112,8 +68,7 @@ module.exports = async (req, res) => {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' })
 
   try {
-    const app = getAdminApp()
-    const database = getDatabase(app)
+    const store = createStore()
     const body = req.body || {}
     const schoolCode = String(body.schoolCode || '').trim().toUpperCase()
     const phone = phone10(body.phone)
@@ -123,38 +78,35 @@ module.exports = async (req, res) => {
     if (phone.length !== 10) return res.status(400).json({ error: 'Mobile number must be 10 digits.' })
     if (!password) return res.status(400).json({ error: 'Enter your date of birth.' })
 
-    const found = await findSchool(database, schoolCode, app)
-    if (!found) return res.status(404).json({ error: 'Invalid school code.' })
-    const { schoolId, school } = found
+    const schoolId = await store.schoolIdByCode(schoolCode)
+    if (!schoolId) return res.status(404).json({ error: 'Invalid school code.' })
+    const school = await store.staffCollections(schoolId)
+    if (!school) return res.status(404).json({ error: 'Invalid school code.' })
 
-    // Search the unified staff collection (every employee, any department) by phone.
-    const staff = school.staff || {}
-    let match = Object.entries(staff).find(([, e]) => phone10(e.phone) === phone && e.active !== false)
-    let source = 'staff'
-    // Fallback: legacy teachers collection (accounts made by the old "Create Teacher Login").
-    if (!match) {
-      const teachers = school.teachers || {}
-      match = Object.entries(teachers).find(([, t]) => phone10(t.phone) === phone && t.isActive !== false)
-      source = 'teachers'
-    }
-    if (!match) return res.status(404).json({ error: 'No staff member found with this mobile number. Contact your school admin.' })
+    const found = findByPhone(school, phone)
+    if (!found) return res.status(404).json({ error: 'No staff member found with this mobile number. Contact your school admin.' })
 
-    const [id, record] = match
+    const [id, record] = found.match
     if (!verifyDobPassword(password, record.dob || record.dateOfBirth || '')) {
       return res.status(401).json({ error: 'Date of birth does not match our records. Contact your school admin.' })
     }
 
     const profile = buildStaffProfile(id, record, schoolId)
 
-    // Grant this staff member read access to their school (rules key on teachersIndex).
-    await database.ref(`teachersIndex/${id}`).update({ schoolId, teacherId: id, role: profile.department === 'Teacher' ? 'teacher' : 'staff', source })
+    await store.linkStaffIndex(schoolId, id, {
+      role: profile.department === 'Teacher' ? 'teacher' : 'staff',
+      source: found.source,
+    })
 
-    const auth = getAuth(app)
-    const customToken = await auth.createCustomToken(id, { role: 'staff', schoolId, department: profile.department })
+    // Firebase par { token } (custom token), Supabase par { tokenHash } (magic
+    // link). Client dono ko authAdapter ke ek hi function ko de deta hai.
+    const grant = await store.grantSession(schoolId, id, profile)
 
-    return res.status(200).json({ ok: true, token: customToken, schoolId, employee: profile })
+    return res.status(200).json({ ok: true, ...grant, schoolId, employee: profile })
   } catch (error) {
     console.error('staff-login error:', error)
     return res.status(500).json({ error: error.message || 'Login failed. Try again.' })
   }
 }
+
+module.exports.__internals = { findByPhone, buildStaffProfile, verifyDobPassword, dobVariants, dateKey }
