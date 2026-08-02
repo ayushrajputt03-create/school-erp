@@ -270,8 +270,18 @@ check('password hash update se nahi uda', String(updated.rows[0]?.source?.passwo
 
 console.log('\nforgot')
 
-const forgot = await call({ action: 'forgot', schoolCode: SANDBOX.code, phone: PHONE })
-check('forgot chala', forgot.ok === true, forgot.error)
+// Reset ab bachche ki DOB proof maangta hai. Pehle sirf school code + phone se
+// chal jaata tha — dono public — to koi bhi kisi bhi parent ka password uda
+// sakta tha. Galat DOB pehle jaanchte hain, warna sahi wala counter reset kar
+// deta aur ye check kuch sabit nahi karta.
+const forgotWrongDob = await call({ action: 'forgot', schoolCode: SANDBOX.code, phone: PHONE, dob: '01011999' })
+check('galat DOB par forgot ruk gaya', forgotWrongDob.ok !== true, JSON.stringify(forgotWrongDob))
+
+const stillSet = await client.query(`select source from parents where school_id = $1 and legacy_id = $2`, [SANDBOX.uuid, PHONE])
+check('galat DOB ne password nahi uda', String(stillSet.rows[0]?.source?.passwordHash || '').startsWith('scrypt$'))
+
+const forgot = await call({ action: 'forgot', schoolCode: SANDBOX.code, phone: PHONE, dob: DOB_PASSWORD })
+check('sahi DOB par forgot chala', forgot.ok === true, forgot.error)
 
 const reset = await client.query(`select source, must_change_password from parents where school_id = $1 and legacy_id = $2`, [SANDBOX.uuid, PHONE])
 check('passwordHash hat gaya (null = mitao)', reset.rows[0]?.source?.passwordHash === undefined, JSON.stringify(reset.rows[0]?.source?.passwordHash))

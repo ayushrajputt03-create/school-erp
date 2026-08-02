@@ -58,7 +58,7 @@ const api = async body => {
 const initials = value => String(value || 'S').split(/\s+/).map(part => part[0]).slice(0, 2).join('').toUpperCase()
 
 function Login({ onLogin, mode, setMode }) {
-  const [form, setForm] = useState({ schoolCode: '', phone: '', password: '' })
+  const [form, setForm] = useState({ schoolCode: '', phone: '', password: '', dob: '' })
   const [show, setShow] = useState(false)
   const [loading, setLoading] = useState(false)
   const [message, setMessage] = useState('')
@@ -70,7 +70,9 @@ function Login({ onLogin, mode, setMode }) {
     try {
       if (digits(form.phone).length !== 10) throw new Error('Phone number must be 10 digits.')
       if (mode === 'forgot') {
-        const result = await api({ action: 'forgot', schoolCode: form.schoolCode, phone: form.phone })
+        // Reset ke liye bachche ki DOB proof hai — server bhi wahi maangta hai.
+        if (!digits(form.dob)) throw new Error("Enter your child's date of birth.")
+        const result = await api({ action: 'forgot', schoolCode: form.schoolCode, phone: form.phone, dob: form.dob })
         setMessage(result.message || "Password reset to child's date of birth.")
         setMode('login')
       } else {
@@ -90,7 +92,9 @@ function Login({ onLogin, mode, setMode }) {
       <p>Use your school code, registered phone and child's DOB password.</p>
       <label>School Code<input required minLength={6} value={form.schoolCode} onChange={event => update('schoolCode', event.target.value)} placeholder="Enter school code (e.g., ABC123)" /></label>
       <label>Phone Number<div className="parent-phone-input"><span>+91</span><input required type="tel" value={form.phone} onChange={event => update('phone', digits(event.target.value).slice(0, 10))} placeholder="Enter registered phone number" /></div></label>
-      {mode !== 'forgot' && <label>Password<div className="parent-password-input"><input required type={show ? 'text' : 'password'} value={form.password} onChange={event => update('password', event.target.value)} placeholder="Enter child's date of birth" /><button type="button" onClick={() => setShow(current => !current)}>{show ? <EyeOff size={17} /> : <Eye size={17} />}</button></div><small>Default password is DOB, e.g. 15032008</small></label>}
+      {mode === 'forgot'
+        ? <label>Child's Date of Birth<input required value={form.dob} onChange={event => update('dob', event.target.value)} placeholder="e.g. 15032008" /><small>Same DOB the school has on record — this confirms the account is yours.</small></label>
+        : <label>Password<div className="parent-password-input"><input required type={show ? 'text' : 'password'} value={form.password} onChange={event => update('password', event.target.value)} placeholder="Enter child's date of birth" /><button type="button" onClick={() => setShow(current => !current)}>{show ? <EyeOff size={17} /> : <Eye size={17} />}</button></div><small>Default password is DOB, e.g. 15032008</small></label>}
       {message && <div className={`parent-alert ${message.includes('reset') ? 'ok' : 'error'}`}>{message}</div>}
       <button className="parent-primary" disabled={loading}>{loading ? 'Please wait...' : mode === 'forgot' ? 'Reset Password' : 'Login'}</button>
       <button type="button" className="parent-link" onClick={() => { setMessage(''); setMode(mode === 'forgot' ? 'login' : 'forgot') }}>{mode === 'forgot' ? 'Back to login' : 'Forgot Password?'}</button>

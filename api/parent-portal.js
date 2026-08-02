@@ -384,14 +384,39 @@ module.exports = async function handler(request, response) {
       return response.status(200).json({ ok: true })
     }
 
+    // Yahan pehle sirf school code + phone maanga jaata tha. Dono cheezein public
+    // hain — school code website par hai aur phone number kisi bhi classmate ko
+    // pata hota hai — to koi bhi kisi bhi parent ka chuna hua password uda sakta
+    // tha, bina kuch jaane, bina kisi rate limit ke. Ab wahi DOB proof maangte
+    // hain jo login maangta hai: reset ka nateeja hi DOB-default hai, isliye DOB
+    // poochhne se koi nayi baat leak nahi hoti, par ajnabi ka reset ruk jaata hai.
+    // Lockout counter login wala hi hai, taaki DOB brute-force na ho sake.
     if (action === 'forgot') {
       const schoolCode = String(body.schoolCode || '').trim().toUpperCase()
       const phone = digits(body.phone)
+      const dob = String(body.dob || '')
+      if (schoolCode.length < 6) throw new Error('Invalid School Code')
+      if (phone.length !== 10) throw new Error('Phone number must be 10 digits.')
       const found = await findSchool(store, schoolCode)
       if (!found) throw new Error('Invalid School Code')
-      const ensured = await ensureParent(store, found.schoolId, phone, schoolCode)
+      const { schoolId } = found
+      const ensured = await ensureParent(store, schoolId, phone, schoolCode)
       if (!ensured) throw new Error('Phone number not registered. Contact school.')
-      await store.updateParent(found.schoolId, ensured.parentId, { passwordHash: null, mustChangePassword: true, updatedAt: now() })
+      const { parentId, parent, students } = ensured
+      if (parent.status === 'inactive') throw new Error('Parent account is inactive. Contact school.')
+      const attempts = await store.loginAttempts(schoolId, parentId)
+      if (attempts.lockUntil && attempts.lockUntil > now()) throw new Error('Too many wrong attempts. Try again after 15 minutes.')
+      const linkedIds = normalizeStudentsList(parent.students)
+      const linkedStudents = linkedIds.map(id => students[id]).filter(Boolean)
+      const rawDob = row => row.dob || row.date_of_birth || row.dateOfBirth || ''
+      const eldest = linkedStudents.sort((a, b) => String(dateKey(rawDob(a))).localeCompare(String(dateKey(rawDob(b)))))[0] || {}
+      if (!verifyDobPassword(dob, rawDob(eldest))) {
+        const failed = Number(attempts.failed || 0) + 1
+        await store.setLoginAttempts(schoolId, parentId, { failed, lockUntil: failed >= 5 ? now() + 15 * 60 * 1000 : 0, updatedAt: now() })
+        throw new Error("Child's date of birth does not match our records. Contact school.")
+      }
+      await store.clearLoginAttempts(schoolId, parentId)
+      await store.updateParent(schoolId, parentId, { passwordHash: null, mustChangePassword: true, updatedAt: now() })
       return response.status(200).json({ ok: true, message: "Password reset to child's date of birth." })
     }
 
