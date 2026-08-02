@@ -79,15 +79,34 @@ export function watchAuth(handler) {
     return () => { cancelled = true; if (unsub) unsub() }
   }
 
-  supabase.auth.getSession().then(async ({ data }) => {
-    if (cancelled) return
-    handler(await toFirebaseShapedUser(data?.session))
-  })
+  // Firebase sirf sach me state badalne par bulata tha. Supabase har token
+  // refresh par (~50 min) aur tab dobara focus hone par bhi bulata hai, aur
+  // mount par getSession() + INITIAL_SESSION dono chalte hain. Har call ek naya
+  // user object banati thi, jise App ek naya session samajh kar poora workspace
+  // aur saare listeners dobara chadha deta tha — screen par ye baar-baar login
+  // hone jaisa dikhta hai. Isliye pehchaan badle bina handler ko nahi bulate.
+  let lastKey = Symbol('never-emitted')
+  // getSession() aur INITIAL_SESSION saath chalte hain aur dono ke beech ek
+  // await hai. Ek ke baad doosra chalana zaroori hai — warna dono dedupe check
+  // paar kar jaate aur handler phir bhi do baar chalta.
+  let queue = Promise.resolve()
 
-  const { data: sub } = supabase.auth.onAuthStateChange(async (_event, session) => {
+  const emit = (session) => { queue = queue.then(async () => {
     if (cancelled) return
-    handler(await toFirebaseShapedUser(session))
-  })
+    const user = await toFirebaseShapedUser(session)
+    if (cancelled) return
+    const key = user ? `${user.uid} ${user.email}` : null
+    if (key === lastKey) return
+    lastKey = key
+    // Naya object har baar banta hai par handler ko tabhi jaata hai jab
+    // pehchaan badli ho. getIdToken() hamesha pehle
+    // supabase.auth.getSession() padhta hai, isliye token baasi nahi hota.
+    handler(user)
+  }) }
+
+  supabase.auth.getSession().then(({ data }) => emit(data?.session))
+
+  const { data: sub } = supabase.auth.onAuthStateChange((_event, session) => { emit(session) })
 
   return () => {
     cancelled = true
