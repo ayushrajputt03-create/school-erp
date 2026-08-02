@@ -17,7 +17,8 @@ const db = createClient(env.SUPABASE_URL || env.VITE_SUPABASE_URL, env.SUPABASE_
   auth: { persistSession: false },
 })
 
-const BASE = 'http://localhost:3000'
+// Default local dev server; SMOKE_BASE se production par bhi chala sakte hain.
+const BASE = process.env.SMOKE_BASE || 'http://localhost:3000'
 const post = async (path, body) => {
   const r = await fetch(`${BASE}${path}`, {
     method: 'POST',
