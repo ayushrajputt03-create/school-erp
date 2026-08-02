@@ -152,6 +152,39 @@ export const NODES = {
     }),
   },
 
+  /**
+   * Dashboard ka live attendance listener — jaan-boojh kar bahut chhota.
+   *
+   * App.jsx ka handler poore record me se sirf teen cheezein padhta hai
+   * (date, studentId, status) aur unse byDate ka naksha banata hai; baaki sab
+   * phenk deta hai. Par `attendance` node har row par ~600 byte bhejta hai,
+   * jisme akela `source` jsonb 404 byte hai — wahi original RTDB record ki
+   * nakal, jo yahan kisi kaam ki nahi.
+   *
+   * Aur ye node mahine bhar ka hai aur har ek row badalne par poora dobara
+   * aata hai. Isi wajah se ye poore app ka sabse bada egress kharcha hai.
+   * Sirf teen column laane se wahi listener ~85% halka ho jaata hai.
+   *
+   * Jinhe poora record chahiye — student profile, backup, export — wo
+   * `attendance` node hi use karte rahenge. Isliye ye alag node hai,
+   * `attendance` me badlav nahi.
+   */
+  attendanceLive: {
+    table: 'attendance',
+    select: 'date, status, student:students(legacy_id)',
+    keyFromRow: (row, d) => `${row.date}_${row.student?.legacy_id || d.studentId || d.student_id}`,
+    fill: (row) => ({
+      date: row.date,
+      status: row.status,
+      studentId: row.student?.legacy_id ?? null,
+    }),
+    // Sirf padhne ke liye. Likhna `attendance` se hota hai — warna yahan se
+    // likhi row ke wo saare field ud jaate jo is select me hain hi nahi.
+    project: () => {
+      throw new Error('attendanceLive sirf padhne ke liye hai — likhne ke liye attendance node use karo')
+    },
+  },
+
   parents: {
     table: 'parents',
     key: 'legacy_id',

@@ -2840,7 +2840,16 @@ function useSchoolWorkspace(session) {
 
       const monthStartDate = new Date()
       const monthStart = `${monthStartDate.getFullYear()}-${String(monthStartDate.getMonth() + 1).padStart(2, '0')}-01`
-      listenFromDate(`schools/${schoolId}/attendance`, 'date', monthStart, snap => {
+      // Ye handler neeche sirf date, studentId aur status use karta hai. Supabase par
+      // uske liye `attendanceLive` node hai jo bas wahi teen column laata hai — poora
+      // `source` jsonb (har row ka 404 byte) taar par bhejna band ho jaata hai. Mahine
+      // bhar ka ye node har badlav par dobara aata hai, isliye yahi sabse bada egress
+      // kharcha tha.
+      //
+      // Firebase par aisa koi node nahi hai — rollback ke liye wahan poora attendance
+      // hi padhna padta hai, aur shape dono taraf ek jaisi rehti hai.
+      const attendanceNode = useSupabase ? 'attendanceLive' : 'attendance'
+      listenFromDate(`schools/${schoolId}/${attendanceNode}`, 'date', monthStart, snap => {
         const data = snap.val() || {}
         const byDate = Object.values(data).reduce((dates, record) => {
           const studentId = record.studentId || record.student_id
