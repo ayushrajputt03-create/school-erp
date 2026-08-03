@@ -108,7 +108,7 @@ export default function TimetableBuilder({ schoolId, readOnly = false, schoolNam
       const next = {}
       for (const slot of saved) next[cellKey(slot.day_of_week, slot.period_id)] = slot
       setDraft(next)
-      setNotice(`Class ${className}-${section} ka timetable save ho gaya (${saved.length} periods).`)
+      setNotice(`Timetable saved for Class ${className}-${section} (${saved.length} period${saved.length === 1 ? '' : 's'}).`)
     } catch (cause) {
       // Database ki clash rok bhi yahin aakar girti hai — do admin ek saath
       // save karein to UI ki jaanch dono ki paas ho jaati hai.
@@ -146,28 +146,33 @@ export default function TimetableBuilder({ schoolId, readOnly = false, schoolNam
         <div>
           <h3><CalendarRange size={17} /> {readOnly ? 'Class Timetable' : 'Timetable Builder'}</h3>
           <p>{readOnly
-            ? 'Class aur section chuno — poora hafta yahan dikhega. Print/PDF bhi yahin se.'
-            : 'Har cell me subject likho aur teacher chuno. Save par teacher clash apne aap jaancha jaata hai.'}</p>
-        </div>
-        <div className="timetable-pickers">
-          <label>Class
-            <select value={className} onChange={event => setClassName(event.target.value)}>
-              {classOptions.map(item => <option key={item}>{item}</option>)}
-            </select>
-          </label>
-          <label>Section
-            <select value={section} onChange={event => setSection(event.target.value)}>
-              {sectionOptions.map(item => <option key={item}>{item}</option>)}
-            </select>
-          </label>
-          <button type="button" className="secondary-button" onClick={() => safePrint('.timetable-print-area', { orientation: 'landscape' })}>
-            <Printer size={15} /> Print
-          </button>
+            ? 'Select a class and section to view its full week. Print or save as PDF from here.'
+            : 'Type a subject and pick a teacher in each cell. Teacher clashes are checked on save.'}</p>
         </div>
       </div>
 
+      {/* Class/section apni alag patti me hain, heading ke bagal me nahi. Wahan
+          ye chhoti screen par heading ke neeche khisak kar nazar se chhoot jaate
+          the — aur inhe chune bina poora grid hi galat class ka hota hai. */}
+      <div className="timetable-toolbar">
+        <label>Class
+          <select value={className} onChange={event => setClassName(event.target.value)}>
+            {classOptions.map(item => <option key={item}>{item}</option>)}
+          </select>
+        </label>
+        <label>Section
+          <select value={section} onChange={event => setSection(event.target.value)}>
+            {sectionOptions.map(item => <option key={item}>{item}</option>)}
+          </select>
+        </label>
+        <span className="timetable-toolbar-current">Showing <strong>Class {className} - {section}</strong></span>
+        <button type="button" className="secondary-button" onClick={() => safePrint('.timetable-print-area', { orientation: 'landscape' })}>
+          <Printer size={15} /> Print
+        </button>
+      </div>
+
       {loading
-        ? <div className="timetable-loading"><Loader2 size={18} className="spin" /> Timetable load ho raha hai...</div>
+        ? <div className="timetable-loading"><Loader2 size={18} className="spin" /> Loading timetable...</div>
         : <div className="table-scroll timetable-print-area">
             <TimetableGrid
               periods={periods}
@@ -181,7 +186,7 @@ export default function TimetableBuilder({ schoolId, readOnly = false, schoolNam
       {clashes.length > 0 && <div className="form-error timetable-clash-list">
         <AlertTriangle size={15} />
         <div>
-          <strong>Teacher clash — save nahi hua:</strong>
+          <strong>Teacher clash — nothing was saved:</strong>
           <ul>
             {clashes.map((item, index) => <li key={index}>
               {item.slot.teacher_name || 'Teacher'} pehle se {dayName(item.slot.day_of_week)} ko{' '}
@@ -196,7 +201,7 @@ export default function TimetableBuilder({ schoolId, readOnly = false, schoolNam
 
       {!readOnly && <div className="modal-actions timetable-actions">
         <button type="button" className="primary-button" onClick={submit} disabled={saving || !periods.length}>
-          <Save size={15} /> {saving ? 'Save ho raha hai...' : 'Timetable save karo'}
+          <Save size={15} /> {saving ? 'Saving...' : 'Save timetable'}
         </button>
       </div>}
     </div>

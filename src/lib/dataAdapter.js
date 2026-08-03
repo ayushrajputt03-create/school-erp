@@ -115,14 +115,14 @@ async function signPhotoPaths(paths) {
  */
 export async function uploadStudentPhoto(schoolLegacyId, studentLegacyId, file) {
   const schoolId = await schoolUuid(schoolLegacyId)
-  if (!schoolId) throw new Error('School nahi mila — photo upload nahi ho saki.')
-  if (!file) throw new Error('Koi file nahi mili.')
+  if (!schoolId) throw new Error('School not found — photo could not be uploaded.')
+  if (!file) throw new Error('No file selected.')
 
   const path = `${schoolId}/students/${studentLegacyId}.jpg`
   const { error } = await supabase.storage
     .from('student-photos')
     .upload(path, file, { contentType: file.type || 'image/jpeg', upsert: true })
-  if (error) throw new Error(`Photo upload nahi ho saki: ${error.message}`)
+  if (error) throw new Error(`Photo upload failed: ${error.message}`)
 
   // Photo badalne par path wahi rehta hai, isliye cache me padi purani signed
   // URL nayi photo ko chhupa deti — screen par purani hi photo dikhti rehti.

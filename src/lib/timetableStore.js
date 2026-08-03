@@ -44,18 +44,18 @@ function friendlyError(error, what) {
   // ke naam se pata chal jaata hai kaun sa toota.
   if (code === '23505') {
     if (String(error.message).includes('teacher_clash')) {
-      return 'Ye teacher usi din usi period me kisi aur class me pehle se laga hua hai. Pehle wahan se hataao ya doosra teacher chuno.'
+      return 'This teacher is already assigned to another class in the same period on the same day. Remove that assignment first, or pick a different teacher.'
     }
     if (String(error.message).includes('class_slot')) {
-      return 'Is class-section ke is period me pehle se ek subject laga hua hai.'
+      return 'This class-section already has a subject in this period.'
     }
     if (String(error.message).includes('periods_school_number')) {
-      return 'Ye period number pehle se maujood hai.'
+      return 'That period number already exists.'
     }
   }
   // 23514 = check_violation — sirf ulta time ya galat din se aa sakta hai.
-  if (code === '23514') return 'Time ya din galat hai. End time start time ke baad hona chahiye.'
-  return error?.message || `${what} nahi ho paya.`
+  if (code === '23514') return 'Invalid time or day. End time must be after the start time.'
+  return error?.message || `${what} failed.`
 }
 
 /* ------------------------------------------------------------------ */
@@ -68,7 +68,7 @@ export async function loadPeriods(schoolLegacyId) {
   if (!school) return []
   const { data, error } = await supabase
     .from('periods').select(PERIOD_COLUMNS).eq('school_id', school)
-  if (error) fail(error, 'Periods padhna')
+  if (error) fail(error, 'Loading periods')
   return sortPeriods(data || [])
 }
 
@@ -86,7 +86,7 @@ export async function loadPeriods(schoolLegacyId) {
  */
 export async function savePeriods(schoolLegacyId, rows) {
   const school = await schoolUuid(schoolLegacyId)
-  if (!school) throw new Error('School nahi mila.')
+  if (!school) throw new Error('School not found.')
 
   const keep = (rows || []).filter(row => row.id).map(row => row.id)
   let removal = supabase.from('periods').delete().eq('school_id', school)
@@ -94,7 +94,7 @@ export async function savePeriods(schoolLegacyId, rows) {
   // hain jab sach me kuch bachaana ho.
   if (keep.length) removal = removal.not('id', 'in', `(${keep.join(',')})`)
   const { error: deleteError } = await removal
-  if (deleteError) fail(deleteError, 'Purane periods hataana')
+  if (deleteError) fail(deleteError, 'Removing old periods')
 
   if (!rows?.length) return []
 
@@ -110,7 +110,7 @@ export async function savePeriods(schoolLegacyId, rows) {
 
   const { data, error } = await supabase
     .from('periods').upsert(payload, { onConflict: 'id' }).select(PERIOD_COLUMNS)
-  if (error) fail(error, 'Periods save karna')
+  if (error) fail(error, 'Saving periods')
   return sortPeriods(data || [])
 }
 
@@ -130,7 +130,7 @@ export async function countSlotsForPeriods(schoolLegacyId, periodIds) {
   const { count, error } = await supabase
     .from('timetable_slots').select('id', { count: 'exact', head: true })
     .eq('school_id', school).in('period_id', ids)
-  if (error) fail(error, 'Slots ginna')
+  if (error) fail(error, 'Counting slots')
   return count || 0
 }
 
@@ -156,7 +156,7 @@ export async function loadTeachers(schoolLegacyId) {
   const { data, error } = await supabase
     .from('staff').select('id, legacy_id, full_name, first_name, last_name, subject')
     .eq('school_id', school).eq('active', true)
-  if (error) fail(error, 'Teachers padhna')
+  if (error) fail(error, 'Loading teachers')
   return (data || [])
     .map(row => ({
       id: row.id,
@@ -189,7 +189,7 @@ export async function loadClassTimetable(schoolLegacyId, className, section) {
   const { data, error } = await supabase
     .from('timetable_slots').select(SLOT_COLUMNS)
     .eq('school_id', school).eq('class_name', className).eq('section', section)
-  if (error) fail(error, 'Timetable padhna')
+  if (error) fail(error, 'Loading timetable')
   return data || []
 }
 
@@ -200,7 +200,7 @@ export async function loadTeacherTimetable(schoolLegacyId, teacherId) {
   const { data, error } = await supabase
     .from('timetable_slots').select(SLOT_COLUMNS)
     .eq('school_id', school).eq('teacher_id', teacherId)
-  if (error) fail(error, 'Teacher ka timetable padhna')
+  if (error) fail(error, 'Loading teacher timetable')
   return data || []
 }
 
@@ -221,7 +221,7 @@ export async function loadSlotsForTeachers(schoolLegacyId, teacherIds) {
   const { data, error } = await supabase
     .from('timetable_slots').select(SLOT_COLUMNS)
     .eq('school_id', school).in('teacher_id', ids)
-  if (error) fail(error, 'Clash jaanchna')
+  if (error) fail(error, 'Checking for clashes')
   return data || []
 }
 
@@ -243,7 +243,7 @@ export async function loadSlotsForTeachers(schoolLegacyId, teacherIds) {
  */
 export async function saveClassTimetable(schoolLegacyId, className, section, slots) {
   const school = await schoolUuid(schoolLegacyId)
-  if (!school) throw new Error('School nahi mila.')
+  if (!school) throw new Error('School not found.')
 
   const filled = (slots || []).filter(slot => slot.subject?.trim())
   const keep = filled.filter(slot => slot.id).map(slot => slot.id)
@@ -252,7 +252,7 @@ export async function saveClassTimetable(schoolLegacyId, className, section, slo
     .eq('school_id', school).eq('class_name', className).eq('section', section)
   if (keep.length) removal = removal.not('id', 'in', `(${keep.join(',')})`)
   const { error: deleteError } = await removal
-  if (deleteError) fail(deleteError, 'Purane slots hataana')
+  if (deleteError) fail(deleteError, 'Removing old slots')
 
   if (!filled.length) return []
 
@@ -274,6 +274,6 @@ export async function saveClassTimetable(schoolLegacyId, className, section, slo
 
   const { data, error } = await supabase
     .from('timetable_slots').upsert(payload, { onConflict: 'id' }).select(SLOT_COLUMNS)
-  if (error) fail(error, 'Timetable save karna')
+  if (error) fail(error, 'Saving timetable')
   return data || []
 }

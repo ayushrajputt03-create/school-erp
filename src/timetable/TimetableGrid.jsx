@@ -66,8 +66,8 @@ export default function TimetableGrid({ periods, slots, renderCell, heading, sub
         })}
         {!periods.length && <tr><td colSpan={TIMETABLE_DAYS.length + 1}>
           <div className="empty-state">
-            <strong>Abhi koi period nahi hai</strong>
-            <p>Pehle "Periods" tab me school ka ghanti-schedule banao — grid usi se banta hai.</p>
+            <strong>No periods yet</strong>
+            <p>Set up the bell schedule in the "Periods" tab first — the grid is built from it.</p>
           </div>
         </td></tr>}
       </tbody>

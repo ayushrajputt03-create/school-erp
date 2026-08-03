@@ -106,17 +106,17 @@ export function validatePeriods(periods) {
     const end = parseTime(period.end_time)
 
     if (!Number.isInteger(number) || number < 1) {
-      errors.push({ index, message: 'Period number 1 ya usse bada hona chahiye.' })
+      errors.push({ index, message: 'Period number must be 1 or higher.' })
     } else if (seenNumbers.has(number)) {
-      errors.push({ index, message: `Period ${number} pehle se hai (row ${seenNumbers.get(number) + 1}).` })
+      errors.push({ index, message: `Period ${number} already exists (row ${seenNumbers.get(number) + 1}).` })
     } else {
       seenNumbers.set(number, index)
     }
 
-    if (start === null) errors.push({ index, message: 'Start time daalo.' })
-    if (end === null) errors.push({ index, message: 'End time daalo.' })
+    if (start === null) errors.push({ index, message: 'Enter a start time.' })
+    if (end === null) errors.push({ index, message: 'Enter an end time.' })
     if (start !== null && end !== null && end <= start) {
-      errors.push({ index, message: 'End time start time ke baad hona chahiye.' })
+      errors.push({ index, message: 'End time must be after the start time.' })
     }
   })
 
@@ -133,7 +133,7 @@ export function validatePeriods(periods) {
     if (current.start < previous.end) {
       errors.push({
         index: current.index,
-        message: `Ye period "${periodLabel(previous.period)}" ke upar chadh raha hai.`,
+        message: `This period overlaps "${periodLabel(previous.period)}".`,
       })
     }
   }

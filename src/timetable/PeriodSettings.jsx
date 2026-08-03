@@ -84,8 +84,8 @@ export default function PeriodSettings({ schoolId, onSaved }) {
       }
       const removedLabels = (loaded || []).filter(period => removedIds.includes(period.id)).map(periodLabel).join(', ')
       const warning = affected
-        ? `${removedLabels} hata rahe ho. Inme lagi hui ${affected} timetable entries bhi hat jaayengi. Aage badhein?`
-        : `${removedLabels} hata rahe ho. Aage badhein?`
+        ? `Removing ${removedLabels}. This will also delete ${affected} timetable entr${affected === 1 ? 'y' : 'ies'} using them. Continue?`
+        : `Removing ${removedLabels}. Continue?`
       if (!window.confirm(warning)) return
     }
 
@@ -101,7 +101,7 @@ export default function PeriodSettings({ schoolId, onSaved }) {
       })))
       setRows(withKeys(saved))
       setLoaded(saved)
-      setNotice(`${saved.length} periods save ho gaye.`)
+      setNotice(`${saved.length} period${saved.length === 1 ? '' : 's'} saved.`)
       onSaved?.(saved)
     } catch (cause) {
       setError(cause.message)
@@ -111,7 +111,7 @@ export default function PeriodSettings({ schoolId, onSaved }) {
   }
 
   if (loading) {
-    return <div className="panel timetable-loading"><Loader2 size={18} className="spin" /> Periods load ho rahe hain...</div>
+    return <div className="panel timetable-loading"><Loader2 size={18} className="spin" /> Loading periods...</div>
   }
 
   return <form className="timetable-periods" onSubmit={submit}>
@@ -119,10 +119,10 @@ export default function PeriodSettings({ schoolId, onSaved }) {
       <div className="timetable-panel-head">
         <div>
           <h3><Clock3 size={17} /> Period Settings</h3>
-          <p>School ke saare periods aur unka time. Ye poore timetable ki buniyaad hai — Builder isi list se grid banata hai.</p>
+          <p>Define every period and its timing. The builder uses this list to draw the weekly grid.</p>
         </div>
         <button type="button" className="secondary-button" onClick={() => setRows(current => [...current, nextRowFrom(current)])}>
-          <Plus size={15} /> Period jodo
+          <Plus size={15} /> Add period
         </button>
       </div>
 
@@ -146,7 +146,7 @@ export default function PeriodSettings({ schoolId, onSaved }) {
                     onChange={event => patch(index, { end_time: event.target.value })} />
                 </td>
                 <td className="timetable-break-cell">
-                  <label title="Break/Lunch — is period me koi subject assign nahi hota">
+                  <label title="Break or lunch — no subject is assigned in this period">
                     <input type="checkbox" checked={Boolean(row.is_break)}
                       onChange={event => patch(index, { is_break: event.target.checked })} />
                     {row.is_break ? <Coffee size={14} /> : null}
@@ -157,7 +157,7 @@ export default function PeriodSettings({ schoolId, onSaved }) {
                     onChange={event => patch(index, { label: event.target.value })} />
                 </td>
                 <td>
-                  <button type="button" className="icon-button danger" title="Ye period hatao" onClick={() => removeRow(index)}>
+                  <button type="button" className="icon-button danger" title="Remove this period" onClick={() => removeRow(index)}>
                     <Trash2 size={14} />
                   </button>
                   {rowError && <span className="timetable-row-error">{rowError}</span>}
@@ -167,8 +167,8 @@ export default function PeriodSettings({ schoolId, onSaved }) {
             {!rows.length && <tr><td colSpan="6">
               <div className="empty-state">
                 <Clock3 size={26} />
-                <strong>Abhi koi period nahi hai</strong>
-                <p>"Period jodo" dabakar school ka ghanti-schedule banao — jaise Period 1 = 9:00 se 9:45.</p>
+                <strong>No periods yet</strong>
+                <p>Click "Add period" to set up the school bell schedule — for example Period 1 from 9:00 to 9:45.</p>
               </div>
             </td></tr>}
           </tbody>
@@ -184,7 +184,7 @@ export default function PeriodSettings({ schoolId, onSaved }) {
 
       <div className="modal-actions timetable-actions">
         <button className="primary-button" disabled={saving || errors.length > 0}>
-          <Save size={15} /> {saving ? 'Save ho raha hai...' : 'Periods save karo'}
+          <Save size={15} /> {saving ? 'Saving...' : 'Save periods'}
         </button>
       </div>
     </div>

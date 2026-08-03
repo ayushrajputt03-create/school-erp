@@ -53,14 +53,14 @@ export default function TeacherTimetable({ schoolId, teacherLegacyId, teacherNam
   }, [week])
 
   if (loading) {
-    return <div className="timetable-loading"><Loader2 size={18} className="spin" /> Timetable load ho raha hai...</div>
+    return <div className="timetable-loading"><Loader2 size={18} className="spin" /> Loading timetable...</div>
   }
 
   return <div className="timetable-teacher">
     <div className="timetable-panel-head">
       <div>
-        <h3><CalendarRange size={17} /> Mera Timetable</h3>
-        <p>{week.length ? `Hafte me kul ${week.length} periods.` : 'Abhi koi period assign nahi hua hai.'}</p>
+        <h3><CalendarRange size={17} /> My Timetable</h3>
+        <p>{week.length ? `Hafte me kul ${week.length} periods.` : 'No periods assigned yet.'}</p>
       </div>
       {week.length > 0 && <button type="button" className="secondary-button" onClick={() => safePrint('.timetable-teacher-print')}>
         <Printer size={15} /> Print
@@ -89,7 +89,7 @@ export default function TeacherTimetable({ schoolId, teacherLegacyId, teacherNam
                   {entry.slot.room && <span className="timetable-day-room">Room {entry.slot.room}</span>}
                 </li>)}
               </ul>
-            : <p className="timetable-day-free">Is din koi period nahi.</p>}
+            : <p className="timetable-day-free">No periods this day.</p>}
         </section>
       })}
     </div>

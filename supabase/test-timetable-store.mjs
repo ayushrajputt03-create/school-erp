@@ -110,7 +110,7 @@ await check('ulta time saaf error deta hai', async () => {
       { period_number: 17, start_time: '10:00', end_time: '09:00' }])
     return 'save ho gaya, hona nahi chahiye tha'
   } catch (e) {
-    return e.message.includes('End time start time ke baad')
+    return e.message.includes('End time must be after')
       || `message theek nahi: ${e.message}`
   }
 })
@@ -175,7 +175,7 @@ await check('wahi teacher usi din usi period me dusri class me nahi lag sakta', 
     ])
     return 'save ho gaya, database ko rokna chahiye tha'
   } catch (e) {
-    return e.message.includes('usi period me kisi aur class me')
+    return e.message.includes('already assigned to another class')
       || `message theek nahi: ${e.message}`
   }
 })

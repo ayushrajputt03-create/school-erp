@@ -66,17 +66,17 @@ check('periods ghadi ke hisaab se lagte hain, number se nahi', () =>
 check('sahi periods par koi error nahi', () => eq(validatePeriods(PERIODS), []))
 check('duplicate period number pakda jaata hai', () => {
   const errors = validatePeriods([P1, { ...P2, period_number: 1 }])
-  return errors.some(e => e.message.includes('pehle se hai')) || `mila ${JSON.stringify(errors)}`
+  return errors.some(e => e.message.includes('already exists')) || `mila ${JSON.stringify(errors)}`
 })
 check('ulta time pakda jaata hai', () => {
   const errors = validatePeriods([{ ...P1, end_time: '08:00:00' }])
-  return errors.some(e => e.message.includes('baad hona chahiye')) || `mila ${JSON.stringify(errors)}`
+  return errors.some(e => e.message.includes('must be after')) || `mila ${JSON.stringify(errors)}`
 })
 // Ye wo jaanch hai jo database nahi kar sakta — do overlapping rows alag-alag
 // bilkul valid hain, saath me hone par hi galat hain.
 check('overlap pakda jaata hai (database ye nahi rok sakta)', () => {
   const errors = validatePeriods([P1, { ...P2, start_time: '09:30:00' }])
-  return errors.some(e => e.message.includes('upar chadh raha')) || `mila ${JSON.stringify(errors)}`
+  return errors.some(e => e.message.includes('overlaps')) || `mila ${JSON.stringify(errors)}`
 })
 check('beech me gap chalta hai (recess)', () =>
   eq(validatePeriods([P1, { ...P2, start_time: '10:00:00', end_time: '10:45:00' }]), []))

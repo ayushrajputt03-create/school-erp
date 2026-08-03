@@ -3106,7 +3106,7 @@ function useSchoolWorkspace(session) {
       } catch (error) {
         // Upload fail hone par base64 par mat girna — wo raasta Supabase par
         // save hi nahi hota, aur user ko lagta hai photo lag gayi. Saaf batao.
-        throw new Error(`Photo upload nahi ho saki: ${error.message}`)
+        throw new Error(`Photo upload failed: ${error.message}`)
       }
     }
     if (!useFirebaseStorage || !storage) {
