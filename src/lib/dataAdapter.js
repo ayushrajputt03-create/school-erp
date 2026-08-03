@@ -1068,6 +1068,35 @@ export async function reserveReceiptNumber(schoolLegacyId, seedFloor) {
   return Number(data)
 }
 
+/**
+ * Admission aur certificate ka agla number.
+ *
+ * Ye dono cutover me chhoot gaye the — App.jsx me abhi bhi Firebase RTDB ke
+ * REST par ETag/If-Match wala loop chal raha tha, aur us URL par Supabase ka
+ * token 401 deta hai. Isliye Supabase par har admission "Could not generate
+ * admission number." par mar raha tha.
+ *
+ * Receipt se ek farak hai: yahan seedFloor par bharosa nahi kiya jaata. RPC
+ * khud `students` / `certificates` se sabse bada number nikalta hai, kyunki
+ * production me dono school ka admissionCounter 0 par pada hai — sirf counter
+ * dekhte to 771 students wale school ko agla number 1 milta.
+ *
+ * name: 'admission' | `certificate:${type}`
+ */
+export async function reserveCounter(schoolLegacyId, name, seedFloor = 0) {
+  const schoolId = await schoolUuid(schoolLegacyId)
+  if (!schoolId) throw new Error('School nahi mila — number nahi mil saka')
+  const { data, error } = await supabase.rpc('reserve_counter', {
+    p_school: schoolId,
+    p_name: name,
+    p_seed: Math.max(0, Number(seedFloor) || 0),
+  })
+  if (error) throw new Error(error.message)
+  const next = Number(data)
+  if (!Number.isFinite(next) || next <= 0) throw new Error(`${name} ka number nahi mil saka`)
+  return next
+}
+
 /* ------------------------------------------------------------------ */
 /* owner console (super admin)                                         */
 /* ------------------------------------------------------------------ */

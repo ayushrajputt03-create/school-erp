@@ -85,7 +85,7 @@ import { onAuthStateChanged, signOut } from 'firebase/auth'
 import { deleteObject, getDownloadURL, ref as storageRef, uploadBytes } from 'firebase/storage'
 import { auth, isFirebaseConfigured, storage, firebaseApp, rtdb } from './lib/firebase'
 import { useSupabase } from './lib/supabaseClient'
-import { databaseRequest as supabaseRequest, subscribe as supabaseSubscribe, reserveReceiptNumber, uploadStudentPhoto } from './lib/dataAdapter'
+import { databaseRequest as supabaseRequest, subscribe as supabaseSubscribe, reserveReceiptNumber, reserveCounter, uploadStudentPhoto } from './lib/dataAdapter'
 import { watchAuth, signOutUser, hasCurrentUser, rememberCurrentUser } from './lib/authAdapter'
 
 const databaseUrl = import.meta.env.VITE_FIREBASE_DATABASE_URL?.replace(/\/$/, '')
@@ -371,7 +371,18 @@ async function createSchoolRecord(user, token, profile) {
   } })
 }
 
+/**
+ * Neeche ke dono counter Firebase RTDB ke REST par ETag/If-Match loop chalate
+ * hain. Wo raasta sirf Firebase mode me chalta hai — Supabase ka token us URL
+ * par 401 deta hai. Isliye Supabase par ye Postgres ke reserve_counter() par
+ * jaate hain, jo ek hi statement me utna hi atomic hai.
+ *
+ * Fee receipt ka counter cutover me pehle hi badla ja chuka tha; ye do chhoot
+ * gaye the.
+ */
 async function reserveAdmissionNumber(schoolId, token) {
+  if (useSupabase) return reserveCounter(schoolId, 'admission')
+
   for (let attempt = 0; attempt < 6; attempt += 1) {
     const counterUrl = `${databaseUrl}/schools/${schoolId}/admissionCounter.json?auth=${encodeURIComponent(token)}`
     const counterResponse = await fetch(counterUrl, { headers: { 'X-Firebase-ETag': 'true' } })
@@ -396,6 +407,8 @@ async function reserveAdmissionNumber(schoolId, token) {
 }
 
 async function reserveCertificateNumber(schoolId, token, type) {
+  if (useSupabase) return reserveCounter(schoolId, `certificate:${type}`)
+
   for (let attempt = 0; attempt < 6; attempt += 1) {
     const counterUrl = `${databaseUrl}/schools/${schoolId}/certificateCounters/${type}.json?auth=${encodeURIComponent(token)}`
     const response = await fetch(counterUrl, { headers: { 'X-Firebase-ETag': 'true' } })
@@ -3778,6 +3791,12 @@ function useSchoolWorkspace(session) {
 
   async function getNextAdmissionNumber() {
     if (developmentDemo) return Math.max(0, ...students.map(student => admissionValue(student.roll))) + 1
+    // Supabase par counter kv ke `admissionCounter` me nahi, fee_counters me
+    // hai — wahan se padhne ka koi read path nahi hai, aur neeche ka fallback
+    // sirf preview dikhane ke liye poora students node dobara utha laata.
+    // Students to pehle se yahin memory me hain, to network par jaana hi kyun.
+    // Asli number reserveCounter() deta hai, jo DB se apna floor khud nikalta hai.
+    if (useSupabase) return Math.max(0, ...students.map(student => admissionValue(student.roll))) + 1
     const token = await session.getIdToken()
     // This only previews the next number in the Add Student form — reserveAdmissionNumber() is
     // what atomically assigns it on save. admissionCounter is kept current by that reservation
