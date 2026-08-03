@@ -32,7 +32,9 @@ let fail = 0
 const check = async (label, path, expect, options) => {
   try {
     const value = await databaseRequest(path, null, options)
-    const result = expect(value)
+    // await isliye ki kuch assertions ginti DB se poochti hain. Bina await ke
+    // Promise kabhi `=== true` nahi hota aur har aisa test chupchaap fail hota.
+    const result = await expect(value)
     if (result === true) { pass++; console.log(`  OK    ${label}`) }
     else { fail++; console.log(`  FAIL  ${label}\n          ${result}`) }
   } catch (err) {
@@ -43,10 +45,40 @@ const check = async (label, path, expect, options) => {
 
 const count = (v) => (v && typeof v === 'object' ? Object.keys(v).length : 0)
 
+/**
+ * Node ki ginti database se poochta hai, hardcode nahi.
+ *
+ * Pehle yahan seedhe number likhe the (227 students, 13 staff...). Wo school ke
+ * normal istemal se hi toot jaate the — ek staff hataao aur test red, jabki
+ * adapter me kuch galat tha hi nahi. Ulta asli khatra chhup jaata tha: PostgREST
+ * bina limit ke 1000 rows par kaat deta hai, aur attendance us taraf badh rahi
+ * hai. DB se ginti lekar milane par wo katai turant pakdi jaayegi.
+ */
+const { supabase } = await import('../src/lib/supabaseClient.js')
+const SCHOOL_UUID = (await supabase.from('schools').select('id').eq('legacy_id', SCHOOL).single()).data.id
+
+async function dbCount(table, tweak = q => q) {
+  const { count: rows, error } = await tweak(
+    supabase.from(table).select('id', { count: 'exact', head: true }).eq('school_id', SCHOOL_UUID),
+  )
+  if (error) throw new Error(`${table} ginne me dikkat: ${error.message}`)
+  return rows ?? 0
+}
+
+// Adapter jo laaya wo DB me maujood rows ke barabar hona chahiye.
+const matches = async (value, table, tweak) => {
+  const expected = await dbCount(table, tweak)
+  const got = count(value)
+  return got === expected || `DB me ${expected} hain, adapter laaya ${got}`
+}
+
+const active = q => q.is('deleted_at', null)
+const deleted = q => q.not('deleted_at', 'is', null)
+
 console.log('=== PADHNA ===')
 
 await check('students — poora node', `schools/${SCHOOL}/students`,
-  (v) => count(v) === 227 || `227 chahiye the, mile ${count(v)}`)
+  (v) => matches(v, 'students', active))
 
 await check('students — ek student ki shakal', `schools/${SCHOOL}/students`, (v) => {
   const first = Object.values(v || {})[0]
@@ -57,22 +89,26 @@ await check('students — ek student ki shakal', `schools/${SCHOOL}/students`, (
 })
 
 await check('deletedStudents alag aane chahiye', `schools/${SCHOOL}/deletedStudents`,
-  (v) => count(v) === 544 || `544 chahiye the, mile ${count(v)}`)
+  (v) => matches(v, 'students', deleted))
 
 await check('staff', `schools/${SCHOOL}/staff`,
-  (v) => count(v) === 13 || `13 chahiye the, mile ${count(v)}`)
+  (v) => matches(v, 'staff'))
 
 await check('parents', `schools/${SCHOOL}/parents`,
-  (v) => count(v) === 151 || `151 chahiye the, mile ${count(v)}`)
+  (v) => matches(v, 'parents'))
 
 await check('attendance — poora', `schools/${SCHOOL}/attendance`,
-  (v) => count(v) === 662 || `662 chahiye the, mile ${count(v)}`)
+  (v) => matches(v, 'attendance'))
 
 // Triveni ki saari attendance 2026-07-13 se shuru hoti hai, isliye us date se
 // filter karne pe sab hi aate hain. Sach me filter chal raha hai ya nahi, ye
 // aage ki date se hi pata chalta hai.
 await check('attendance — date se chhaana (listenFromDate)', `schools/${SCHOOL}/attendance`,
-  (v) => { const n = count(v); return (n > 0 && n < 662) || `date filter laga hi nahi (${n} mile)` },
+  async (v) => {
+    const n = count(v)
+    const total = await dbCount('attendance')
+    return (n > 0 && n < total) || `date filter laga hi nahi (${n} mile, kul ${total})`
+  },
   { query: 'orderBy="date"&startAt="2026-07-20"' })
 
 await check('attendance — keys RTDB jaisi (date_studentId)', `schools/${SCHOOL}/attendance`, (v) => {
@@ -94,10 +130,10 @@ await check('profile ka logo Storage se aa raha hai', `schools/${SCHOOL}/profile
   (v) => String(v?.logoURL || '').startsWith('https://') || `logo abhi bhi base64/khaali: ${String(v?.logoURL).slice(0, 40)}`)
 
 await check('fees', `schools/${SCHOOL}/fees`,
-  (v) => count(v) === 13 || `13 chahiye the, mile ${count(v)}`)
+  (v) => matches(v, 'fee_receipts', active))
 
 await check('certificates', `schools/${SCHOOL}/certificates`,
-  (v) => count(v) === 4 || `4 chahiye the, mile ${count(v)}`)
+  (v) => matches(v, 'certificates'))
 
 await check('feeManager — composite', `schools/${SCHOOL}/feeManager`, (v) => {
   if (!v?.structures) return 'structures nahi aaye'
