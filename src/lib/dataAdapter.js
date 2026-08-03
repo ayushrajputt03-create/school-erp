@@ -39,6 +39,10 @@ export async function schoolUuid(legacyId) {
 
 const studentCache = new Map()
 
+// Ulti disha: uuid -> legacy_id. Realtime payload me student ka sirf uuid aata
+// hai (join wahan hota hi nahi), par attendance ki key legacy id se banti hai.
+const studentLegacyCache = new Map()
+
 async function studentUuid(schoolId, legacyId) {
   if (!schoolId || !legacyId) return null
   const cacheKey = `${schoolId}/${legacyId}`
@@ -46,8 +50,21 @@ async function studentUuid(schoolId, legacyId) {
   const { data } = await supabase
     .from('students').select('id').eq('school_id', schoolId).eq('legacy_id', legacyId).maybeSingle()
   const id = data?.id ?? null
-  if (id) studentCache.set(cacheKey, id)
+  if (id) { studentCache.set(cacheKey, id); studentLegacyCache.set(id, legacyId) }
   return id
+}
+
+/**
+ * uuid se legacy id. Ek row ki query hai, aur cache ho jaati hai — poore node
+ * ko dobara padhne se ye har haal me sasta hai.
+ */
+async function studentLegacyId(uuid) {
+  if (!uuid) return null
+  if (studentLegacyCache.has(uuid)) return studentLegacyCache.get(uuid)
+  const { data } = await supabase.from('students').select('legacy_id').eq('id', uuid).maybeSingle()
+  const legacy = data?.legacy_id ?? null
+  if (legacy) studentLegacyCache.set(uuid, legacy)
+  return legacy
 }
 
 /* ------------------------------------------------------------------ */
@@ -207,6 +224,36 @@ function defaultSelect(def) {
   return cols.join(', ')
 }
 
+/**
+ * Realtime se poori row aati hai (REPLICA IDENTITY FULL), par node ne shayad
+ * sirf kuch column maange the. Patch ka doc bilkul wahi banna chahiye jo
+ * refetch se banta — warna attendanceLive jaise narrow node me achanak poora
+ * `source` ghus jaata aur do raaste do alag shakal dete.
+ *
+ * `*` wale nodes par kuch nahi badalta.
+ */
+function narrowToSelect(row, def) {
+  const select = def.select || defaultSelect(def)
+  if (!row || select.includes('*')) return row
+
+  const cols = select.split(',').map((c) => c.trim()).filter(Boolean)
+  const out = {}
+  for (const col of cols) {
+    // 'student:students(legacy_id)' jaisa embed alag se bharta hai
+    if (col.includes('(')) continue
+    const name = col.split(':').pop()
+    if (name in row) out[name] = row[name]
+  }
+  // keyFromRow / resolve ko ye chahiye hote hain chahe select me na hon
+  for (const extra of ['student_id', 'deleted_at']) {
+    if (extra in row && !(extra in out)) out[extra] = row[extra]
+  }
+  return out
+}
+
+/** def ka select student ka legacy id join se laata hai ya nahi */
+const needsStudentJoin = (def) => /student\s*:\s*students\s*\(/.test(def.select || '')
+
 function docsKeyedById(rows, def) {
   const out = {}
   for (const row of rows) {
@@ -319,32 +366,64 @@ function applySoftDelete(query, def) {
   return query
 }
 
+const QUERY_COLUMN = {
+  date: 'date', status: 'status', studentId: 'student_id', className: 'class_name',
+  // TeacherApp leave requests apni class tak seemit rakhta hai — ye chhoot
+  // jaata to har teacher ko poore school ki requests dikhtin
+  classSection: 'class_section',
+}
+
+const unquote = (v) => (v == null ? v : String(v).replace(/^"|"$/g, ''))
+
+/**
+ * ?orderBy=...&startAt=... ko { col, eq, start, end } me todta hai.
+ *
+ * Do jagah chahiye: query banane ke liye (applyRestQuery) aur realtime se aayi
+ * ek row ko parakhne ke liye (rowMatchesQuery) — ki wo is listener ke daayre me
+ * aati bhi hai ya nahi. Dono ek hi jagah se parse karte hain taaki patch aur
+ * refetch kabhi alag natija na dein.
+ */
+function parseRestQuery(rawQuery) {
+  if (!rawQuery) return null
+  const params = new URLSearchParams(rawQuery)
+  const orderBy = unquote(params.get('orderBy'))
+  if (!orderBy) return null
+  const col = QUERY_COLUMN[orderBy]
+  if (!col) return null
+  return {
+    col,
+    eq: unquote(params.get('equalTo')),
+    start: unquote(params.get('startAt')),
+    end: unquote(params.get('endAt')),
+  }
+}
+
 /** RTDB REST ka ?orderBy=...&startAt=... yahan bhi chale */
 function applyRestQuery(query, def, rawQuery) {
-  if (!rawQuery) return query
-  const params = new URLSearchParams(rawQuery)
-  const unquote = (v) => (v == null ? v : String(v).replace(/^"|"$/g, ''))
-  const orderBy = unquote(params.get('orderBy'))
-  if (!orderBy) return query
-
-  const COLUMN = {
-    date: 'date', status: 'status', studentId: 'student_id', className: 'class_name',
-    // TeacherApp leave requests apni class tak seemit rakhta hai — ye chhoot
-    // jaata to har teacher ko poore school ki requests dikhtin
-    classSection: 'class_section',
-  }
-  const col = COLUMN[orderBy]
-  if (!col) return query
-
-  const eq = unquote(params.get('equalTo'))
-  const start = unquote(params.get('startAt'))
-  const end = unquote(params.get('endAt'))
-
+  const f = parseRestQuery(rawQuery)
+  if (!f) return query
   let q = query
-  if (eq != null) q = q.eq(col, eq)
-  if (start != null) q = q.gte(col, start)
-  if (end != null) q = q.lte(col, end)
+  if (f.eq != null) q = q.eq(f.col, f.eq)
+  if (f.start != null) q = q.gte(f.col, f.start)
+  if (f.end != null) q = q.lte(f.col, f.end)
   return q
+}
+
+/**
+ * Wahi filter, par ek row par — Postgres ke bajaye yahan.
+ *
+ * date/status/class_name sab text ya date hain, aur PostgREST bhi inhe string
+ * hi bhejta hai, isliye string compare wahi natija deta hai jo gte/lte deta.
+ */
+function rowMatchesQuery(row, filter) {
+  if (!filter) return true
+  const v = row?.[filter.col]
+  if (v === null || v === undefined) return false
+  const s = String(v)
+  if (filter.eq != null && s !== String(filter.eq)) return false
+  if (filter.start != null && s < String(filter.start)) return false
+  if (filter.end != null && s > String(filter.end)) return false
+  return true
 }
 
 /**
@@ -742,14 +821,30 @@ function flush(schoolId) {
     channel.on(
       'postgres_changes',
       { event: '*', schema: 'public', table, filter: `school_id=eq.${schoolId}` },
-      () => { for (const cb of r.listeners.get(table) || []) cb() }
+      (payload) => { for (const l of r.listeners.get(table) || []) l.onChange(payload) }
     )
   }
-  channel.subscribe()
+
+  /**
+   * Connection toota to beech ke events kabhi nahi aayenge, aur ab listeners
+   * apni copy patch karke chalte hain — wo copy chup-chaap purani reh jaati.
+   * Isliye dobara jud'ne par ek poora refetch, sirf tabhi jab sach me toota ho.
+   *
+   * Normal chalne me ye kabhi nahi chalta, to iska koi kharcha nahi hai.
+   */
+  let broke = false
+  channel.subscribe((status) => {
+    if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT' || status === 'CLOSED') { broke = true; return }
+    if (status !== 'SUBSCRIBED' || !broke) return
+    broke = false
+    for (const table of tables) {
+      for (const l of r.listeners.get(table) || []) l.onResync()
+    }
+  })
   r.channels.push(channel)
 }
 
-function listenOnTable(schoolId, table, fn) {
+function listenOnTable(schoolId, table, listener) {
   const r = room(schoolId)
   if (!r.listeners.has(table)) {
     r.listeners.set(table, new Set())
@@ -757,10 +852,10 @@ function listenOnTable(schoolId, table, fn) {
     clearTimeout(r.timer)
     r.timer = setTimeout(() => flush(schoolId), 50)
   }
-  r.listeners.get(table).add(fn)
+  r.listeners.get(table).add(listener)
 
   return () => {
-    r.listeners.get(table)?.delete(fn)
+    r.listeners.get(table)?.delete(listener)
     if ([...r.listeners.values()].some((s) => s.size)) return
     clearTimeout(r.timer)
     rooms.delete(schoolId)
@@ -780,13 +875,34 @@ export function subscribe(path, handler, options = {}) {
   let running = false
   let again = false
 
+  // Aakhri value jo handler ko di gayi. Patch isi ke upar lagta hai, isliye
+  // ise hamesha wahi rakhna hai jo screen par hai.
+  let current = null
+  // { schoolId, def, filter } — null matlab is path ko patch nahi kar sakte,
+  // aur purana poora-refetch wala raasta hi chalega.
+  let patchCtx = null
+  let deliverTimer = null
+  let readPromise = Promise.resolve()
+  let chain = Promise.resolve()
+
+  const deliver = () => {
+    clearTimeout(deliverTimer)
+    // 40 row ki attendance save ek-ek karke aati hai; har row par React ko
+    // dobara render karana bekaar hai. Bytes to bach hi gaye, render bhi bacha lo.
+    deliverTimer = setTimeout(() => {
+      if (!cancelled) handler(snapshotOf(current))
+    }, 100)
+  }
+
   const read = async () => {
     if (running) { again = true; return }   // ek hi waqt me do refetch nahi
     running = true
     try {
       const value = await databaseRequest(path, null, options)
+      current = value
       if (!cancelled) handler(snapshotOf(value))
     } catch (error) {
+      current = null
       console.error(`[adapter] ${path} padhne me dikkat:`, error.message)
       if (!cancelled) handler(snapshotOf(null))
     } finally {
@@ -796,21 +912,104 @@ export function subscribe(path, handler, options = {}) {
   }
 
   /**
-   * Har row ke badlav par poora node dobara padhna mehnga hai: ek class ki
-   * attendance save karne par 40 row badalti hain, yaani 662 rows ka node
-   * 40 baar. Thoda ruk ke ek hi baar padhte hain.
+   * Purana raasta: kisi bhi ek row ke badalne par poora node dobara padhna.
+   * Ab ye sirf fallback hai — jab patch pakka na ho paye ya connection toota ho.
    */
   const refetch = () => {
     if (cancelled) return
     clearTimeout(timer)
-    timer = setTimeout(read, 250)
+    timer = setTimeout(() => { readPromise = read() }, 250)
+  }
+
+  /**
+   * Realtime se aayi row ko seedha local copy me lagata hai — poora node dobara
+   * nahi padhta.
+   *
+   * REPLICA IDENTITY FULL ki wajah se payload me poori row already hai, to
+   * network par kuch aur maangne ki zarurat hai hi nahi. Yahi is poore badlav
+   * ka matlab hai: ek attendance row badalne par 662 rows ke bajaye 0 rows.
+   *
+   * true = laga diya. false = pakka nahi hai, bulane wala refetch kar le.
+   */
+  const applyPatch = async (payload) => {
+    if (!patchCtx || cancelled) return false
+    const { schoolId, def, filter } = patchCtx
+    if (payload?.table !== def.table) return false
+    if (!current || typeof current !== 'object' || Array.isArray(current)) return false
+
+    /**
+     * DELETE par patch nahi ho sakta, aur ye Postgres ki nahi Supabase ki seema
+     * hai: `old` me sirf primary key aata hai (`{id}`), poori row nahi — chahe
+     * table par REPLICA IDENTITY FULL laga ho. Wajah RLS: mit chuki row par
+     * policy jaanchi nahi ja sakti, to Realtime baaki columns bhejta hi nahi.
+     *
+     * Hamari keys `legacy_id` / `date_studentId` hain, uuid nahi — aur row ab DB
+     * me hai nahi ki poochh lein. Isliye yahan poora refetch, jaisa pehle tha.
+     *
+     * Iska asar kam hai: app me student "delete" asal me soft delete hai, jo
+     * UPDATE (deleted_at) banke aata hai aur wo patch ho jaata hai.
+     */
+    if (payload.eventType === 'DELETE') return false
+
+    const raw = payload.new
+    if (!raw || typeof raw !== 'object') return false
+    // filter server par laga hua hai, phir bhi doosre school ki row aa jaye to
+    // use chhoona nahi — ignore karna sahi hai, refetch nahi.
+    if (raw.school_id && raw.school_id !== schoolId) return true
+
+    let row = narrowToSelect(raw, def)
+    if (needsStudentJoin(def)) {
+      const legacy = await studentLegacyId(raw.student_id)
+      if (!legacy) return false
+      row = { ...row, student: { legacy_id: legacy } }
+    }
+
+    const doc = rowToDoc(row, def)
+    const key = def.keyFromRow
+      ? def.keyFromRow(row, doc)
+      : def.keyFrom
+        ? def.keyFrom(doc)
+        : (row[def.key] ?? row.legacy_id ?? row.id)
+    // 'date_undefined' jaisi adhoori key node ko chup-chaap kharab kar degi
+    if (key == null || String(key).includes('undefined')) return false
+
+    // Row ab is listener ke daayre me nahi rahi — delete hui, trash me gayi,
+    // ya date/class filter se bahar chali gayi. Teeno ka matlab ek hi hai.
+    const gone =
+      !rowMatchesQuery(raw, filter) ||
+      (def.softDelete?.activeOnly && raw.deleted_at != null) ||
+      (def.softDelete?.deletedOnly && raw.deleted_at == null)
+
+    if (gone) {
+      if (!(key in current)) return true
+      const next = { ...current }
+      delete next[key]
+      current = next
+    } else {
+      current = { ...current, [key]: doc }
+    }
+    deliver()
+    return true
+  }
+
+  const onChange = (payload) => {
+    if (cancelled) return
+    if (!patchCtx) { refetch(); return }
+    // Ek-ek karke, aur kisi chal rahe read ke baad — warna patch lagakar bhi
+    // purana jawab uske upar aa sakta hai.
+    chain = chain
+      .then(() => readPromise)
+      .then(() => applyPatch(payload))
+      .then((ok) => { if (!ok) refetch() })
+      .catch(() => refetch())
   }
 
   const start = async () => {
-    await read()
+    readPromise = read()
+    await readPromise
     if (cancelled) return
 
-    const { schoolLegacy, node } = parsePath(path)
+    const { schoolLegacy, node, rest = [] } = parsePath(path)
     const def = NODES[node]
     const tables = def
       ? [def.table]
@@ -822,7 +1021,15 @@ export function subscribe(path, handler, options = {}) {
     const schoolId = await schoolUuid(schoolLegacy)
     if (!schoolId || cancelled) return
 
-    for (const table of tables) unsubs.push(listenOnTable(schoolId, table, refetch))
+    // Patch sirf tab jab poora node sun rahe hain aur uski ek hi table hai.
+    // kv ek hi row me poora blob rakhta hai aur COMPOSITE kai table jodta hai —
+    // dono me row ko key par mapping seedhi nahi hai, wahan refetch hi theek hai.
+    if (def && !rest.length) {
+      patchCtx = { schoolId, def, filter: parseRestQuery(options?.query) }
+    }
+
+    const listener = { onChange, onResync: refetch }
+    for (const table of tables) unsubs.push(listenOnTable(schoolId, table, listener))
   }
 
   start()
@@ -830,6 +1037,7 @@ export function subscribe(path, handler, options = {}) {
   return () => {
     cancelled = true
     clearTimeout(timer)
+    clearTimeout(deliverTimer)
     unsubs.forEach((fn) => fn())
     unsubs = []
   }
