@@ -85,7 +85,7 @@ import { onAuthStateChanged, signOut } from 'firebase/auth'
 import { deleteObject, getDownloadURL, ref as storageRef, uploadBytes } from 'firebase/storage'
 import { auth, isFirebaseConfigured, storage, firebaseApp, rtdb } from './lib/firebase'
 import { useSupabase } from './lib/supabaseClient'
-import { databaseRequest as supabaseRequest, subscribe as supabaseSubscribe, reserveReceiptNumber } from './lib/dataAdapter'
+import { databaseRequest as supabaseRequest, subscribe as supabaseSubscribe, reserveReceiptNumber, uploadStudentPhoto } from './lib/dataAdapter'
 import { watchAuth, signOutUser, hasCurrentUser, rememberCurrentUser } from './lib/authAdapter'
 
 const databaseUrl = import.meta.env.VITE_FIREBASE_DATABASE_URL?.replace(/\/$/, '')
@@ -2090,6 +2090,16 @@ const tones = ['blue', 'violet', 'green', 'orange', 'cyan', 'pink']
 // A base64 data: URL sitting in a student row is the expensive case we are moving out of the
 // students node. Anything else (an https Storage URL, or empty) stays on the row as-is.
 const isInlinePhoto = value => typeof value === 'string' && value.startsWith('data:')
+/**
+ * Photo ka jo URL sach me row me likha ja sakta hai.
+ *
+ * Supabase ka signed URL ek ghante me mar jaata hai, isliye wo kabhi column me
+ * nahi jaana chahiye — sirf photo_path save hota hai aur padhte waqt har baar
+ * naya sign banta hai. rowToDoc photo_url ko photo_path se pehle padhta hai, to
+ * ek baar likh diya to mari hui URL hamesha ke liye chipak jaati aur bachche ki
+ * photo permanently toota hua icon ban jaati.
+ */
+const persistablePhotoUrl = url => (useSupabase || isInlinePhoto(url)) ? '' : url
 
 // Older imports (and some source sheets) dropped the Gender column's value into the guardian/father
 // name field, so parent accounts built from those rows stored "Male"/"Female" as the parent name.
@@ -3086,6 +3096,19 @@ function useSchoolWorkspace(session) {
   const uploadStudentPhotoFile = async (file, admissionNo, token, oldPath = '', fallbackUrl = '') => {
     if (!file) return null
     const path = `schools/${workspace.schoolId}/students/${admissionNo}/photo.jpg`
+    // Supabase par asli Storage bucket hai (`student-photos`), isliye base64
+    // fallback ki zarurat nahi. Fallback me jaane par bytes
+    // studentPhotos/{school}/{id} par likhne jaate the, jo adapter support hi
+    // nahi karta — har photo save wahin fail hoti thi.
+    if (useSupabase) {
+      try {
+        return { ...(await uploadStudentPhoto(workspace.schoolId, admissionNo, file)), fallback: false }
+      } catch (error) {
+        // Upload fail hone par base64 par mat girna — wo raasta Supabase par
+        // save hi nahi hota, aur user ko lagta hai photo lag gayi. Saaf batao.
+        throw new Error(`Photo upload nahi ho saki: ${error.message}`)
+      }
+    }
     if (!useFirebaseStorage || !storage) {
       return { path: '', url: fallbackUrl || await fileToDataUrl(file), size: file.size, updatedAt: Date.now(), fallback: true }
     }
@@ -3207,6 +3230,14 @@ function useSchoolWorkspace(session) {
   // data URLs would be tens of megabytes and fail. Idempotent - once moved, no rows match.
   const migrateInlinePhotos = async (schoolId, data) => {
     if (developmentDemo || !session) return
+    // Supabase par ye chalna hi nahi chahiye. Photos ab `student-photos` bucket
+    // me jaati hain, aur `studentPhotos/...` par likhna adapter support nahi
+    // karta. Us patch me photo_url = '' bhi jaata hai, aur multiPathPatch atomic
+    // NAHI hai (har path apni alag likhaayi) — to base64 wali likhaayi fail
+    // hone par bhi photo_url khaali ho sakti thi, yaani photo hamesha ke liye
+    // gayab. Aaj koi row iske daayre me nahi aati, par raasta khula rakhna
+    // theek nahi.
+    if (useSupabase) return
     // studentPhotos/$schoolId is writable by the school account and super admins only - teachers
     // can read it but not write. Without this guard every teacher login would retry the whole
     // migration and upload megabytes that the rules then reject.
@@ -3281,7 +3312,7 @@ function useSchoolWorkspace(session) {
     if (student.photoFile) {
       const photo = await uploadStudentPhotoFile(student.photoFile, assignedNumber, token, '', student.photoPreview || '')
       inlinePhoto = isInlinePhoto(photo.url) ? photo.url : ''
-      row.photo_url = inlinePhoto ? '' : photo.url
+      row.photo_url = persistablePhotoUrl(photo.url)
       row.photo_inline = Boolean(inlinePhoto)
       row.photo_path = photo.path
       row.photo_size = photo.size
@@ -3340,7 +3371,7 @@ function useSchoolWorkspace(session) {
       const token = developmentDemo ? null : await session.getIdToken()
       const photo = await uploadStudentPhotoFile(updates.photoFile, existing.roll, token, existing.photoPath, updates.photoPreview || existing.photoUrl || '')
       inlinePhoto = isInlinePhoto(photo.url) ? photo.url : ''
-      row.photo_url = inlinePhoto ? '' : photo.url
+      row.photo_url = persistablePhotoUrl(photo.url)
       row.photo_inline = Boolean(inlinePhoto)
       row.photo_path = photo.path
       row.photo_size = photo.size
@@ -3542,7 +3573,7 @@ function useSchoolWorkspace(session) {
     // a base64 data URL. Those bytes go to studentPhotos/{schoolId}/{id}, never onto the row.
     const inline = isInlinePhoto(photo.url)
     await databaseRequest('', token, { method: 'PATCH', body: {
-      [`schools/${workspace.schoolId}/students/${studentId}/photo_url`]: inline ? '' : photo.url,
+      [`schools/${workspace.schoolId}/students/${studentId}/photo_url`]: persistablePhotoUrl(photo.url),
       [`schools/${workspace.schoolId}/students/${studentId}/photo_inline`]: inline,
       [`schools/${workspace.schoolId}/students/${studentId}/photo_path`]: photo.path,
       [`schools/${workspace.schoolId}/students/${studentId}/photo_size`]: photo.size,
@@ -3550,7 +3581,9 @@ function useSchoolWorkspace(session) {
       [`schools/${workspace.schoolId}/students/${studentId}/updatedAt`]: photo.updatedAt,
       ...(inline ? { [`studentPhotos/${workspace.schoolId}/${studentId}`]: photo.url } : {}),
     } })
-    photoCacheRef.current[studentId] = inline ? photo.url : ''
+    // In-memory cache — yahan signed URL rakhna theek hai, save nahi ho rahi.
+    // Iske bina Supabase par photo badalne ke baad screen turant khaali dikhti.
+    photoCacheRef.current[studentId] = photo.url || ''
     setStudents(current => current.map(item => item.id === studentId ? { ...item, photoUrl: photo.url, photoPath: photo.path, photoSize: photo.size, photoUpdatedAt: photo.updatedAt } : item))
     return photo
   }

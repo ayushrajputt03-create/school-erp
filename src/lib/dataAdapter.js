@@ -95,6 +95,52 @@ async function signPhotoPaths(paths) {
   return out
 }
 
+/**
+ * Student ki photo bucket me daalta hai aur uska path lautata hai.
+ *
+ * Ye pehle tha hi nahi — padhne ka raasta bana tha, likhne ka nahi. App
+ * `useFirebaseStorage` dekhta hai, jis par `&& !useSupabase` laga hai, to
+ * Supabase par wo hamesha false hota tha aur har photo base64 fallback me
+ * chali jaati thi. Wo base64 `studentPhotos/{school}/{id}` par likhne ki
+ * koshish karta tha, jise adapter mana kar deta hai — yaani Supabase par har
+ * student photo ka save toota hua tha.
+ *
+ * Path wahi rakha gaya hai jo migration ne banaya aur jis par storage ki RLS
+ * tiki hui hai: pehla folder school ka uuid hona chahiye, warna insert policy
+ * rok degi.
+ *
+ * Signed URL lauta to diya jaata hai (turant dikhane ke liye) par use kabhi
+ * students.photo_url me mat likhna — wo ek ghante me mar jaata hai. Column me
+ * sirf photo_path jaata hai; padhte waqt har baar naya sign hota hai.
+ */
+export async function uploadStudentPhoto(schoolLegacyId, studentLegacyId, file) {
+  const schoolId = await schoolUuid(schoolLegacyId)
+  if (!schoolId) throw new Error('School nahi mila — photo upload nahi ho saki.')
+  if (!file) throw new Error('Koi file nahi mili.')
+
+  const path = `${schoolId}/students/${studentLegacyId}.jpg`
+  const { error } = await supabase.storage
+    .from('student-photos')
+    .upload(path, file, { contentType: file.type || 'image/jpeg', upsert: true })
+  if (error) throw new Error(`Photo upload nahi ho saki: ${error.message}`)
+
+  // Photo badalne par path wahi rehta hai, isliye cache me padi purani signed
+  // URL nayi photo ko chhupa deti — screen par purani hi photo dikhti rehti.
+  photoCache.delete(path)
+
+  const signed = await signPhotoPaths([path])
+  return { path, url: signed.get(path) || '', size: file.size, updatedAt: Date.now() }
+}
+
+/** Photo hataana — student delete ya photo replace ke waqt. */
+export async function deleteStudentPhoto(schoolLegacyId, studentLegacyId) {
+  const schoolId = await schoolUuid(schoolLegacyId)
+  if (!schoolId) return
+  const path = `${schoolId}/students/${studentLegacyId}.jpg`
+  photoCache.delete(path)
+  await supabase.storage.from('student-photos').remove([path])
+}
+
 /* ------------------------------------------------------------------ */
 /* path parsing                                                        */
 /* ------------------------------------------------------------------ */
