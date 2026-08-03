@@ -135,7 +135,14 @@ html{scroll-behavior:smooth}
 /* Product showcase */
 .ls-showcase{display:grid;grid-auto-flow:column;grid-auto-columns:minmax(280px,1fr);gap:20px;overflow-x:auto;scroll-snap-type:x mandatory;padding-bottom:10px}
 .ls-showcase-card{scroll-snap-align:start}
-.ls-showcase-glass{background:linear-gradient(150deg,var(--ls-navy),var(--ls-navy2));border-radius:15px;padding:14px;box-shadow:0 16px 40px #05265922;margin-bottom:16px}
+.ls-showcase-glass{display:block;width:100%;border:0;font:inherit;text-align:left;cursor:pointer;background:linear-gradient(150deg,var(--ls-navy),var(--ls-navy2));border-radius:15px;padding:14px;box-shadow:0 16px 40px #05265922;margin-bottom:16px;transition:transform .2s ease,box-shadow .2s ease}
+.ls-showcase-glass:hover{transform:translateY(-3px);box-shadow:0 22px 50px #05265938}
+.ls-showcase-glass:focus-visible{outline:2px solid var(--ls-accent);outline-offset:3px}
+/* Screenshot lagne par padding hat jaati hai — image poora frame bharti hai.
+   object-position top-left, taaki card me screen ka upar wala hissa dikhe
+   (jahan heading aur stat tiles hain), beech ka khaali area nahi. */
+.ls-showcase-glass:has(.ls-showcase-shot){padding:0;overflow:hidden}
+.ls-showcase-shot{display:block;width:100%;aspect-ratio:16/10;object-fit:cover;object-position:top left}
 .ls-showcase-bar{display:flex;gap:5px;margin-bottom:12px}
 .ls-showcase-bar span{width:8px;height:8px;border-radius:50%;background:#ffffff33}
 .ls-showcase-body{background:#ffffff0f;border:1px solid #ffffff1c;border-radius:10px;padding:14px;display:grid;gap:12px}
@@ -289,3 +296,6 @@ html{scroll-behavior:smooth}
   .ls-mockup-glass,.ls-hero-glow,.ls-float-a,.ls-float-b,.ls-mockup-bars span,.ls-mockup-ring .fg{animation:none}
   .ls-btn:hover,.ls-login-card:hover,.ls-feature:hover,.ls-security-card:hover{transform:none}
 }
+
+/* Showcase ka demo CTA — head ke neeche */
+.ls-showcase-cta{margin-top:18px}

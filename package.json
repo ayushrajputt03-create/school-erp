@@ -10,7 +10,9 @@
     "build": "vite build",
     "preview": "vite preview",
     "check": "npm run build",
-    "firebase:deploy": "firebase deploy --only database,storage --project school-open-erp"
+    "firebase:deploy": "firebase deploy --only database,storage --project school-open-erp",
+    "screens": "vite --mode demo --port 5199",
+    "screens:capture": "node scripts/capture-screens.mjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.111.0",

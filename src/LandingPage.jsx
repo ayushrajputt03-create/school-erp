@@ -1,12 +1,16 @@
-import React, { useEffect, useState } from 'react'
+import React, { lazy, Suspense, useEffect, useState } from 'react'
 import {
   Activity, ArrowRight, BarChart3, BookOpen, Building2, CalendarCheck, Check,
   ChevronDown, ClipboardList, Cloud, CreditCard, Database, FileBarChart2, FileText,
   GraduationCap, IndianRupee, KeyRound, Lock, Mail, Megaphone, Menu, MessageCircle,
-  Rocket, ScrollText, Server, ShieldCheck, Smartphone, Sparkles, Star, TrendingUp,
+  PlayCircle, Rocket, ScrollText, Server, ShieldCheck, Smartphone, Sparkles, Star, TrendingUp,
   Upload, UserPlus, Users, Wallet, Wifi, X, Zap,
 } from 'lucide-react'
 import './landing.css'
+
+// Demo modal apne bundle me rehta hai — landing page ka pehla paint us par
+// nahi rukta, kyunki wo tabhi load hota hai jab koi "Watch Demo" dabaye.
+const DemoPlayer = lazy(() => import('./landing/DemoPlayer'))
 
 const NAV_LINKS = [['features', 'Features'], ['workflow', 'Workflow'], ['pricing', 'Pricing'], ['faq', 'FAQ'], ['contact', 'Contact']]
 
@@ -30,10 +34,14 @@ const LOGIN_CARDS = [
   { icon: Users, cls: 'parent', title: 'Parent / Guardian', desc: 'Track attendance, fees, academic progress and notices.', href: '/parent/login', label: 'Parent Login' },
 ]
 
+// shot: asli app ke screenshots, `scripts/capture-screens.mjs` se demo mode par
+// li gayi (asli school ka data landing page par nahi ja sakta). Jinka shot nahi
+// hai wo pehle jaisa placeholder frame hi dikhate hain.
 const SHOWCASE = [
-  { tag: 'Command Center', title: 'School Dashboard', desc: 'Live stats, fee collection and activity in one glance.' },
-  { tag: 'Academics', title: 'Attendance System', desc: 'Class-wise daily attendance in seconds.' },
-  { tag: 'Finance', title: 'Fee Management', desc: 'Collect, receipt and track fees with reminders.' },
+  { tag: 'Command Center', title: 'School Dashboard', desc: 'Live stats, fee collection and activity in one glance.', shot: '/screens/dashboard.jpg' },
+  { tag: 'Students', title: 'Student Records', desc: 'Every profile, class and guardian in one register.', shot: '/screens/students.jpg' },
+  { tag: 'Academics', title: 'Attendance System', desc: 'Class-wise daily attendance in seconds.', shot: '/screens/attendance.jpg' },
+  { tag: 'Finance', title: 'Fee Management', desc: 'Collect, receipt and track fees with reminders.', shot: '/screens/fees.jpg' },
   { tag: 'Family', title: 'Parent Portal', desc: 'Parents follow progress, fees and notices live.' },
   { tag: 'Results', title: 'Report Cards', desc: 'Generate marksheets and publish results instantly.' },
 ]
@@ -168,6 +176,7 @@ export default function LandingPage() {
   const [menuOpen, setMenuOpen] = useState(false)
   const [openFaq, setOpenFaq] = useState(0)
   const [scrolled, setScrolled] = useState(false)
+  const [demoOpen, setDemoOpen] = useState(false)
   useReveal()
 
   useEffect(() => {
@@ -219,7 +228,9 @@ export default function LandingPage() {
           <p className="ls-hero-desc">Manage admissions, attendance, academics, fees, certificates, communication, staff and reports from one intelligent platform built for schools.</p>
           <div className="ls-hero-cta">
             <a className="ls-btn ls-btn-white" href="/register">Get Started Free <ArrowRight size={17} /></a>
-            <button className="ls-btn ls-btn-ghost" onClick={e => scrollTo('showcase', e)}>Watch Demo</button>
+            <button className="ls-btn ls-btn-ghost" onClick={() => setDemoOpen(true)}>
+              <PlayCircle size={17} /> Watch Demo
+            </button>
           </div>
           <div className="ls-hero-trust">
             {['99.9% Uptime', 'Cloud Hosted', 'Multi-School Ready', 'Secure Infrastructure'].map(t =>
@@ -256,17 +267,28 @@ export default function LandingPage() {
 
     {/* PRODUCT SHOWCASE */}
     <section className="ls-section alt" id="showcase">
-      <div className="ls-head reveal"><span className="ls-eyebrow">Product</span><h2>See SCHOOL99 in Action</h2><p>Designed for administrators, teachers and parents.</p></div>
+      <div className="ls-head reveal">
+        <span className="ls-eyebrow">Product</span><h2>See SCHOOL99 in Action</h2>
+        <p>Designed for administrators, teachers and parents.</p>
+        <button className="ls-btn ls-btn-primary ls-showcase-cta" onClick={() => setDemoOpen(true)}>
+          <PlayCircle size={17} /> Watch the 30-second demo
+        </button>
+      </div>
       <div className="ls-showcase reveal">
         {SHOWCASE.map(s => <article key={s.title} className="ls-showcase-card">
-          <div className="ls-showcase-glass">
-            <div className="ls-showcase-bar"><span /><span /><span /></div>
-            <div className="ls-showcase-body">
-              <div className="ls-showcase-row"><i /><i className="w2" /></div>
-              <div className="ls-showcase-mini">{[60, 40, 85, 55].map((h, i) => <span key={i} style={{ height: `${h}%` }} />)}</div>
-              <div className="ls-showcase-row"><i className="w3" /><i /></div>
-            </div>
-          </div>
+          <button type="button" className="ls-showcase-glass" onClick={() => setDemoOpen(true)}
+            aria-label={`${s.title} — open demo`}>
+            {s.shot
+              ? <img className="ls-showcase-shot" src={s.shot} alt={`SCHOOL99 ${s.title} screen`} loading="lazy" />
+              : <>
+                <div className="ls-showcase-bar"><span /><span /><span /></div>
+                <div className="ls-showcase-body">
+                  <div className="ls-showcase-row"><i /><i className="w2" /></div>
+                  <div className="ls-showcase-mini">{[60, 40, 85, 55].map((h, i) => <span key={i} style={{ height: `${h}%` }} />)}</div>
+                  <div className="ls-showcase-row"><i className="w3" /><i /></div>
+                </div>
+              </>}
+          </button>
           <span className="ls-showcase-tag">{s.tag}</span>
           <h3>{s.title}</h3>
           <p>{s.desc}</p>
@@ -423,5 +445,9 @@ export default function LandingPage() {
         <a href="mailto:ayushrajputt03@gmail.com">ayushrajputt03@gmail.com</a>
       </div>
     </footer>
+
+    {demoOpen && <Suspense fallback={null}>
+      <DemoPlayer open={demoOpen} onClose={() => setDemoOpen(false)} />
+    </Suspense>}
   </div>
 }

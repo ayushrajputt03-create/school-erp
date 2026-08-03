@@ -436,6 +436,48 @@ const seedStudents = [
   { id: 6, name: 'Ira Malhotra', roll: '2026-046', className: '7-B', guardian: 'Rohit Malhotra', phone: '99901 22341', attendance: 86, fee: 'Pending', initials: 'IM', tone: 'pink' },
 ]
 
+/**
+ * Demo mode ka staff. `seedStudents`/`seedNotices` jaisa hi, par ye zaroori tha
+ * kyunki students/fees/notices localStorage se aate hain jabki `staff` sirf
+ * listener se bharta hai — aur demo mode me koi listener hota hi nahi. Iske
+ * bina demo dashboard par "Teaching staff 0" aur poora Employee Summary khaali
+ * rehta tha.
+ *
+ * Sirf demo mode me lagta hai; asli workspace me staff hamesha backend se aata hai.
+ */
+const seedStaff = Object.fromEntries([
+  ['Sunita', 'Rao', 'Principal', 'Administration'],
+  ['Rajesh', 'Khanna', 'Vice Principal', 'Administration'],
+  ['Anjali', 'Mehta', 'Senior Teacher', 'Mathematics'],
+  ['Vikram', 'Bose', 'Teacher', 'Science'],
+  ['Pooja', 'Nair', 'Teacher', 'English'],
+  ['Deepak', 'Sinha', 'Teacher', 'Social Science'],
+  ['Kavita', 'Joshi', 'Teacher', 'Hindi'],
+  ['Arun', 'Pillai', 'Teacher', 'Computer Science'],
+  ['Nisha', 'Bhatt', 'Teacher', 'Mathematics'],
+  ['Sameer', 'Kulkarni', 'Sports Teacher', 'Physical Education'],
+  ['Ritu', 'Agarwal', 'Teacher', 'Science'],
+  ['Manoj', 'Tiwari', 'Teacher', 'English'],
+  ['Shweta', 'Menon', 'Librarian', 'Library'],
+  ['Alok', 'Ranjan', 'Accountant', 'Accounts'],
+  ['Geeta', 'Kaur', 'Office Assistant', 'Administration'],
+  ['Farhan', 'Qureshi', 'Lab Assistant', 'Science'],
+].map(([firstName, lastName, designation, department], i) => {
+  const id = `emp_demo_${i + 1}`
+  return [id, {
+    id,
+    employeeCode: `EMP${String(i + 1).padStart(3, '0')}`,
+    firstName, lastName,
+    name: `${firstName} ${lastName}`,
+    designation, department,
+    phone: `98${String(10000000 + i * 137911).slice(0, 8)}`,
+    email: `${firstName.toLowerCase()}.${lastName.toLowerCase()}@school99.demo`,
+    joiningDate: `202${1 + (i % 5)}-06-01`,
+    salary: 28000 + i * 1500,
+    active: true,
+  }]
+}))
+
 const seedNotices = [
   { id: 1, title: 'Parent Teacher Meeting', detail: 'Classes 6-10, Saturday at 10:00 AM', date: '15 Jun', type: 'Event', priority: 'High' },
   { id: 2, title: 'Summer assignment submission', detail: 'All class teachers to verify submissions', date: '18 Jun', type: 'Academic', priority: 'Normal' },
@@ -2417,8 +2459,12 @@ function useSchoolWorkspace(session) {
   const [library, setLibrary] = useState({ books: {}, issues: {}, returns: {}, categories: {}, settings: {}, fines: {} })
   const [accounts, setAccounts] = useState({})
   const [enquiries, setEnquiries] = useStoredState('northstar-enquiries', [])
-  const [staff, setStaff] = useState({})
-  const [staffAttendance, setStaffAttendance] = useState({})
+  // Demo mode me koi listener nahi hota, isliye staff seed se aata hai. Asli
+  // workspace me ye {} hi rehta hai aur listener bhar deta hai.
+  const [staff, setStaff] = useState(() => (developmentDemo ? seedStaff : {}))
+  const [staffAttendance, setStaffAttendance] = useState(() => (developmentDemo
+    ? { [today()]: Object.fromEntries(Object.keys(seedStaff).map((id, i) => [id, i % 9 === 0 ? 'L' : i % 7 === 0 ? 'A' : 'P'])) }
+    : {}))
   const [employeeConfig, setEmployeeConfig] = useState({ departments: {}, designations: {}, shifts: {} })
   const [leave, setLeave] = useState({})
   const [parents, setParents] = useState({})
