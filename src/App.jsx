@@ -10,6 +10,7 @@ import {
   RotateCcw, AlertTriangle, Archive, QrCode
 } from 'lucide-react'
 import './app.css'
+import './timetable.css'
 import AuthScreen from './AuthScreen'
 import SchoolSetup from './SchoolSetup'
 import { StudentPhotoContext, useStudentPhotos } from './student-photos'
@@ -26,6 +27,8 @@ const BackupCenter = lazy(() => import('./BackupCenter'))
 const StudentLeaveManager = lazy(() => import('./StudentLeaveManager'))
 const AdmissionRequestsManager = lazy(() => import('./AdmissionRequestsManager'))
 const TimetableManager = lazy(() => import('./TimetableManager'))
+const PeriodSettings = lazy(() => import('./timetable/PeriodSettings'))
+const TimetableBuilder = lazy(() => import('./timetable/TimetableBuilder'))
 const EmployeeManager = lazy(() => import('./EmployeeManager'))
 const CertificateManager = lazy(() => import('./CertificateManager'))
 const ReportCardManager = lazy(() => import('./ReportCardManager'))
@@ -2037,14 +2040,25 @@ function WeeklyPlanner({ timetableData, onSavePeriod }) {
   </>
 }
 
-function Academics({ timetableData, timetableRecords, students, onSavePeriod, onSaveTimetable, onDeleteTimetable }) {
-  const [view, setView] = useState('records')
+function Academics({ schoolId, schoolName, timetableData, timetableRecords, students, onSavePeriod, onSaveTimetable, onDeleteTimetable }) {
+  const [view, setView] = useState('builder')
   return <>
-    <div className="section-actions"><div><h2>Timetable</h2><p>Upload published schedules and manage the weekly teaching plan.</p></div></div>
-    <div className="sub-tabs timetable-subtabs"><button className={view === 'records' ? 'active' : ''} onClick={() => setView('records')}>Add Timetable</button><button className={view === 'weekly' ? 'active' : ''} onClick={() => setView('weekly')}>Weekly Planner</button></div>
-    {view === 'records'
-      ? <TimetableManager records={timetableRecords} students={students} saveRecord={onSaveTimetable} deleteRecord={onDeleteTimetable} />
-      : <WeeklyPlanner timetableData={timetableData} onSavePeriod={onSavePeriod} />}
+    <div className="section-actions"><div><h2>Timetable</h2><p>Period-wise weekly timetable, plus uploaded schedules.</p></div></div>
+    {/* Builder / Periods / Class view naya period-wise module hai. Purane dono
+        tabs jaan-boojh kar chhode gaye hain — schools ke paas unme pehle se
+        data pada hai, aur unhe hataana matlab wo data gum ho jaana. */}
+    <div className="sub-tabs timetable-subtabs">
+      <button className={view === 'builder' ? 'active' : ''} onClick={() => setView('builder')}>Builder</button>
+      <button className={view === 'periods' ? 'active' : ''} onClick={() => setView('periods')}>Periods</button>
+      <button className={view === 'class' ? 'active' : ''} onClick={() => setView('class')}>Class View</button>
+      <button className={view === 'records' ? 'active' : ''} onClick={() => setView('records')}>Add Timetable</button>
+      <button className={view === 'weekly' ? 'active' : ''} onClick={() => setView('weekly')}>Weekly Planner</button>
+    </div>
+    {view === 'builder' && <TimetableBuilder schoolId={schoolId} schoolName={schoolName} />}
+    {view === 'periods' && <PeriodSettings schoolId={schoolId} />}
+    {view === 'class' && <TimetableBuilder schoolId={schoolId} schoolName={schoolName} readOnly />}
+    {view === 'records' && <TimetableManager records={timetableRecords} students={students} saveRecord={onSaveTimetable} deleteRecord={onDeleteTimetable} />}
+    {view === 'weekly' && <WeeklyPlanner timetableData={timetableData} onSavePeriod={onSavePeriod} />}
   </>
 }
 
@@ -5310,7 +5324,7 @@ export default function App() {
     'student-leave': <StudentLeaveManager leaveRequests={data.leaveRequests} onDecide={data.decideLeaveRequest} role={data.workspace.role} />,
     attendance: <Attendance students={data.students} attendance={data.attendance} onSaveAttendance={data.saveAttendance} />,
     fees: <FeeManager students={data.students} fees={data.fees} feeManager={data.feeManager} approvals={data.approvals.fees || {}} schoolProfile={data.workspace.schoolProfile} onSubmitFee={data.submitFeeReceipt} onSaveGroup={data.saveFeeGroup} onDeleteGroup={data.deleteFeeGroup} onSaveStructure={data.saveFeeStructure} onDeleteStructure={data.deleteFeeStructure} onDeleteReceipt={data.deleteFeeReceipt} onRestoreReceipt={data.restoreFeeReceipt} onDecideApproval={data.decideFeeApproval} onSaveConfig={data.saveFeeManagerConfig} onOpenProfile={setSelectedStudent} />,
-    academics: <Academics timetableData={data.timetableData} timetableRecords={data.timetableRecords} students={data.students} onSavePeriod={data.savePeriod} onSaveTimetable={data.saveTimetableRecord} onDeleteTimetable={data.deleteTimetableRecord} />,
+    academics: <Academics schoolId={data.workspace.schoolId} schoolName={data.workspace.schoolName} timetableData={data.timetableData} timetableRecords={data.timetableRecords} students={data.students} onSavePeriod={data.savePeriod} onSaveTimetable={data.saveTimetableRecord} onDeleteTimetable={data.deleteTimetableRecord} />,
     homework: <HomeworkManager students={data.students} homework={data.homework} saveHomework={data.saveHomework} deleteHomework={data.deleteHomework} markHomeworkDone={data.markHomeworkDone} markHomeworkSeen={data.markHomeworkSeen} profile={profile} />,
     transport: <TransportManager students={data.students} transport={data.transport} saveTransportItem={data.saveTransportItem} deleteTransportItem={data.deleteTransportItem} />,
     expenses: <ExpenseManager expenses={data.expenses} staff={data.staff} fees={data.fees} saveExpenseItem={data.saveExpenseItem} deleteExpenseItem={data.deleteExpenseItem} />,

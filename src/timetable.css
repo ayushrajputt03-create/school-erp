@@ -1,0 +1,167 @@
+/*
+ * Timetable module — navy theme (CLAUDE.md ka palette):
+ *   #021024  #052659  #5483B3  #7DA0CA  #C1E8FF
+ *
+ * Certificate module jaisa feel: ghana, saaf, operational. Koi decorative
+ * gradient/orb nahi. Print ke rules print-shared.css ke saath chalte hain —
+ * yahan sirf is module ka layout hai.
+ */
+
+.timetable-navy-head { --tt-ink: #021024; --tt-deep: #052659; --tt-mid: #5483B3; --tt-soft: #7DA0CA; --tt-pale: #C1E8FF; }
+
+/* ── panel head ─────────────────────────────────────────────── */
+.timetable-panel-head {
+  display: flex; align-items: flex-start; justify-content: space-between;
+  gap: 14px; padding: 4px 2px 14px; flex-wrap: wrap;
+}
+.timetable-panel-head h3 {
+  display: flex; align-items: center; gap: 8px;
+  font: 600 15px Manrope, system-ui, sans-serif; color: #021024;
+}
+.timetable-panel-head p { margin-top: 4px; font-size: 12px; color: #64748b; max-width: 62ch; }
+
+.timetable-loading {
+  display: flex; align-items: center; gap: 9px;
+  padding: 26px; font-size: 13px; color: #52607a;
+}
+.timetable-loading .spin { animation: tt-spin 1s linear infinite; }
+@keyframes tt-spin { to { transform: rotate(360deg); } }
+
+/* ── period settings table ──────────────────────────────────── */
+.timetable-periods-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+.timetable-periods-table th {
+  text-align: left; padding: 9px 10px; background: #052659; color: #C1E8FF;
+  font-weight: 600; font-size: 11px; letter-spacing: .03em; white-space: nowrap;
+}
+.timetable-periods-table th:first-child { border-radius: 7px 0 0 0; width: 62px; }
+.timetable-periods-table th:last-child { border-radius: 0 7px 0 0; width: 120px; }
+.timetable-periods-table td { padding: 6px 8px; border-bottom: 1px solid #eef1f6; vertical-align: middle; }
+.timetable-periods-table tr.has-error td { background: #fff7f7; }
+
+.timetable-periods-table input[type="number"],
+.timetable-periods-table input[type="time"],
+.timetable-periods-table input[type="text"],
+.timetable-periods-table input:not([type]) {
+  width: 100%; min-width: 0; padding: 6px 8px;
+  border: 1px solid #d5dce8; border-radius: 6px; background: #fff; color: #021024;
+}
+.timetable-periods-table input:focus-visible {
+  outline: 2px solid #5483B3; outline-offset: 1px; border-color: #5483B3;
+}
+.timetable-break-cell label { display: inline-flex; align-items: center; gap: 6px; color: #5483B3; cursor: pointer; }
+
+.timetable-row-error {
+  display: block; margin-top: 4px; font-size: 10.5px; color: #b42318; line-height: 1.35;
+}
+
+/* ── messages ───────────────────────────────────────────────── */
+.timetable-error-list { display: flex; align-items: center; gap: 8px; margin-top: 12px; }
+.timetable-notice {
+  margin-top: 12px; padding: 9px 12px; border-radius: 7px;
+  background: #C1E8FF; border: 1px solid #7DA0CA; color: #052659; font-size: 12px;
+}
+.timetable-actions { margin-top: 14px; justify-content: flex-end; }
+
+/* ── builder pickers ────────────────────────────────────────── */
+.timetable-pickers { display: flex; align-items: flex-end; gap: 10px; flex-wrap: wrap; }
+.timetable-pickers label { display: flex; flex-direction: column; gap: 4px; font-size: 11px; color: #52607a; }
+.timetable-pickers select {
+  padding: 7px 9px; border: 1px solid #d5dce8; border-radius: 6px;
+  background: #fff; color: #021024; min-width: 96px;
+}
+
+/* ── weekly grid ────────────────────────────────────────────── */
+.timetable-grid { width: 100%; border-collapse: collapse; font-size: 11.5px; }
+.timetable-grid th {
+  padding: 9px 8px; background: #052659; color: #C1E8FF;
+  font-weight: 600; font-size: 11px; text-align: center; white-space: nowrap;
+}
+.timetable-grid th.timetable-period-col { text-align: left; width: 150px; }
+.timetable-grid td {
+  padding: 5px 6px; border: 1px solid #e6ebf3; vertical-align: top; text-align: center;
+}
+.timetable-grid td.timetable-period-col { text-align: left; background: #f4f8fd; white-space: nowrap; }
+.timetable-grid td.timetable-period-col strong { display: block; color: #021024; font-size: 11.5px; }
+.timetable-grid td.timetable-period-col small { display: block; color: #5483B3; font-size: 10px; margin-top: 2px; }
+
+.timetable-break-row td { background: #eef3f9; color: #52607a; font-weight: 600; letter-spacing: .04em; }
+
+.timetable-chip { display: block; padding: 3px 4px; line-height: 1.35; }
+.timetable-chip strong { display: block; color: #021024; font-size: 11.5px; }
+.timetable-chip small { display: block; color: #5483B3; font-size: 10px; }
+/* `timetable-empty` app.css me pehle se hai (purana bada empty-state,
+   min-height 220px) — isliye alag naam. */
+.timetable-cell-blank { color: #c3ccda; }
+
+/* ── editable cell ──────────────────────────────────────────── */
+.timetable-edit-cell { display: flex; flex-direction: column; gap: 3px; min-width: 118px; }
+.timetable-edit-cell input, .timetable-edit-cell select {
+  width: 100%; padding: 4px 6px; font-size: 11px;
+  border: 1px solid #dbe2ed; border-radius: 5px; background: #fff; color: #021024;
+}
+.timetable-edit-cell input:focus-visible, .timetable-edit-cell select:focus-visible {
+  outline: 2px solid #5483B3; outline-offset: 1px;
+}
+.timetable-edit-cell.has-clash input, .timetable-edit-cell.has-clash select {
+  border-color: #e8a3a3; background: #fff6f6;
+}
+
+.timetable-clash-list { display: flex; gap: 9px; align-items: flex-start; margin-top: 12px; }
+.timetable-clash-list ul { margin: 5px 0 0; padding-left: 17px; }
+.timetable-clash-list li { margin-bottom: 3px; }
+
+/* ── document head (print + screen) ─────────────────────────── */
+.timetable-doc-head { padding: 0 0 10px; }
+.timetable-doc-head h3 { font: 600 14px Manrope, system-ui, sans-serif; color: #021024; }
+.timetable-doc-head p { font-size: 11px; color: #5483B3; margin-top: 2px; }
+.timetable-doc-foot { padding-top: 10px; font-size: 10.5px; color: #64748b; }
+
+/* ── teacher's own week ─────────────────────────────────────── */
+.timetable-day-block { padding: 10px 0; border-bottom: 1px solid #eef1f6; }
+.timetable-day-block:last-child { border-bottom: 0; }
+.timetable-day-block h4 {
+  font: 600 12px Manrope, system-ui, sans-serif; color: #052659;
+  text-transform: uppercase; letter-spacing: .05em; margin-bottom: 6px;
+}
+.timetable-day-block ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 5px; }
+.timetable-day-block li {
+  display: flex; flex-wrap: wrap; align-items: baseline; gap: 10px;
+  padding: 7px 10px; border-radius: 6px; background: #f4f8fd;
+  border-left: 3px solid #5483B3; font-size: 12px;
+}
+.timetable-day-time { font-weight: 600; color: #021024; min-width: 138px; }
+.timetable-day-class { color: #052659; font-weight: 600; }
+.timetable-day-subject { color: #334155; }
+.timetable-day-room { color: #7DA0CA; font-size: 11px; }
+.timetable-day-free { font-size: 11.5px; color: #9aa6b8; padding-left: 2px; }
+
+/* ── print ──────────────────────────────────────────────────── */
+/*
+ * Grid landscape me jaata hai (chhe din ki columns portrait me nichud jaati
+ * hain). Width 186mm nahi di gayi — landscape A4 ka printable ~277mm hai, aur
+ * exact width dene se hi clipping hoti hai. 100% + fixed layout browser ko
+ * apne margin ke andar rehne deta hai.
+ */
+@media print {
+  .timetable-print-area, .timetable-teacher-print { overflow: visible !important; }
+  .timetable-grid { table-layout: fixed; width: 100%; font-size: 9px; }
+  .timetable-grid th, .timetable-grid td { padding: 3px 4px; }
+  .timetable-grid th { background: #052659 !important; color: #fff !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  .timetable-grid td.timetable-period-col { background: #f4f8fd !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  /* Edit controls kaagaz par bekaar hain — sirf chuni hui value dikhni chahiye. */
+  .timetable-edit-cell input, .timetable-edit-cell select {
+    border: 0 !important; background: transparent !important; padding: 0 !important;
+    -webkit-appearance: none; appearance: none;
+  }
+  .timetable-pickers, .timetable-actions, .timetable-clash-list { display: none !important; }
+  .timetable-day-block { break-inside: avoid; }
+  .timetable-day-block li { background: #f4f8fd !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+}
+
+/* ── responsive ─────────────────────────────────────────────── */
+@media (max-width: 720px) {
+  .timetable-panel-head { flex-direction: column; align-items: stretch; }
+  .timetable-periods-table { min-width: 560px; }
+  .timetable-grid { min-width: 780px; }
+  .timetable-day-time { min-width: 0; }
+}

@@ -24,7 +24,10 @@ import { NODES, SUB_NODES, isKvNode } from './nodeMap.js'
 
 const schoolCache = new Map()
 
-async function schoolUuid(legacyId) {
+// timetableStore isi cache ko dobara istemal karta hai — apni alag lookup
+// likhne par har module school ka uuid alag se poochta aur ek hi baat ke liye
+// baar-baar query jaati.
+export async function schoolUuid(legacyId) {
   if (!legacyId) return null
   if (schoolCache.has(legacyId)) return schoolCache.get(legacyId)
   const { data, error } = await supabase.from('schools').select('id').eq('legacy_id', legacyId).maybeSingle()

@@ -10,7 +10,9 @@ import { useSupabase } from './lib/supabaseClient'
 import { databaseRequest as supabaseRequest, subscribe as supabaseSubscribe } from './lib/dataAdapter'
 import { watchAuth, signOutUser, getToken, changePassword, signInWithStaffGrant } from './lib/authAdapter'
 import DatePicker from './DatePicker'
+import TeacherTimetable from './timetable/TeacherTimetable'
 import './teacher-app.css'
+import './timetable.css'
 
 const databaseUrl = import.meta.env.VITE_FIREBASE_DATABASE_URL?.replace(/\/$/, '')
 
@@ -627,6 +629,7 @@ const teacherNav = [
   { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
   { id: 'attendance', label: 'My Attendance', icon: CalendarCheck },
   { id: 'classes', label: 'My Classes', icon: GraduationCap },
+  { id: 'timetable', label: 'My Timetable', icon: Clock3 },
   { id: 'homework', label: 'Homework', icon: BookOpen },
   { id: 'leave-requests', label: 'Leave Requests', icon: Umbrella },
   { id: 'notices', label: 'Notices', icon: MessageSquareText },
@@ -811,6 +814,7 @@ export default function TeacherApp() {
         {page === 'dashboard' && <TeacherDashboard teacher={teacher} schoolProfile={schoolProfile} students={students} attendance={attendance} homework={homework} notices={notices} token={null} schoolId={schoolId} onLogout={doLogout} onNavigate={setPage} />}
         {page === 'attendance' && <TeacherAttendance teacher={teacher} students={students} attendance={attendance} token={null} schoolId={schoolId} onSaved={(d, c, data) => setAttendance(a => ({ ...a, [d]: { ...(a[d] || {}), [c]: data } }))} />}
         {page === 'classes' && <TeacherClasses teacher={teacher} students={students} />}
+        {page === 'timetable' && <TeacherTimetable schoolId={schoolId} teacherLegacyId={teacher.uid} teacherName={teacher.name} />}
         {page === 'homework' && <TeacherHomework teacher={teacher} homework={homework} students={students} token={null} schoolId={schoolId} />}
         {page === 'leave-requests' && <TeacherLeaveRequests leaveRequests={leaveRequests} classSections={myClassSections} />}
         {page === 'notices' && <TeacherNotices notices={notices} />}
