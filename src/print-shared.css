@@ -71,15 +71,23 @@
     display: none !important;
   }
 
-  body.erp-printing .app-shell,
-  body.erp-printing .main-area,
-  body.erp-printing main,
-  body.erp-printing .page-content,
-  body.erp-printing #root {
+  /* ── keep the target's ancestor chain laid out ──
+   * safePrint() tags every ancestor of the print target with .print-ancestor.
+   * Needed because app.css does `.page-content > *{display:none}` while
+   * printing (a fee-receipt rule) — that hides the wrapper the report card
+   * lives in, and no amount of visibility:visible on the card brings back an
+   * ancestor that was display:none. Specificity here (0,2,1) beats it.
+   *
+   * Siblings of the chain are removed rather than hidden: `visibility:hidden`
+   * still reserves the sidebar's and header's boxes, and that empty space is
+   * what prints as blank leading pages.
+   */
+  body.erp-printing .print-ancestor {
     display: block !important;
     position: static !important;
     width: auto !important;
     height: auto !important;
+    max-width: none !important;
     min-height: 0 !important;
     margin: 0 !important;
     padding: 0 !important;
@@ -87,7 +95,25 @@
     box-shadow: none !important;
     overflow: visible !important;
     border: 0 !important;
+    transform: none !important;
+    animation: none !important;
   }
+  body.erp-printing .print-ancestor > *:not(.print-ancestor):not(.print-target) {
+    display: none !important;
+  }
+  /* Same treatment one level up. <body> itself is never tagged, so without this
+   * a portalled target (certificates, admit cards) still leaves the whole #root
+   * app shell reserving its full height beside it. */
+  body.erp-printing > *:not(.print-ancestor):not(.print-target) {
+    display: none !important;
+  }
+
+  /* The named-wrapper list that used to live here (.app-shell, .main-area,
+   * main, .page-content, #root) is gone: .print-ancestor does the same job,
+   * but only for the chain that actually leads to the target. The old list
+   * un-hid #root even when the target was portalled outside it, and that #root
+   * carried an ID — beating the sibling rule above and leaving a full-height
+   * empty app shell on the page. */
 }
 
 /* ── watermark helper ─────────────────────────────────────────────── */

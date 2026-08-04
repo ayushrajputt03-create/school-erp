@@ -61,9 +61,28 @@ export async function safePrint(target, options = {}) {
   document.querySelectorAll('.print-target').forEach(n => n.classList.remove('print-target'))
   el.classList.add('print-target')
 
+  // Mark the chain from the target up to <body>.
+  //
+  // app.css hides every direct child of .page-content while printing — a rule
+  // written for the fee receipt modal. visibility:visible on .print-target
+  // cannot undo an ancestor's display:none, so any target rendered inline in
+  // the page (the report card) printed as a blank sheet. Certificates escaped
+  // it only because they portal out to <body>.
+  //
+  // The stylesheet keeps exactly this chain laid out and drops every sibling
+  // branch outright, instead of leaving them invisible-but-occupying-space,
+  // which is what pushes a document onto leading blank pages.
+  document.querySelectorAll('.print-ancestor').forEach(n => n.classList.remove('print-ancestor'))
+  const ancestors = []
+  for (let node = el.parentElement; node && node !== document.body; node = node.parentElement) {
+    node.classList.add('print-ancestor')
+    ancestors.push(node)
+  }
+
   const cleanup = () => {
     document.body.classList.remove('erp-printing')
     el.classList.remove('print-target')
+    ancestors.forEach(node => node.classList.remove('print-ancestor'))
     removePageRule()
     window.removeEventListener('afterprint', cleanup)
   }
