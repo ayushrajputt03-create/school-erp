@@ -6,7 +6,8 @@ import {
 } from 'lucide-react'
 import DatePicker from './DatePicker'
 import { safePrint as sharedSafePrint } from './print-utils'
-import { REPORT_TEMPLATES, templateById, MarkCell } from './reportCardTemplates'
+import { REPORT_TEMPLATES, templateById, MarksTable } from './reportCardTemplates'
+import { buildMarksTable } from './lib/reportColumns'
 import './ReportCardManager.css'
 
 // Remembered per browser rather than written to the school record: picking a design is a
@@ -225,7 +226,7 @@ function MarksEntry({ students, reportData, onSaveMarks, onSaveReport }) {
   </div>
 }
 
-function ReportCardPaper({ student, exam, record, school, classRecords, onEditMark }) {
+function ReportCardPaper({ student, exam, record, school, classRecords, onEditMark, marksTable }) {
   const summary = calculateReport(exam, record, classRecords)
   const photo = profilePhoto(student)
   const parts = classParts(student.className)
@@ -249,7 +250,7 @@ function ReportCardPaper({ student, exam, record, school, classRecords, onEditMa
         <div><span>Session</span><strong>{exam.session || school.academicYear || '2026-27'}</strong></div>
         <div><span>Attendance</span><strong>{record.attendance || '-'}%</strong></div>
       </section>
-      <table className="report-card-table premium-marks-table rt-table-marks"><thead><tr><th>Subject</th><th>Marks</th></tr></thead><tbody>{summary.subjects.map((row, index) => <tr key={row.subject}><td>{row.subject}</td><td className="rt-total"><MarkCell value={row.obtained} max={row.maxMarks} onEdit={onEditMark && (value => onEditMark(index, value))} /></td></tr>)}</tbody></table>
+      <MarksTable className="report-card-table premium-marks-table rt-table-marks" table={marksTable} summary={summary} exam={exam} student={student} onEditMark={onEditMark} />
       <section className="premium-result-box">
         <div className={`percent-ring ${tone}`} style={{ '--score': `${Math.min(100, summary.percentage)}%` }}><strong>{summary.percentage}%</strong><span>Overall</span></div>
         <div className="premium-summary-grid">
@@ -293,16 +294,19 @@ function TemplatePicker({ value, onChange }) {
 
 // Chooses which design renders. 'classic' keeps the original ReportCardPaper untouched, so a
 // school that never opens the picker prints exactly what it printed before.
-function ReportCardSurface({ templateId, student, exam, record, school, classRecords, onEditMark }) {
+function ReportCardSurface({ templateId, student, exam, record, school, classRecords, onEditMark, exams, allMarks }) {
   const template = templateById(templateId)
-  if (!template.Component) return <ReportCardPaper student={student} exam={exam} record={record} school={school} classRecords={classRecords} onEditMark={onEditMark} />
+  const summary = calculateReport(exam, record, classRecords)
+  const marksTable = buildMarksTable({ activeExam: exam, activeSummary: summary, exams, marks: allMarks, studentId: student.id })
+  if (!template.Component) return <ReportCardPaper student={student} exam={exam} record={record} school={school} classRecords={classRecords} onEditMark={onEditMark} marksTable={marksTable} />
   const { Component } = template
   return <Component
     school={school}
     student={student}
     exam={exam}
     record={record}
-    summary={calculateReport(exam, record, classRecords)}
+    summary={summary}
+    marksTable={marksTable}
     parts={classParts(student.className)}
     photo={profilePhoto(student)}
     logo={school.logo || school.logoURL || ''}
@@ -376,7 +380,7 @@ function ReportGenerator({ students, school, reportData, onSaveMarks, onSaveRepo
       <div className="report-actions"><button className="secondary-button" disabled={!record} onClick={() => safePrint('.report-card-paper')}><Printer size={15} /> Print Report Card</button><button className="secondary-button" disabled={!record} onClick={() => downloadReportPdf(`${student?.name || 'student'}-report-card.pdf`)}><Download size={15} /> Download PDF</button><button className="secondary-button" disabled={!record} onClick={() => safePrint('.report-card-paper')}><Users size={15} /> Bulk Print Class</button><button className="secondary-button" disabled={!record} onClick={() => downloadReportPdf('bulk-report-cards.pdf')}><Download size={15} /> Bulk PDF</button></div>
       {record && <div className="report-admin-controls"><button onClick={() => onUpdateReport(key, { status: 'published' })}><Eye size={14} /> Publish</button><button onClick={() => onUpdateReport(key, { status: 'draft' })}><Unlock size={14} /> Unpublish</button><button onClick={() => onUpdateReport(key, { locked: true })}><Lock size={14} /> Lock</button><button onClick={() => onUpdateReport(key, { locked: false })}><Unlock size={14} /> Unlock</button></div>}
     </section>
-    <section className="report-preview-wrap">{record && student ? <ReportCardSurface templateId={templateId} student={student} exam={exam} record={record} school={school} classRecords={classRows} onEditMark={editMark} /> : <div className="empty-state large"><FileText size={30} /><strong>No report selected</strong><p>First save marks, select student, then click Generate Result.</p></div>}</section>
+    <section className="report-preview-wrap">{record && student ? <ReportCardSurface templateId={templateId} student={student} exam={exam} record={record} school={school} classRecords={classRows} onEditMark={editMark} exams={reportData.exams} allMarks={reportData.marks} /> : <div className="empty-state large"><FileText size={30} /><strong>No report selected</strong><p>First save marks, select student, then click Generate Result.</p></div>}</section>
   </div>
 }
 
@@ -413,9 +417,15 @@ function ParentPortal({ students, school, reportData }) {
   const rows = student ? published.filter(row => row.studentId === student.id) : published
   const current = rows[0]
   const exam = current ? reportData.exams?.[current.examId] || defaultExam() : null
+  // Only published records feed the extra columns. A draft exam must not appear here just
+  // because another exam of the same student was published.
+  const publishedMarks = useMemo(() => Object.fromEntries(published.map(row => [reportKey(row.examId, row.studentId), row])), [reportData])
+  const marksTable = current && exam
+    ? buildMarksTable({ activeExam: exam, activeSummary: calculateReport(exam, current, rows), exams: reportData.exams, marks: publishedMarks, studentId: current.studentId })
+    : null
   return <div className="report-two-column">
     <section className="panel report-form"><div className="panel-header"><div><h3>Student & Parent Portal</h3><p>View, download and print published results.</p></div></div><StudentPicker students={students} value={student} onSelect={setStudent} /><div className="report-list">{rows.map(row => <article key={`${row.examId}_${row.studentId}`}><div><strong>{reportData.exams?.[row.examId]?.name || 'Exam'}</strong><small>{row.summary?.percentage}% | {row.summary?.grade}</small></div><span className="status paid">Published</span></article>)}</div></section>
-    <section className="report-preview-wrap">{current && student ? <ReportCardPaper student={student} exam={exam} record={current} school={school} classRecords={rows} /> : <div className="empty-state large">No published report selected.</div>}</section>
+    <section className="report-preview-wrap">{current && student ? <ReportCardPaper student={student} exam={exam} record={current} school={school} classRecords={rows} marksTable={marksTable} /> : <div className="empty-state large">No published report selected.</div>}</section>
   </div>
 }
 

@@ -19,3 +19,18 @@
 .report-chart-grid{display:grid;grid-template-columns:1.2fr .8fr;gap:14px}.subject-bars,.grade-chart{display:grid;gap:10px;padding:16px}.subject-bars div{display:grid;grid-template-columns:110px 1fr 45px;gap:10px;align-items:center}.subject-bars span,.subject-bars strong{font-size:10px}.subject-bars i{height:12px;border-radius:999px;background:linear-gradient(90deg,#052659,#5483b3)}.grade-chart{grid-template-columns:repeat(3,1fr)}.grade-chart div{border:1px solid var(--line);border-radius:8px;padding:12px;text-align:center}.grade-chart span,.grade-chart strong{display:block}.grade-chart strong{font:800 20px Manrope;margin-top:5px;color:#052659}
 @media(max-width:900px){.premium-result-box{grid-template-columns:1fr;justify-items:center}.premium-summary-grid,.report-chart-grid{grid-template-columns:1fr}.result-banner{grid-template-columns:auto 1fr}.result-banner span{grid-column:1/-1}.premium-info-grid{grid-template-columns:repeat(2,1fr)}}
 @media print{.premium-report-header{-webkit-print-color-adjust:exact!important;print-color-adjust:exact!important}.report-outer-border{border:3px solid #052659!important}.report-inner-border{border:1px solid #5483b3!important}.premium-result-box,.result-banner,.premium-marks-table th{-webkit-print-color-adjust:exact!important;print-color-adjust:exact!important}.report-watermark{opacity:.05!important}.report-card-paper{border-radius:0!important}.report-title-block{padding-top:10px!important}.premium-info-grid,.premium-marks-table,.premium-result-box,.result-banner,.report-remarks,.premium-signatures,.report-footer-note{margin-left:10mm!important;margin-right:10mm!important}}
+
+/* Classic design, multi-exam view. Type and padding tighten only when there is more than one
+   exam column, so a school with a single exam keeps the card it printed before. */
+/* !important throughout because .premium-marks-table already sets padding:10px!important on
+   every cell — at five columns that padding alone pushes the table past the print width. */
+/* table-layout:fixed so the exam columns split the leftover width evenly. Left to auto, a long
+   exam name like "Periodic Test 2 (PT-2)" eats width from its neighbours and squeezes the
+   shortest column down to a few characters. */
+.report-card-table.rt-multi{font-size:9px;table-layout:fixed}
+.report-card-table.rt-multi th,.report-card-table.rt-multi td{padding:6px 4px!important;text-align:center;word-break:break-word}
+.report-card-table.rt-multi td:first-child,.report-card-table.rt-multi th:first-child{text-align:left;width:26%}
+.report-card-table.rt-multi tfoot td{background:#eef3fb;font-weight:800}
+.report-card-table .rt-overall{background:#eef3fb}
+.report-card-table .rt-overall .rt-mark-max{display:block;font-size:.85em;margin-top:1px}
+@media print{.report-card-table.rt-multi{font-size:8px}.report-card-table.rt-multi th,.report-card-table.rt-multi td{padding:4px 3px!important}}

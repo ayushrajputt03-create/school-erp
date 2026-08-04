@@ -230,6 +230,8 @@
   .rt .rt-table th { font-size: 5.3pt; padding: 1.2mm .4mm; }
   .rt .rt-table td { font-size: 6pt; padding: 1.1mm .5mm; }
   .rt .rt-table td:first-child { padding-left: 1.4mm; }
+  .rt .rt-table-marks.rt-multi th { font-size: 4.7pt; padding: 1.1mm .25mm; }
+  .rt .rt-table-marks.rt-multi td { font-size: 5.4pt; padding: 1mm .25mm; }
 }
 
 /* The preview sits inside a scrolling two-column grid. An ancestor that still scrolls during
@@ -243,6 +245,16 @@
 /* Marks-only table. The subject needs the room; the marks column is a short number, so the
    fixed layout is split rather than left at an even 50/50. */
 .rt-table-marks td:first-child, .rt .rt-table-marks th:first-child { width: 64%; }
+
+/* Multi-exam view. The subject gives up most of its width once there are exam columns to fit,
+   and type tightens a step so four exams plus Overall still land inside the A4 text block
+   rather than pushing the table past the page edge. */
+.rt-table-marks.rt-multi td:first-child, .rt .rt-table-marks.rt-multi th:first-child { width: 26%; }
+.rt .rt-table-marks.rt-multi th { font-size: 5pt; padding: 1.2mm .3mm; }
+.rt .rt-table-marks.rt-multi td { font-size: 5.9pt; padding: 1.1mm .3mm; }
+.rt-overall { background: var(--soft, #f1f5fb); }
+.rt-overall b { font-weight: 850; }
+.rt-overall .rt-mark-max { display: block; font-size: .82em; margin-top: .2mm; }
 
 /* Editable marks cell.
    The read-only span and the click-to-edit button must look identical, otherwise the card

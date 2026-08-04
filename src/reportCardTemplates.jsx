@@ -11,6 +11,7 @@
 // outer .report-card-paper class because the existing print and PDF paths select on it.
 
 import React, { useState } from 'react'
+import { buildMarksTable } from './lib/reportColumns'
 import './reportCardTemplates.css'
 
 // Marks cell. Read-only by default; with onEdit it turns into an input on click.
@@ -52,6 +53,55 @@ export function MarkCell({ value, max, onEdit }) {
   />
 }
 
+// The marks table, shared by every design.
+//
+// One column per exam that actually has marks for this student, in exam-date order, plus a
+// weighted-average Overall column. A student with only one exam entered gets the exact table
+// this module printed before: a single "Marks" column, no Overall, no totals row - because a
+// second column that repeats the first is noise on a document a parent keeps.
+//
+// Only the selected exam's cells are editable. The other columns come from records this
+// screen is not editing, and silently writing to them would be a surprise.
+export function MarksTable({ className, subjectLabel = 'Subject', table, summary, exam, student, footer, onEditMark }) {
+  const built = table || buildMarksTable({ activeExam: exam, activeSummary: summary, exams: null, marks: null, studentId: student?.id })
+  const { multi, columns, rows } = built
+  const showFoot = footer || multi
+
+  const totalOf = pick => rows.reduce((sum, row) => sum + (pick(row) || 0), 0)
+  const columnTotals = columns.map((column, index) => ({
+    obtained: totalOf(row => row.cells[index].obtained),
+    maxMarks: totalOf(row => row.cells[index].obtained === null ? 0 : row.cells[index].maxMarks),
+  }))
+  const overallTotal = { obtained: totalOf(row => row.overall?.obtained), maxMarks: totalOf(row => row.overall?.maxMarks) }
+
+  return <table className={`${className}${multi ? ' rt-multi' : ''}`}>
+    <thead><tr>
+      <th>{subjectLabel}</th>
+      {multi
+        ? <>{columns.map(column => <th key={column.examId}>{column.name}</th>)}<th>Overall</th></>
+        : <th>Marks</th>}
+    </tr></thead>
+    <tbody>{rows.map(row => <tr key={row.subject}>
+      <td>{row.subject}</td>
+      {row.cells.map((cell, index) => <td key={columns[index].examId} className="rt-total">
+        <MarkCell
+          value={cell.obtained}
+          max={cell.maxMarks}
+          onEdit={onEditMark && cell.editIndex !== null ? value => onEditMark(cell.editIndex, value) : undefined}
+        />
+      </td>)}
+      {multi && <td className="rt-total rt-overall">{row.overall
+        ? <><b>{row.overall.percent}%</b><i className="rt-mark-max"> {row.overall.obtained}/{row.overall.maxMarks}</i></>
+        : <span className="rt-mark">—</span>}</td>}
+    </tr>)}</tbody>
+    {showFoot && <tfoot><tr>
+      <td>Overall</td>
+      {columnTotals.map((total, index) => <td key={columns[index].examId} className="rt-total">{total.obtained} / {total.maxMarks}</td>)}
+      {multi && <td className="rt-total">{overallTotal.maxMarks ? `${Math.round((overallTotal.obtained / overallTotal.maxMarks) * 100)}%` : '—'}</td>}
+    </tr></tfoot>}
+  </table>
+}
+
 const stars = percent => {
   const filled = percent >= 85 ? 4 : percent >= 70 ? 3 : percent >= 50 ? 2 : 1
   return '★'.repeat(filled) + '☆'.repeat(4 - filled)
@@ -87,7 +137,7 @@ function Footer({ record, note }) {
 
 // --- Formal layout: marks table, for senior classes -------------------------------------
 
-function FormalTemplate({ theme, school, student, exam, record, summary, parts, photo, logo, onEditMark }) {
+function FormalTemplate({ theme, school, student, exam, record, summary, parts, photo, logo, onEditMark, marksTable }) {
   const session = exam.session || school.academicYear || ''
   return <article className={`report-card-paper rt rt-formal theme-${theme}`}>
     <div className="rt-inner">
@@ -117,14 +167,7 @@ function FormalTemplate({ theme, school, student, exam, record, summary, parts, 
       </section>
 
       <div className="rt-heading"><h3>Scholastic Performance</h3><span>Maximum {summary.totalMax} marks</span></div>
-      <table className="rt-table rt-table-marks">
-        <thead><tr><th>Subject</th><th>Marks</th></tr></thead>
-        <tbody>{summary.subjects.map((row, index) => <tr key={row.subject}>
-          <td>{row.subject}</td>
-          <td className="rt-total"><MarkCell value={row.obtained} max={row.maxMarks} onEdit={onEditMark && (value => onEditMark(index, value))} /></td>
-        </tr>)}</tbody>
-        <tfoot><tr><td>Overall</td><td className="rt-total">{summary.obtained} / {summary.totalMax}</td></tr></tfoot>
-      </table>
+      <MarksTable className="rt-table rt-table-marks" table={marksTable} summary={summary} exam={exam} student={student} footer onEditMark={onEditMark} />
 
       <div className="rt-lower">
         <section className="rt-box">
@@ -169,7 +212,7 @@ const KID_COPY = {
   rainbow: { icon: '🌈', title: 'My Colourful Progress Report', sub: 'Celebrating learning, creativity and happy achievements', journey: 'Learning & Academic Development', remark: 'A Special Message From My Teacher', sticker: '⭐', foot: 'Keep learning, creating and shining!' },
 }
 
-function KidsTemplate({ theme, school, student, exam, record, summary, parts, photo, logo, onEditMark }) {
+function KidsTemplate({ theme, school, student, exam, record, summary, parts, photo, logo, onEditMark, marksTable }) {
   const copy = KID_COPY[theme] || KID_COPY.happy
   const session = exam.session || school.academicYear || ''
   return <article className={`report-card-paper rt rt-kids theme-${theme}`}>
@@ -199,13 +242,7 @@ function KidsTemplate({ theme, school, student, exam, record, summary, parts, ph
       </section>
 
       <div className="rt-heading"><div className="rt-bubble">📚</div><h3>{copy.journey}</h3><span>Out of {summary.totalMax} marks</span></div>
-      <table className="rt-table rt-table-marks">
-        <thead><tr><th>Learning Area</th><th>Marks</th></tr></thead>
-        <tbody>{summary.subjects.map((row, index) => <tr key={row.subject}>
-          <td>{row.subject}</td>
-          <td className="rt-total"><MarkCell value={row.obtained} max={row.maxMarks} onEdit={onEditMark && (value => onEditMark(index, value))} /></td>
-        </tr>)}</tbody>
-      </table>
+      <MarksTable className="rt-table rt-table-marks" subjectLabel="Learning Area" table={marksTable} summary={summary} exam={exam} student={student} onEditMark={onEditMark} />
 
       <div className="rt-lower">
         <section className="rt-box">
