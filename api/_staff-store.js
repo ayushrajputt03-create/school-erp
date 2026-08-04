@@ -97,6 +97,65 @@ function firebaseStore() {
       })
       return { token }
     },
+
+    // Caller kaun hai — token se, request body se NAHI. Poore app me schoolId
+    // hamesha yahin se aana chahiye, warna koi bhi logged-in aadmi kisi aur
+    // school ka schoolId bhej kar uska data chhoo sakta hai.
+    async verifyCaller(token) {
+      try {
+        const decoded = await getAuth(app).verifyIdToken(token)
+        return { uid: decoded.uid }
+      } catch { return null }
+    },
+
+    /**
+     * "Create Teacher Login" ka Firebase raasta — email + password ka asli auth
+     * khaata banata hai. (Supabase par aisa khaata banane ki zarurat hi nahi
+     * rehti; wahan wali tippani neeche hai.)
+     */
+    async ensureStaffLogin(schoolId, { email, password, staffId, profile }) {
+      const adminAuth = getAuth(app)
+      const displayName = profile.name || `${profile.firstName || ''} ${profile.lastName || ''}`.trim()
+      const existing = await adminAuth.getUserByEmail(email).catch(() => null)
+      const uid = existing
+        ? (await adminAuth.updateUser(existing.uid, { password, displayName }), existing.uid)
+        : (await adminAuth.createUser({ email, password, displayName })).uid
+
+      await database.ref(`schools/${schoolId}/teachers/${uid}`).set({
+        ...profile, uid, email, role: 'teacher', schoolId, isActive: true,
+        createdAt: profile.createdAt || Date.now(), updatedAt: Date.now(),
+      })
+      await database.ref(`teachersIndex/${uid}`).set({ schoolId, teacherId: uid, role: 'teacher' })
+      return { staffId: uid, created: !existing }
+    },
+
+    // Staff dashboard ka pehla payload. schoolId caller ke uid se nikalta hai.
+    async staffSession(uid, { monthStart }) {
+      const [index, user] = await Promise.all([read(`teachersIndex/${uid}`), read(`users/${uid}`)])
+      const schoolId = index?.schoolId || user?.schoolId
+      if (!schoolId) return null
+
+      const [staff, teacher, profile, students, homework, notices, attendance] = await Promise.all([
+        read(`schools/${schoolId}/staff/${uid}`),
+        read(`schools/${schoolId}/teachers/${uid}`),
+        read(`schools/${schoolId}/profile`),
+        read(`schools/${schoolId}/students`),
+        read(`schools/${schoolId}/homework`),
+        read(`schools/${schoolId}/notices`),
+        // Attendance yahan akela aisa node hai jo bina rukey badhta hai —
+        // students x school days. Staff app sirf abhi ka mahina dikhata hai
+        // (uska live listener bhi utna hi bandha hua hai), to pehla payload
+        // bhi utna hi. `attendance` ka maujooda .indexOn ["date"] use hota hai.
+        (async () => (await database.ref(`schools/${schoolId}/attendance`).orderByChild('date').startAt(monthStart).once('value')).val())(),
+      ])
+      const record = staff || teacher
+      if (!record) return { schoolId, record: null }
+      return {
+        schoolId, record,
+        profile: profile || {}, students: students || {},
+        homework: homework || {}, notices: notices || {}, attendance: attendance || {},
+      }
+    },
   }
 }
 
@@ -202,6 +261,88 @@ function supabaseStore() {
       const tokenHash = data?.properties?.hashed_token
       if (!tokenHash) throw new Error('Login link could not be created.')
       return { tokenHash, email }
+    },
+
+    // Firebase wale se ek farak: yahan school bhi mil jaata hai, kyunki
+    // app_users har user ko uske school se jodta hai. Caller ka schoolId
+    // hamesha yahin se aata hai, request body se nahi.
+    async verifyCaller(token) {
+      const { data, error } = await db.auth.getUser(token)
+      if (error || !data?.user) return null
+      const { data: row } = await db.from('app_users').select('legacy_uid, school_id, role').eq('id', data.user.id).maybeSingle()
+      if (!row?.legacy_uid) return null
+      return { uid: row.legacy_uid, supabaseId: data.user.id, schoolUuid: row.school_id, role: row.role }
+    },
+
+    /**
+     * Supabase par staff ka koi alag email+password khaata banane ki zarurat
+     * nahi hai: login school code + mobile + DOB se hota hai, aur wo teeno
+     * `staff` row me pehle se hain. Auth user pehli baar login par
+     * ensure_staff_auth_user apne aap bana deta hai.
+     *
+     * Phir bhi ye method kuch karta hai — wahi RPC abhi chala kar khaata pehle
+     * se bana deta hai. Faayda: agar staff row me kuch gadbad hai (mobile nahi
+     * mila, DOB khaali) to admin ko WAHIN pata chal jaata hai, na ki mahine
+     * baad jab teacher login nahi kar paata.
+     */
+    async ensureStaffLogin(schoolLegacy, { staffId, profile }) {
+      const found = await school(schoolLegacy)
+      if (!found) throw new Error('School not found.')
+      if (!staffId) throw new Error('Employee ko pehle save karo, phir login banao.')
+
+      const { data, error } = await db.rpc('ensure_staff_auth_user', {
+        p_school: found.id,
+        p_staff_legacy: staffId,
+        p_email: staffEmail(staffId, found.code),
+        p_role: profile.department === 'Teacher' ? 'teacher' : 'staff',
+        p_name: profile.name || '',
+      })
+      fail(error, 'staff auth user')
+      if (!data?.[0]?.user_email) throw new Error('Staff account could not be prepared.')
+      return { staffId, created: true }
+    },
+
+    async staffSession(uid, { monthStart }) {
+      const { data: me } = await db.from('app_users').select('school_id').eq('legacy_uid', uid).maybeSingle()
+      if (!me?.school_id) return null
+      const { data: found } = await db.from('schools').select('id, legacy_id, name, source').eq('id', me.school_id).maybeSingle()
+      if (!found) return null
+
+      // Sab kuch RTDB wali shakal me wapas — `source` purana document hai,
+      // typed column uski projection. Cutover ke baad bani rows me source na
+      // ho to typed column hi kaam aate hain, isliye dono jodte hain.
+      const flat = (row, extra = {}) => {
+        const { source, ...columns } = row
+        return { ...columns, ...extra, ...(source || {}) }
+      }
+      const map = (rows, extra = () => ({})) => Object.fromEntries(
+        (rows || []).map(row => [row.legacy_id, flat(row, extra(row))]))
+
+      const [staffRow, students, homework, notices, attendance] = await Promise.all([
+        db.from('staff').select('*').eq('school_id', found.id).eq('legacy_id', uid).maybeSingle(),
+        db.from('students').select('*').eq('school_id', found.id),
+        db.from('homework').select('*').eq('school_id', found.id),
+        db.from('notices').select('*').eq('school_id', found.id),
+        // Wahi bandhan jo Firebase raaste par hai: attendance bina rukey badhta
+        // hai, aur staff app sirf abhi ka mahina dikhata hai.
+        db.from('attendance').select('*, student:students(legacy_id)').eq('school_id', found.id).gte('date', monthStart),
+      ])
+      if (!staffRow.data) return { schoolId: uid && found.legacy_id, record: null }
+
+      return {
+        schoolId: found.legacy_id,
+        record: flat(staffRow.data),
+        profile: { schoolName: found.name || '', ...(found.source?.profile || found.source || {}) },
+        students: map(students.data),
+        homework: map(homework.data),
+        notices: map(notices.data),
+        // RTDB me attendance ki key `${date}_${studentId}` thi — wahi yahan bhi,
+        // warna staff app ke saare din aapas me takra jaate hain.
+        attendance: Object.fromEntries((attendance.data || []).map(({ student, ...row }) => {
+          const studentId = student?.legacy_id || row.source?.studentId || null
+          return [`${row.date}_${studentId}`, flat(row, { studentId })]
+        })),
+      }
     },
   }
 }

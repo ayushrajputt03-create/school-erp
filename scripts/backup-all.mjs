@@ -7,9 +7,10 @@
  * Ye kyun hai:
  *   - Supabase ka plan `free` hai, aur free tier par KOI automatic backup nahi
  *     hota. Pro ($25) par daily backup milta hai.
- *   - `api/monthly-backup.js` abhi bhi Firebase par hai, to cutover ke baad se
- *     wo cron live data ka backup nahi bana raha.
- *   Yaani jab tak in dono me se ek theek na ho, ye script hi asli backup hai.
+ *   - `api/monthly-backup.js` ab Supabase se padhta hai, par wo sirf teen sheet
+ *     (students, fees, attendance) us school ko mail karta hai jisne backup
+ *     chaalu kiya ho. Poore project ka — saari tables, storage, auth users —
+ *     backup sirf yahi script banati hai.
  *
  * Seedha Postgres (pg_dump) is machine se nahi lagta — pooler timeout deta hai.
  * Isliye sab kuch REST se aata hai, service-role key ke saath (RLS bypass, to

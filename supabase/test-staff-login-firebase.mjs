@@ -78,7 +78,10 @@ const supabaseMethods = [...storeSource.matchAll(/^\s{4}(?:async )?(\w+)[:(]/gm)
 const firebaseMethods = Object.keys(firebase).filter(k => k !== 'backend')
 const missing = firebaseMethods.filter(m => !supabaseMethods.includes(m))
 check('firebase ka har method supabase me bhi hai', missing.length === 0, missing.join(', '))
-check('store me saare method hain', firebaseMethods.length === 4, String(firebaseMethods.length))
+// schoolIdByCode, staffCollections, linkStaffIndex, grantSession (login) +
+// verifyCaller, ensureStaffLogin, staffSession (create-teacher/teacher-session).
+// Ginti isliye bandhi hai ki naya method chupke se sirf ek backend me na jud jaye.
+check('store me saare method hain', firebaseMethods.length === 7, String(firebaseMethods.length))
 
 /* ---- 2. path aur token ---- */
 

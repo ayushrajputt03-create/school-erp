@@ -249,6 +249,18 @@ export function hasCurrentUser() {
   return Boolean(currentUserCache)
 }
 
+/**
+ * Abhi ka user, Firebase wali shakal me (uid, email, getIdToken).
+ *
+ * Ye un purane hisson ke liye hai jo seedha `auth.currentUser` padh rahe the.
+ * Supabase mode me wo hamesha null hota hai — koi error nahi aata, bas agli
+ * line `null.uid` par phat jaati hai. Yahan se lene par dono backend chalte hain.
+ */
+export function currentUser() {
+  if (!useSupabase) return auth?.currentUser || null
+  return currentUserCache
+}
+
 let currentUserCache = null
 export function rememberCurrentUser(user) { currentUserCache = user }
 

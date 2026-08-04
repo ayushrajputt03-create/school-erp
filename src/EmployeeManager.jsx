@@ -4,10 +4,9 @@ import {
   Search, Trash2, Upload, UserPlus, Users,
 } from 'lucide-react'
 import DatePicker from './DatePicker'
-import { auth } from './lib/firebase'
+import { currentUser, getToken } from './lib/authAdapter'
+import { databaseRequest } from './lib/dataAdapter'
 import { classOptions } from './schoolOptions'
-
-const employeeDbUrl = import.meta.env.VITE_FIREBASE_DATABASE_URL?.replace(/\/$/, '')
 
 const today = () => {
   const date = new Date()
@@ -163,11 +162,18 @@ function EmployeeForm({ staff, config, saveEmployee, initial, cancelEdit, onSave
     const password = `${dd}${mm}${yyyy}`
     setTeacherCreating(true); setTeacherMsg('')
     try {
-      const token = await auth.currentUser.getIdToken()
-      const schoolId = auth.currentUser.uid
-      const codeResponse = await fetch(`${employeeDbUrl}/schools/${schoolId}/profile/schoolCode.json?auth=${token}`)
-      const schoolCode = codeResponse.ok ? await codeResponse.json() : null
+      // Pehle ye seedha `auth.currentUser` aur Firebase ke REST URL se chalta
+      // tha. Supabase mode me currentUser hamesha null hota hai, to ye button
+      // "Cannot read properties of null" par phat jaata tha. Ab dono adapter se.
+      const user = currentUser()
+      if (!user) { setTeacherMsg('Error: Session nahi mila. Dobara login karo.'); setTeacherCreating(false); return }
+      const token = await getToken()
+      const schoolId = user.uid
+      const schoolCode = await databaseRequest(`schools/${schoolId}/profile/schoolCode`, token).catch(() => null)
       if (!schoolCode) { setTeacherMsg('Error: School code not found in school profile. Open Settings and save the profile once.'); setTeacherCreating(false); return }
+      // Supabase par login `staff` row ke mobile + DOB se chalta hai, to us row
+      // ka hona zaroori hai — aur wo employee save karne par hi banti hai.
+      if (!initial?.id) { setTeacherMsg('Pehle employee ko save karo, phir edit karke login banao.'); setTeacherCreating(false); return }
       const syntheticEmail = `${phone}@${String(schoolCode).trim().toLowerCase()}.teacher.schoolerp.app`
       const name = `${form.firstName || ''} ${form.lastName || ''}`.trim()
       const classes = (form.assignedClasses || '').split(',').map(c => c.trim()).filter(Boolean)
@@ -175,7 +181,7 @@ function EmployeeForm({ staff, config, saveEmployee, initial, cancelEdit, onSave
       const res = await fetch('/api/create-teacher', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-        body: JSON.stringify({ schoolId, email: syntheticEmail, password, teacherData: {
+        body: JSON.stringify({ schoolId, email: syntheticEmail, password, staffId: initial.id, teacherData: {
           name, firstName: form.firstName, lastName: form.lastName, phone: form.phone, email: form.email?.trim() || '',
           subject: form.subject || '', classes, sections, department: 'Teacher',
           designation: config.designations?.[form.designationId]?.name || 'Teacher',
