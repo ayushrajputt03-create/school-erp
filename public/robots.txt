@@ -1,0 +1,17 @@
+User-agent: *
+Allow: /$
+Allow: /screens/
+
+# Logged-in raaste. Inka koi SEO faayda nahi aur crawler yahan sirf login
+# screen dekhega. /admission/ isliye band hai kyunki har school ka apna link
+# hai — wo QR se khulta hai, search se nahi.
+Disallow: /admin
+Disallow: /teacher
+Disallow: /parent
+Disallow: /super-admin
+Disallow: /login
+Disallow: /register
+Disallow: /admission/
+Disallow: /api/
+
+Sitemap: https://northstar-school-os.vercel.app/sitemap.xml

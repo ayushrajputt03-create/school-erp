@@ -38,6 +38,12 @@ html{scroll-behavior:smooth}
 .ls-nav-links a{color:#dbe7f5;font-size:14.5px;font-weight:600;opacity:.85;transition:opacity .15s,color .15s}
 .ls-nav-links a:hover{opacity:1;color:#fff}
 .ls-nav-actions{display:flex;align-items:center;gap:12px}
+/* Nav ka phone number. 1080px se neeche chhup jaata hai — wahan nav links ki
+   jagah hamburger aata hai, aur number CTA button ko dhakel raha tha. Chhoti
+   screen par call karne ka raasta floating widget hai. */
+.ls-nav-phone{display:inline-flex;align-items:center;gap:6px;color:#fff;font-weight:700;font-size:14px;text-decoration:none;padding:8px 6px;white-space:nowrap}
+.ls-nav-phone:hover{color:var(--ls-light)}
+@media(max-width:1080px){.ls-nav-phone{display:none}}
 .ls-nav-login{background:transparent;border:0;color:#fff;font-weight:700;font-size:14.5px;cursor:pointer;font-family:inherit;padding:8px 6px}
 .ls-nav-login:hover{color:var(--ls-light)}
 .ls-hamburger{display:none;background:transparent;border:0;color:#fff;cursor:pointer;padding:4px}

@@ -1,0 +1,53 @@
+/* Floating WhatsApp + Call — sirf landing page par (ContactWidget.jsx dekho).
+ *
+ * Bottom-right par fixed. Mobile par label chhup jaate hain aur button gol ho
+ * jaate hain — chhoti screen par do chaude pill footer ke CTA ko dhak lete the.
+ *
+ * z-index landing ke nav (100) se upar hai par utna bhi nahi ki demo modal ke
+ * upar aa jaye — DemoPlayer 1000 par khulta hai aur uske upar ye button
+ * tairte hue bure lagte the. */
+.ls-contact-widget {
+  position: fixed;
+  right: 18px;
+  bottom: 18px;
+  z-index: 200;
+  display: grid;
+  gap: 10px;
+  justify-items: end;
+}
+
+.ls-contact-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  height: 48px;
+  padding: 0 18px;
+  border-radius: 999px;
+  color: #fff;
+  font-size: 14px;
+  font-weight: 800;
+  text-decoration: none;
+  box-shadow: 0 10px 28px #02102436;
+  transition: transform .18s ease, box-shadow .18s ease;
+}
+.ls-contact-btn:hover { transform: translateY(-2px); box-shadow: 0 16px 36px #0210243d; }
+.ls-contact-btn:focus-visible { outline: 2px solid #fff; outline-offset: 3px; }
+
+.ls-contact-btn.wa { background: #25d366; }
+.ls-contact-btn.call { background: #052659; }
+
+/* Chhoti screen: sirf icon, gol button. */
+@media (max-width: 620px) {
+  .ls-contact-widget { right: 14px; bottom: 14px; gap: 9px; }
+  .ls-contact-btn { width: 50px; height: 50px; padding: 0; justify-content: center; }
+  .ls-contact-btn span { display: none; }
+}
+
+/* Jise motion se dikkat hoti hai uske liye hover ka uthna band. */
+@media (prefers-reduced-motion: reduce) {
+  .ls-contact-btn { transition: none; }
+  .ls-contact-btn:hover { transform: none; }
+}
+
+/* Print par ye button kagaz par nahi jaane chahiye. */
+@media print { .ls-contact-widget { display: none !important; } }

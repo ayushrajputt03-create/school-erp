@@ -3,10 +3,11 @@ import {
   Activity, ArrowRight, BarChart3, BookOpen, Building2, CalendarCheck, Check,
   ChevronDown, ClipboardList, Cloud, CreditCard, Database, FileBarChart2, FileText,
   GraduationCap, IndianRupee, KeyRound, Lock, Mail, Megaphone, Menu, MessageCircle,
-  PlayCircle, Rocket, ScrollText, Server, ShieldCheck, Smartphone, Sparkles, Star, TrendingUp,
+  Phone, PlayCircle, Rocket, ScrollText, Server, ShieldCheck, Smartphone, Sparkles, Star, TrendingUp,
   Upload, UserPlus, Users, Wallet, Wifi, X, Zap,
 } from 'lucide-react'
 import './landing.css'
+import ContactWidget, { PHONE_DISPLAY, TEL_URL, WHATSAPP_URL } from './landing/ContactWidget'
 
 // Demo modal apne bundle me rehta hai — landing page ka pehla paint us par
 // nahi rukta, kyunki wo tabhi load hota hai jab koi "Watch Demo" dabaye.
@@ -42,8 +43,11 @@ const SHOWCASE = [
   { tag: 'Students', title: 'Student Records', desc: 'Every profile, class and guardian in one register.', shot: '/screens/students.jpg' },
   { tag: 'Academics', title: 'Attendance System', desc: 'Class-wise daily attendance in seconds.', shot: '/screens/attendance.jpg' },
   { tag: 'Finance', title: 'Fee Management', desc: 'Collect, receipt and track fees with reminders.', shot: '/screens/fees.jpg' },
-  { tag: 'Family', title: 'Parent Portal', desc: 'Parents follow progress, fees and notices live.' },
-  { tag: 'Results', title: 'Report Cards', desc: 'Generate marksheets and publish results instantly.' },
+  // Parent Portal aur Report Cards yahan se hata diye. Un dono ka koi screenshot
+  // nahi tha, to wo khaali skeleton frame dikha rahe the — "See SCHOOL99 in
+  // Action" section me aisa card ulta nuksan karta hai, dekhne wale ko lagta hai
+  // feature adhoora hai. Jab in dono ke shot capture ho jayein (demo mode par,
+  // scripts/capture-screens.mjs se) tab `shot:` ke saath wapas add kar dena.
 ]
 
 const FEATURE_GROUPS = [
@@ -204,6 +208,7 @@ export default function LandingPage() {
           {NAV_LINKS.map(([id, label]) => <a key={id} href={`#${id}`} onClick={e => scrollTo(id, e)}>{label}</a>)}
         </nav>
         <div className="ls-nav-actions">
+          <a className="ls-nav-phone" href={TEL_URL}><Phone size={15} /> {PHONE_DISPLAY}</a>
           <button className="ls-nav-login" onClick={e => scrollTo('login', e)}>Login</button>
           <a className="ls-btn ls-btn-primary sm" href="/register">Get Started Free <ArrowRight size={15} /></a>
         </div>
@@ -416,10 +421,11 @@ export default function LandingPage() {
         <p>Join forward-thinking schools using SCHOOL99 to automate administration and improve communication.</p>
         <div className="ls-final-cta">
           <a className="ls-btn ls-btn-white lg" href="/register">Get Started Free <ArrowRight size={18} /></a>
-          <a className="ls-btn ls-btn-ghost lg" href="https://wa.me/919999999999" target="_blank" rel="noopener noreferrer">Schedule Demo</a>
+          <a className="ls-btn ls-btn-ghost lg" href={WHATSAPP_URL} target="_blank" rel="noopener noreferrer">Schedule Demo</a>
         </div>
         <div className="ls-final-contact">
-          <a href="https://wa.me/919999999999" target="_blank" rel="noopener noreferrer"><MessageCircle size={16} /> WhatsApp Support</a>
+          <a href={WHATSAPP_URL} target="_blank" rel="noopener noreferrer"><MessageCircle size={16} /> WhatsApp Support</a>
+          <a href={TEL_URL}><Phone size={16} /> {PHONE_DISPLAY}</a>
           <a href="mailto:ayushrajputt03@gmail.com"><Mail size={16} /> ayushrajputt03@gmail.com</a>
         </div>
       </div>
@@ -436,7 +442,7 @@ export default function LandingPage() {
         <div className="ls-footer-cols">
           <div><h5>Product</h5><a href="#features" onClick={e => scrollTo('features', e)}>Features</a><a href="#pricing" onClick={e => scrollTo('pricing', e)}>Pricing</a><a href="#security" onClick={e => scrollTo('security', e)}>Security</a></div>
           <div><h5>Company</h5><a href="#why" onClick={e => scrollTo('why', e)}>About</a><a href="#contact" onClick={e => scrollTo('contact', e)}>Contact</a></div>
-          <div><h5>Support</h5><a href="#faq" onClick={e => scrollTo('faq', e)}>FAQ</a><a href="mailto:ayushrajputt03@gmail.com">Help Center</a></div>
+          <div><h5>Support</h5><a href="#faq" onClick={e => scrollTo('faq', e)}>FAQ</a><a href={TEL_URL}>{PHONE_DISPLAY}</a><a href={WHATSAPP_URL} target="_blank" rel="noopener noreferrer">WhatsApp</a><a href="mailto:ayushrajputt03@gmail.com">Help Center</a></div>
           <div><h5>Legal</h5><a href="/register">Terms</a><a href="/register">Privacy Policy</a></div>
         </div>
       </div>
@@ -445,6 +451,8 @@ export default function LandingPage() {
         <a href="mailto:ayushrajputt03@gmail.com">ayushrajputt03@gmail.com</a>
       </div>
     </footer>
+
+    <ContactWidget />
 
     {demoOpen && <Suspense fallback={null}>
       <DemoPlayer open={demoOpen} onClose={() => setDemoOpen(false)} />
