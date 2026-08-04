@@ -12,7 +12,8 @@
     "check": "npm run build",
     "firebase:deploy": "firebase deploy --only database,storage --project school-open-erp",
     "screens": "vite --mode demo --port 5199",
-    "screens:capture": "node scripts/capture-screens.mjs"
+    "screens:capture": "node scripts/capture-screens.mjs",
+    "backup": "node scripts/backup-all.mjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.111.0",

@@ -12,3 +12,7 @@ vite.stdout.log
 
 .vercel
 .env*
+
+# Backup output — isme asli client data hota hai (bachchon ke naam, phone, fees).
+# Ye kabhi commit nahi hona chahiye.
+backups/
