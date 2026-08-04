@@ -139,6 +139,63 @@ if (!staffCase) {
   check('galat school code reject hua', noSchool.status === 404, `status ${noSchool.status}`)
 }
 
+/* ---------------------------------------------------------------- */
+/* 3. Public admission form                                           */
+/* ---------------------------------------------------------------- */
+// Ye section isliye hai ki cutover me `api/admission.js` chhoot gaya tha —
+// wo Firebase me likhta raha jabki admin ka queue Supabase se padhta hai.
+// Form "ok" lautata tha, parent ko receipt milti thi, aur request kabhi
+// dikhti nahi thi. Sirf `ok: true` dekhna is bug ko nahi pakadta — isliye
+// neeche likhi hui row Supabase me sach me DHOONDHI jaati hai.
+{
+  const SANDBOX = 'JfaU8V51U1cxkLqZRFzzbLdGhGD3'      // NXT OpenERP, khaali
+  const { data: sandbox } = await db.from('schools').select('id').eq('legacy_id', SANDBOX).maybeSingle()
+
+  const identity = await post('/api/admission', { action: 'school', schoolId: SANDBOX })
+  check('admission: school identity 200', identity.status === 200, identity.json?.error || `status ${identity.status}`)
+  check('admission: school mila', identity.json?.found === true && Boolean(identity.json?.schoolName))
+
+  const marker = `Smoke Test ${Date.now()}`
+  const submit = await post('/api/admission', {
+    action: 'submit', schoolId: SANDBOX,
+    studentName: marker, dob: '2018-04-12', parentPhone: '9000000001',
+    classAppliedFor: '1', fatherName: 'Smoke Father',
+  })
+  check('admission: submit 200', submit.status === 200 && submit.json?.ok === true,
+    submit.json?.error || `status ${submit.status}`)
+
+  // Asli assertion — row Supabase me pahunchi ya nahi
+  const { data: landed } = await db.from('admission_requests')
+    .select('legacy_id, student_name, status, source')
+    .eq('school_id', sandbox.id).eq('student_name', marker).maybeSingle()
+  check('admission: request SUPABASE me pahunchi', Boolean(landed),
+    landed ? '' : 'submit ne ok bola par row Supabase me nahi hai (Firebase me gayi?)')
+  check('admission: status pending hai', landed?.status === 'pending', `status ${landed?.status}`)
+  check('admission: source me poora document hai (admin isi se padhta hai)',
+    landed?.source?.studentName === marker && Boolean(landed?.source?.submittedAt),
+    `source keys: ${Object.keys(landed?.source || {}).join(',') || 'none'}`)
+
+  const badPhone = await post('/api/admission', {
+    action: 'submit', schoolId: SANDBOX,
+    studentName: 'Bad Phone', dob: '2018-04-12', parentPhone: '123', classAppliedFor: '1',
+  })
+  check('admission: chhota phone reject hua', badPhone.status >= 400, `status ${badPhone.status}`)
+
+  const honeypot = await post('/api/admission', {
+    action: 'submit', schoolId: SANDBOX, applicantRef: 'bot',
+    studentName: 'Bot Entry', dob: '2018-04-12', parentPhone: '9000000002', classAppliedFor: '1',
+  })
+  const { count: botRows } = await db.from('admission_requests')
+    .select('legacy_id', { count: 'exact', head: true })
+    .eq('school_id', sandbox.id).eq('student_name', 'Bot Entry')
+  check('admission: honeypot chup-chaap gira, likha nahi',
+    honeypot.json?.ok === true && botRows === 0, `rows: ${botRows}`)
+
+  // sandbox saaf
+  await db.from('admission_requests').delete().eq('school_id', sandbox.id).like('legacy_id', 'adm_req_%')
+  await db.from('kv').delete().eq('school_id', sandbox.id).eq('path', 'admissionThrottle')
+}
+
 const failed = results.filter(r => !r.ok).length
 console.log(`\n${results.length - failed} pass, ${failed} fail`)
 process.exit(failed ? 1 : 0)

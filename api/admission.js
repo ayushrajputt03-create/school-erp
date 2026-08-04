@@ -1,19 +1,12 @@
-const { getApps, getApp, initializeApp, cert } = require('firebase-admin/app')
-const { getDatabase } = require('firebase-admin/database')
+// Public admission form ka backend.
+//
+// Saare niyam yahin hain (honeypot, validation, throttle, pending limit) aur
+// database ke raaste `_admission-store.js` me — Firebase aur Supabase, dono ka
+// ek hi interface. Cutover me ye file chhoot gayi thi aur seedha firebase-admin
+// use kar rahi thi, isliye har nayi request Firebase me ja rahi thi jabki admin
+// ka queue Supabase se padhta hai.
+const { createStore } = require('./_admission-store')
 const crypto = require('crypto')
-
-function getAdminApp() {
-  if (getApps().length) return getApp()
-  const raw = process.env.FIREBASE_SERVICE_ACCOUNT_JSON || ''
-  if (!raw) throw new Error('Server config missing: FIREBASE_SERVICE_ACCOUNT_JSON not set.')
-  let credentials
-  try { credentials = JSON.parse(raw) } catch { throw new Error('Server config error: FIREBASE_SERVICE_ACCOUNT_JSON is not valid JSON.') }
-  if (!credentials.project_id) throw new Error('Server config error: service account missing project_id.')
-  return initializeApp({
-    credential: cert(credentials),
-    databaseURL: process.env.FIREBASE_DATABASE_URL || process.env.VITE_FIREBASE_DATABASE_URL,
-  })
-}
 
 const now = () => Date.now()
 const digits = value => String(value || '').replace(/\D/g, '')
@@ -32,26 +25,6 @@ const isFutureDate = value => {
   return parsed.getTime() > endOfToday.getTime()
 }
 
-// Only ever exposes the school's display identity. Anything else about the school stays behind
-// authentication - a visitor with a QR link must not be able to learn more than which school
-// they are applying to.
-async function publicSchoolIdentity(database, schoolId) {
-  const [nameSnap, logoSnap, altLogoSnap, subscriptionSnap] = await Promise.all([
-    database.ref(`schools/${schoolId}/profile/schoolName`).once('value'),
-    database.ref(`schools/${schoolId}/profile/logoURL`).once('value'),
-    database.ref(`schools/${schoolId}/profile/logo`).once('value'),
-    database.ref(`schools/${schoolId}/subscription/status`).once('value'),
-  ])
-  const schoolName = nameSnap.val()
-  if (!schoolName) return null
-  const status = String(subscriptionSnap.val() || 'trial').toLowerCase()
-  return {
-    schoolName,
-    logo: logoSnap.val() || altLogoSnap.val() || '',
-    open: status !== 'suspended' && status !== 'cancelled',
-  }
-}
-
 module.exports = async function handler(request, response) {
   response.setHeader('Access-Control-Allow-Origin', '*')
   response.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS')
@@ -60,14 +33,17 @@ module.exports = async function handler(request, response) {
   if (request.method !== 'POST') return response.status(405).json({ ok: false, error: 'Method not allowed' })
 
   try {
-    const database = getDatabase(getAdminApp())
+    const store = createStore()
     const body = request.body || {}
     const action = String(body.action || '')
     const schoolId = clean(body.schoolId, 128)
     if (!schoolId) throw new Error('Missing school.')
 
+    // Store sirf school ki dikhne wali pehchaan lautata hai. Baaki sab kuch
+    // authentication ke peeche rehta hai — QR link wale visitor ko itna hi pata
+    // chalna chahiye ki wo kis school me apply kar raha hai.
     if (action === 'school') {
-      const identity = await publicSchoolIdentity(database, schoolId)
+      const identity = await store.schoolIdentity(schoolId)
       if (!identity) return response.status(200).json({ ok: true, found: false })
       return response.status(200).json({ ok: true, found: true, ...identity })
     }
@@ -83,7 +59,7 @@ module.exports = async function handler(request, response) {
         return response.status(200).json({ ok: true })
       }
 
-      const identity = await publicSchoolIdentity(database, schoolId)
+      const identity = await store.schoolIdentity(schoolId)
       if (!identity) throw new Error('This admission link is not valid.')
       if (!identity.open) throw new Error('Admissions are currently closed for this school.')
 
@@ -96,19 +72,17 @@ module.exports = async function handler(request, response) {
       if (parentPhone.length !== 10) throw new Error('Enter a valid 10 digit mobile number.')
       if (!clean(body.classAppliedFor, 40)) throw new Error('Select the class being applied for.')
 
-      const throttleRef = database.ref(`schools/${schoolId}/admissionThrottle/${parentPhone}`)
-      const throttle = (await throttleRef.once('value')).val() || {}
+      const throttle = await store.throttleFor(schoolId, parentPhone)
       const windowStart = now() - 60 * 60 * 1000
       const recent = Number(throttle.windowStartedAt || 0) > windowStart ? Number(throttle.count || 0) : 0
       if (recent >= MAX_PER_PHONE_PER_HOUR) throw new Error('Too many applications from this number. Please try again later.')
 
-      const pendingSnap = await database.ref(`schools/${schoolId}/admissionRequests`).orderByChild('status').equalTo('pending').once('value')
-      if (Object.keys(pendingSnap.val() || {}).length >= MAX_PENDING_PER_SCHOOL) {
+      if (await store.pendingCount(schoolId) >= MAX_PENDING_PER_SCHOOL) {
         throw new Error('This school is not accepting more applications right now. Please contact the school.')
       }
 
       const id = `adm_req_${now()}_${crypto.randomBytes(4).toString('hex')}`
-      await database.ref(`schools/${schoolId}/admissionRequests/${id}`).set({
+      await store.createRequest(schoolId, id, {
         id,
         studentName,
         dob,
@@ -130,7 +104,7 @@ module.exports = async function handler(request, response) {
         reviewedAt: null,
         rejectionNote: null,
       })
-      await throttleRef.set({
+      await store.saveThrottle(schoolId, parentPhone, {
         count: recent + 1,
         windowStartedAt: recent ? throttle.windowStartedAt : now(),
         updatedAt: now(),
