@@ -109,6 +109,30 @@ const studentInitials = student => student?.initials || String(student?.name || 
 const schoolInitials = (school = {}, settings = {}) => String(settings.schoolName || school.schoolName || school.name || 'School').split(/\s+/).map(part => part[0]).join('').slice(0, 3).toUpperCase()
 const schoolLogo = (school = {}, settings = {}) => settings.logoURL || settings.logo || school.logoURL || school.logo || school.schoolLogo || ''
 const schoolNameOf = (school = {}, settings = {}) => settings.schoolName || school.schoolName || school.name || 'School Name'
+// School ka naam header me ek line me rehna chahiye. CSS apne aap shrink nahi kar
+// sakta - container ki width poora page hai, to `clamp()` kuch nahi karta. Isliye
+// naam ki lambai se ek scale class chunte hain jo font-size ko calc() se ghatati
+// hai. Chhote naam (<=30 char) par kuch nahi badalta, yaani baaki schools ka
+// header waisa hi rehta hai.
+const schoolNameScale = (name) => {
+  const n = String(name || '').trim().length
+  if (n > 52) return 'name-xxl'
+  if (n > 42) return 'name-xl'
+  if (n > 30) return 'name-l'
+  return ''
+}
+// jsPDF text ko wrap nahi karta - lamba naam chup-chaap page ke bahar chala jaata
+// hai. Isliye jab tak naam di gayi width me na aa jaye, size ghatate rehte hain.
+// setFont() pehle call karna zaroori hai, getTextWidth current font par chalta hai.
+const fitTextSize = (pdf, text, maxWidth, startSize, minSize = 9) => {
+  let size = startSize
+  pdf.setFontSize(size)
+  while (size > minSize && pdf.getTextWidth(text) > maxWidth) {
+    size -= 0.5
+    pdf.setFontSize(size)
+  }
+  return size
+}
 const schoolRecognition = (school = {}, settings = {}) => settings.recognition || settings.affiliatedTo || school.affiliatedTo || school.recognition || ''
 const schoolAffiliationNo = (school = {}, settings = {}) => settings.affiliationNo || school.affiliationNo || ''
 const schoolCodeOf = (school = {}, settings = {}) => settings.schoolCode || school.schoolCode || ''
@@ -393,7 +417,7 @@ function SchoolHeader({ school, settings, photoUrl, student, red = false, center
   return <header className={`formal-school-header ${centeredLogo ? 'centered-logo' : ''}`}>
     <div className="formal-logo">{logo ? <img src={logo} alt="School logo" /> : <GraduationCap size={44} />}</div>
     <div>
-      <h1 className={red ? 'red-school-name' : ''}>{schoolNameOf(school, settings)}</h1>
+      <h1 className={`${red ? 'red-school-name' : ''} ${schoolNameScale(schoolNameOf(school, settings))}`}>{schoolNameOf(school, settings)}</h1>
       {recognition && <strong className="recognition">{recognition}</strong>}
       <p>{schoolAddress(school, settings)}</p>
       <small>{[schoolPhone(school, settings), schoolEmail(school, settings)].filter(Boolean).join(' | ')}</small>
@@ -435,10 +459,10 @@ function CharacterCertificate({ student, form, school, settings, certificateNumb
   return <article className="formal-certificate character-template">
     {duplicate && <div className="duplicate-watermark">DUPLICATE</div>}
     <div className="character-top-serial">Serial No: {display.serial}</div>
-    <header className="character-certificate-header">
+    <header className={`character-certificate-header ${schoolNameScale(schoolName)}`}>
       <div className="formal-logo character-logo">{logo ? <img src={logo} alt="School logo" /> : <GraduationCap size={42} />}</div>
       <div className="character-school-block">
-        <h1>{schoolName}</h1>
+        <h1 className={schoolNameScale(schoolName)}>{schoolName}</h1>
         <p>{location}</p>
         <small>{recognition}</small>
       </div>
@@ -452,7 +476,7 @@ function CharacterCertificate({ student, form, school, settings, certificateNumb
     </div>
     <div className="character-footer">
       <div><strong>Date: {shortDate(form.issueDate)}</strong></div>
-      <div className="principal-block character-principal"><span className="signature-line" /><strong>{display.footerSchool}</strong><small>{display.footerLocation}</small><small>({display.principalLabel})</small></div>
+      <div className="principal-block character-principal">{(school.schoolSealURL || school.principalSignatureURL) && <div className="principal-sign-row">{school.schoolSealURL && <img className="admit-seal" src={school.schoolSealURL} alt="Seal" />}{school.principalSignatureURL && <img className="admit-sign" src={school.principalSignatureURL} alt="Signature" />}</div>}<span className="signature-line" /><strong>{display.footerSchool}</strong><small>{display.footerLocation}</small><small className="signature-label">{display.principalLabel}&apos;s Signature</small>{!school.schoolSealURL && <small className="seal-placeholder">School Seal</small>}</div>
     </div>
   </article>
 }
@@ -495,7 +519,7 @@ function TransferCertificate({ student, form, school, settings, certificateNumbe
   return <article className="formal-certificate tc-template">
     {duplicate && <div className="duplicate-watermark">DUPLICATE</div>}
     <header className="tc-school-top">
-      <h1>{schoolName}</h1>
+      <h1 className={schoolNameScale(schoolName)}>{schoolName}</h1>
       <strong>{wrapRecognition(recognition)}</strong>
       <p>{address}{phone ? `, Ph.: ${phone}` : ''}{settings.email ? ` | ${settings.email}` : ''}</p>
       {(form.affiliationNo || schoolAffiliationNo(school, settings) || schoolCodeOf(school, settings)) && <small>Affiliation No: {form.affiliationNo || schoolAffiliationNo(school, settings) || '___'}{schoolCodeOf(school, settings) ? ` | School Code: ${schoolCodeOf(school, settings)}` : ''}</small>}
@@ -516,7 +540,7 @@ function TransferCertificate({ student, form, school, settings, certificateNumbe
     </table>
     <section className="tc-certification"><p>{form.bottomText || settings.defaultBottomText || tcBottomText}</p></section>
     <div className="tc-signature-date"><strong>Date: {dashDate(form.issueDate)}</strong></div>
-    <div className="formal-signatures three tc-signatures"><div><span className="signature-line" /><strong>({form.sig1Label || settings.sig1Label || 'Prepared By'})</strong></div><div><span className="signature-line" /><strong>({form.sig2Label || settings.sig2Label || 'Checked By'})</strong></div><div className="principal-block">{(school.schoolSealURL || school.principalSignatureURL) && <div className="principal-sign-row">{school.schoolSealURL && <img className="admit-seal" src={school.schoolSealURL} alt="Seal" />}{school.principalSignatureURL && <img className="admit-sign" src={school.principalSignatureURL} alt="Signature" />}</div>}<span className="signature-line" /><strong>({form.sig3Label || settings.sig3Label || 'Principal'})</strong><small>{settings.principalName || 'Name'} · Seal / Stamp</small></div></div>
+    <div className="formal-signatures three tc-signatures"><div><span className="signature-line" /><strong>({form.sig1Label || settings.sig1Label || 'Prepared By'})</strong></div><div><span className="signature-line" /><strong>({form.sig2Label || settings.sig2Label || 'Checked By'})</strong></div><div className="principal-block">{(school.schoolSealURL || school.principalSignatureURL) && <div className="principal-sign-row">{school.schoolSealURL && <img className="admit-seal" src={school.schoolSealURL} alt="Seal" />}{school.principalSignatureURL && <img className="admit-sign" src={school.principalSignatureURL} alt="Signature" />}</div>}<span className="signature-line" /><strong>{form.sig3Label || settings.sig3Label || 'Principal'}&apos;s Signature</strong><small>{settings.principalName || 'Name'}</small>{!school.schoolSealURL && <small className="seal-placeholder">School Seal</small>}</div></div>
   </article>
 }
 
@@ -1042,7 +1066,8 @@ async function downloadCharacterCertificatePdf(student, form, school, settings, 
   }
 
   pdf.setFont('helvetica', 'bold')
-  pdf.setFontSize(23)
+  // Logo x=16..42 aur photo x=width-47..width-17 ke beech ki jagah; naam usi me fit ho.
+  fitTextSize(pdf, schoolName.toUpperCase(), width - 94, 23, 7)
   pdf.text(schoolName.toUpperCase(), width / 2, 43, { align: 'center' })
   pdf.setFont('helvetica', 'normal')
   pdf.setFontSize(13)
@@ -1071,10 +1096,23 @@ async function downloadCharacterCertificatePdf(student, form, school, settings, 
   pdf.setFont('helvetica', 'bold')
   pdf.setFontSize(11)
   pdf.text(`Date: ${shortDate(form.issueDate)}`, 17, 260)
+  // Signature block. Neeche ki border height-20 = 277mm par hai, isliye sabse
+  // neeche wali seal 272mm se aage nahi jaani chahiye.
+  pdf.setLineWidth(0.4)
+  pdf.line(width - 74, 232, width - 24, 232)
   pdf.text(display.footerSchool, width - 24, 238, { align: 'right' })
   pdf.setFont('helvetica', 'normal')
-  pdf.text(display.footerLocation, width - 24, 245, { align: 'right' })
-  pdf.text(`(${display.principalLabel})`, width - 24, 260, { align: 'right' })
+  pdf.text(display.footerLocation, width - 24, 244, { align: 'right' })
+  pdf.setFont('helvetica', 'bold')
+  pdf.text(`${display.principalLabel}'s Signature`, width - 24, 250, { align: 'right' })
+  pdf.setDrawColor(100, 116, 139)
+  pdf.setLineDashPattern([1.8, 1.5], 0)
+  pdf.ellipse(width - 45, 264, 16, 8)
+  pdf.setLineDashPattern([], 0)
+  pdf.setFontSize(7)
+  pdf.setTextColor(100, 116, 139)
+  pdf.text('School Seal', width - 45, 265.5, { align: 'center' })
+  pdf.setTextColor(12, 28, 52)
 
   pdf.save(`Character-Certificate-${student.name.replace(/\s+/g, '-')}.pdf`)
 }
@@ -1142,7 +1180,8 @@ async function downloadTransferCertificatePdf(student, form, school, settings, c
   }
   pdf.setTextColor(185, 28, 28)
   pdf.setFont('helvetica', 'bold')
-  pdf.setFontSize(18)
+  // Logo x=14..34 aur photo x=width-37..width-12 ke beech; naam usi me fit ho.
+  fitTextSize(pdf, schoolName.toUpperCase(), width - 76, 18, 7)
   pdf.text(schoolName.toUpperCase(), width / 2, 18, { align: 'center' })
   pdf.setTextColor(15, 23, 42)
   pdf.setFontSize(8.5)
@@ -1221,12 +1260,16 @@ async function downloadTransferCertificatePdf(student, form, school, settings, c
   pdf.setFont('helvetica', 'bold')
   pdf.text(`Date: ${dashDate(form.issueDate)}`, 16, 242)
   const sigs = [[form.sig1Label || settings.sig1Label || 'Prepared By', 24], [form.sig2Label || settings.sig2Label || 'Checked By', width / 2], [form.sig3Label || settings.sig3Label || 'Principal', width - 31]]
-  sigs.forEach(([label, cx]) => { pdf.line(cx - 24, 258, cx + 24, 258); pdf.text(`(${label})`, cx, 265, { align: 'center' }) })
+  // Teesra block principal ka hai - Indian TC par wo "Principal's Signature"
+  // likha hota hai, baaki do "(Prepared By)" / "(Checked By)" style me.
+  sigs.forEach(([label, cx], i) => { pdf.line(cx - 24, 258, cx + 24, 258); pdf.text(i === 2 ? `${label}'s Signature` : `(${label})`, cx, 264, { align: 'center' }) })
   pdf.setDrawColor(100, 116, 139)
   pdf.setLineDashPattern([1.8, 1.5], 0)
-  pdf.ellipse(width - 31, 278, 17, 9)
+  // A4 par printer ~287mm tak hi chhapta hai; seal 282mm par khatam ho jaati hai.
+  pdf.ellipse(width - 31, 275, 16, 7)
+  pdf.setLineDashPattern([], 0)
   pdf.setFontSize(7)
-  pdf.text('Seal / Stamp', width - 31, 280, { align: 'center' })
+  pdf.text('School Seal', width - 31, 277, { align: 'center' })
   pdf.save(`Transfer-Certificate-${student.name.replace(/\s+/g, '-')}.pdf`)
 }
 
