@@ -92,13 +92,18 @@ SUPABASE_DB_PASSWORD=         # migrations chalane ke liye (db.mjs)
 SUPABASE_DB_URL=              # optional, pooler ke bajaye seedha connection
 ```
 
-### Abhi bhi Firebase par (§7 dekho — ye routes tab tak chahiye)
+### Email + cron (hamesha chahiye)
 ```env
-FIREBASE_DATABASE_URL=
-FIREBASE_SERVICE_ACCOUNT_JSON=   # poora service account JSON, ek line me
 RESEND_API_KEY=                  # email (backup report) — Resend
 BACKUP_FROM_EMAIL=
 CRON_SECRET=                     # monthly-backup cron ko protect karta hai
+```
+
+### Firebase — sirf fallback ke liye (§7 dekho, optional)
+```env
+USE_SUPABASE=true                # prod par yahi. false = api/ routes Firebase par
+FIREBASE_DATABASE_URL=           # sirf USE_SUPABASE=false rakhna ho to
+FIREBASE_SERVICE_ACCOUNT_JSON=   # poora service account JSON, ek line me
 ```
 
 **Golden rule:** `service_role` key aur `FIREBASE_SERVICE_ACCOUNT_JSON` sirf
@@ -200,31 +205,33 @@ runtime (baaki) dono.
 
 ---
 
-## 7. ⚠️ Jo abhi bhi Firebase par hai (chhupa hua trap)
+## 7. API routes dual-mode hain (Firebase sirf fallback)
 
-Sab kuch Supabase par shift **nahi** hua. Ye 5 API routes abhi bhi
-`firebase-admin` use karte hain:
+Ye `api/` routes **dono backend support karte hain** — ek `useSupabase` flag
+(`USE_SUPABASE` / `VITE_USE_SUPABASE` env) se tay hota hai kaun sa chalega:
 
 ```
-api/admission.js
-api/_admission-store.js
-api/_backup-store.js
-api/_parent-store.js
-api/_staff-store.js
+api/_parent-store.js    — parent portal (login + data)
+api/_staff-store.js     — staff/teacher login (magic-link grant)
+api/_admission-store.js — public admission form
+api/_backup-store.js    — monthly backup
+api/admission.js        — admission entry
 ```
 
-Iska matlab: **naye Supabase par shift karne ke baad bhi** ye routes tab tak
-kaam nahi karenge jab tak inhe Supabase par port na karo. Jo feature inpar tike
-hain:
-- Parent portal (login + data)
-- Staff/teacher login (magic-link grant)
-- Public admission form
-- Monthly backup email
+Har file me **Supabase implementation hai** (`createClient` +
+`SUPABASE_SERVICE_ROLE_KEY`) **aur** Firebase fallback (`firebase-admin`).
+`USE_SUPABASE=true` par ye Supabase par chalte hain — aur **prod par yahi set
+hai**, yaani ye pehle se poori tarah Supabase par hain. `firebase-admin` import
+sirf fallback ke liye pada hai.
 
-Isliye `FIREBASE_DATABASE_URL` + `FIREBASE_SERVICE_ACCOUNT_JSON` env abhi bhi
-chahiye. Agar Firebase project bhi band karna hai, to pehle in 5 routes ko
-`src/lib/dataAdapter.js` jaise Supabase adapter par port karna padega — ye ek
-alag, planned kaam hai, is guide ke dayre se bahar.
+**Naye Supabase par shift ke liye kya chahiye:** bas `SUPABASE_URL` +
+`SUPABASE_SERVICE_ROLE_KEY` + `USE_SUPABASE=true`. Ye routes turant chalenge.
+
+**Firebase env (`FIREBASE_DATABASE_URL`, `FIREBASE_SERVICE_ACCOUNT_JSON`) kab
+chahiye:** sirf tab jab aap fallback (`USE_SUPABASE=false`) rakhna chahte ho.
+Agar Firebase project poori tarah band karna hai, to `USE_SUPABASE=true` rakho
+aur ye env chhod do — routes Supabase par chalte rahenge. (Firebase fallback ka
+code hataana optional cleanup hai, koi rukawat nahi.)
 
 ---
 
@@ -238,7 +245,7 @@ alag, planned kaam hai, is guide ke dayre se bahar.
 [ ] Ek student add → save hota hai, photo upload hoti hai
 [ ] Attendance mark → save, dobara load par wahi
 [ ] Fee receipt → number milta hai (counter), print theek
-[ ] Parent portal login (agar §7 wale routes deploy hain)
+[ ] Parent portal login → chalta hai (Supabase par, USE_SUPABASE=true)
 [ ] Super admin (/super-admin/login) → schools list dikhti hai
 [ ] Supabase advisor: get_advisors(security) → koi naya CRITICAL nahi
 ```
