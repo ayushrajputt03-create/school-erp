@@ -159,6 +159,91 @@ export async function deleteStudentPhoto(schoolLegacyId, studentLegacyId) {
 }
 
 /* ------------------------------------------------------------------ */
+/* school-assets: base64 branding -> bucket                            */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Logo/seal/signature ko base64 se nikaal kar bucket me daalta hai.
+ *
+ * Zarurat kyun padi: ProfileForm ka `readProfileImage` optimizeLogo() se ek
+ * `data:image/...;base64,...` string banata hai aur use seedha form field me
+ * rakh deta hai. Wo string profile PUT ke saath `source` jsonb me chali jaati
+ * thi. Ek school ka logo wahan 302 kB ka pada tha.
+ *
+ * Nuksaan sirf disk ka nahi tha — `schools/{id}/profile` har login par padha
+ * jaata hai (App.jsx aur TeacherApp.jsx, dono), aur GET `select('*')` karta hai.
+ * Yaani har login us 302 kB ko taar par kheenchta tha aur phir `logoURL` ko
+ * column ki storage URL se badal kar use phenk deta tha. Poore app ka sabse
+ * bada egress kharcha yahi tha, aur bilkul bekaar tha.
+ *
+ * Bucket me jaane ke baad wahi cheez ~120 byte ki URL ban jaati hai, aur
+ * browser use apne HTTP cache me rakh leta hai — doosri baar network par
+ * jaati hi nahi.
+ *
+ * Path wahi shakal rakhta hai jo migration ne banayi thi ({school_uuid}/...),
+ * kyunki storage ki RLS pehle folder ko school uuid maan kar chalti hai
+ * (school_assets_admin_write). Alag shakal rakhne par insert policy rok degi.
+ */
+const ASSET_KEYS = ['logoURL', 'logo', 'logoUrl', 'schoolSealURL', 'principalSignatureURL']
+
+const isDataUrl = (v) => typeof v === 'string' && v.startsWith('data:')
+
+const EXT_BY_MIME = { 'image/png': 'png', 'image/jpeg': 'jpg', 'image/webp': 'webp', 'image/svg+xml': 'svg' }
+
+function dataUrlToBlob(dataUrl) {
+  const match = /^data:([^;,]+)(;base64)?,(.*)$/s.exec(dataUrl)
+  if (!match) return null
+  const [, mime, isBase64, payload] = match
+  const raw = isBase64 ? atob(payload) : decodeURIComponent(payload)
+  const bytes = new Uint8Array(raw.length)
+  for (let i = 0; i < raw.length; i++) bytes[i] = raw.charCodeAt(i)
+  return { blob: new Blob([bytes], { type: mime }), mime }
+}
+
+/**
+ * Ek base64 image ko bucket me daal kar public URL lautata hai.
+ *
+ * Upload fail hone par purani base64 string hi wapas aati hai, throw nahi karta.
+ * Wajah: profile save me naam, pata, phone sab ek saath jaata hai. Storage ki
+ * ek dikkat par poora save gira dena — jisme logo ka koi lena-dena hi nahi —
+ * school ke liye us bug se zyada bura hai jise hum theek kar rahe hain.
+ * Bura haal me wahi hota hai jo aaj hota hai: base64 source me chala jaata hai.
+ */
+async function uploadSchoolAsset(schoolId, key, dataUrl) {
+  const parsed = dataUrlToBlob(dataUrl)
+  if (!parsed) return dataUrl
+
+  const ext = EXT_BY_MIME[parsed.mime] || 'png'
+  const path = `${schoolId}/${key}.${ext}`
+
+  const { error } = await supabase.storage
+    .from('school-assets')
+    .upload(path, parsed.blob, { contentType: parsed.mime, upsert: true })
+  if (error) {
+    console.warn(`school-assets upload failed (${key}), base64 hi rakh rahe hain:`, error.message)
+    return dataUrl
+  }
+
+  const { data } = supabase.storage.from('school-assets').getPublicUrl(path)
+  if (!data?.publicUrl) return dataUrl
+
+  // Purani file wahi path par upsert hui hai, isliye CDN/browser cache me padi
+  // pichhli image nayi ko chhupa sakti hai. Version query use tod deti hai.
+  return `${data.publicUrl}?v=${Date.now()}`
+}
+
+/** Profile ke saare branding fields ko base64 se URL me badal deta hai. */
+async function liftProfileAssets(schoolId, body) {
+  if (!body || typeof body !== 'object') return body
+  const pending = ASSET_KEYS.filter((key) => isDataUrl(body[key]))
+  if (!pending.length) return body
+
+  const lifted = {}
+  for (const key of pending) lifted[key] = await uploadSchoolAsset(schoolId, key, body[key])
+  return { ...body, ...lifted }
+}
+
+/* ------------------------------------------------------------------ */
 /* path parsing                                                        */
 /* ------------------------------------------------------------------ */
 
@@ -718,8 +803,18 @@ export async function databaseRequest(path, _token, options = {}) {
         principalSignatureURL: data.principal_signature_url,
       }
     }
+    // Naya logo/seal/signature base64 me aata hai — pehle bucket me daalo,
+    // taaki `source` me sirf URL jaye. Isse pehle ye base64 source me baith
+    // jaata tha aur har login par dobara download hota tha.
+    const incoming = await liftProfileAssets(schoolId, options.body)
     const { data: cur } = await supabase.from('schools').select('source').eq('id', schoolId).maybeSingle()
-    const doc = { ...(cur?.source || {}), ...(options.body || {}) }
+    const doc = { ...(cur?.source || {}), ...(incoming || {}) }
+
+    // Upload fail hua to base64 doc me reh jaayega. Use `source` me to jaane
+    // dena hi padega (warna school ka logo gayab ho jaayega), par column me
+    // nahi — logo_url/seal_url par har certificate aur report card ka <img>
+    // tika hai, aur unme 300 kB ki string daalna har print ko bhaari kar dega.
+    const urlOnly = (v) => (isDataUrl(v) ? undefined : v)
     const { error } = await supabase.from('schools').update({
       source: doc,
       name: doc.schoolName || doc.name,
@@ -728,9 +823,9 @@ export async function databaseRequest(path, _token, options = {}) {
       address: doc.address, city: doc.city, state: doc.state, pincode: doc.pincode,
       phone: doc.phone || doc.schoolContactNo, email: doc.email || doc.schoolEmail,
       principal_name: doc.principalName,
-      logo_url: doc.logoURL || doc.logo,
-      seal_url: doc.schoolSealURL,
-      principal_signature_url: doc.principalSignatureURL,
+      logo_url: urlOnly(doc.logoURL) || urlOnly(doc.logo),
+      seal_url: urlOnly(doc.schoolSealURL),
+      principal_signature_url: urlOnly(doc.principalSignatureURL),
     }).eq('id', schoolId)
     if (error) throw new Error(error.message)
     return options.body ?? null
