@@ -152,9 +152,9 @@ function HeroMockup() {
         <b>SCHOOL99 · Command Center</b>
       </div>
       <div className="ls-mockup-stats">
-        <div><span>Students</span><strong>1,248</strong><i className="up">▲ 4.2%</i></div>
-        <div><span>Fees (mo)</span><strong>₹4.2L</strong><i className="up">▲ 8.1%</i></div>
-        <div><span>Attendance</span><strong>96%</strong><i className="up">▲ 1.3%</i></div>
+        <div><span>Students</span><strong>236</strong></div>
+        <div><span>Fees (mo)</span><strong>₹3.8L</strong></div>
+        <div><span>Attendance</span><strong>87%</strong></div>
       </div>
       <div className="ls-mockup-chart">
         <div className="ls-mockup-bars">
@@ -163,7 +163,7 @@ function HeroMockup() {
         <div className="ls-mockup-chart-label">Fee collection · last 6 months</div>
       </div>
       <div className="ls-mockup-activity">
-        <div className="ls-mockup-ring"><svg viewBox="0 0 36 36"><circle className="bg" cx="18" cy="18" r="15.9" /><circle className="fg" cx="18" cy="18" r="15.9" /></svg><div><strong>96%</strong><span>Present</span></div></div>
+        <div className="ls-mockup-ring"><svg viewBox="0 0 36 36"><circle className="bg" cx="18" cy="18" r="15.9" /><circle className="fg" cx="18" cy="18" r="15.9" /></svg><div><strong>87%</strong><span>Present</span></div></div>
         <ul>
           <li><i className="g" /> New admission · Class 6-A</li>
           <li><i className="b" /> Fee received · ₹12,500</li>
@@ -172,7 +172,7 @@ function HeroMockup() {
       </div>
     </div>
     <div className="ls-mockup-float ls-float-a"><CalendarCheck size={16} /> Attendance marked</div>
-    <div className="ls-mockup-float ls-float-b"><Wallet size={16} /> ₹4.2L collected</div>
+    <div className="ls-mockup-float ls-float-b"><Wallet size={16} /> ₹3.8L collected</div>
   </div>
 }
 

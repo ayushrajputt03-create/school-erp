@@ -78,8 +78,7 @@ html{scroll-behavior:smooth}
 .ls-mockup-stats{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:12px}
 .ls-mockup-stats>div{background:#ffffff12;border:1px solid #ffffff1f;border-radius:11px;padding:12px}
 .ls-mockup-stats span{font-size:10px;color:#a9c1db;display:block}
-.ls-mockup-stats strong{font-size:19px;color:#fff;display:block;margin:5px 0 3px}
-.ls-mockup-stats i{font-size:9.5px;font-style:normal;color:#4fd1a5}
+.ls-mockup-stats strong{font-size:19px;color:#fff;display:block;margin:5px 0 0}
 .ls-mockup-chart{background:#ffffff10;border:1px solid #ffffff1c;border-radius:11px;padding:14px;margin-bottom:12px}
 .ls-mockup-bars{height:78px;display:flex;align-items:flex-end;gap:9px}
 .ls-mockup-bars span{flex:1;background:linear-gradient(180deg,var(--ls-blue),var(--ls-accent));border-radius:5px 5px 0 0;animation:ls-bar 1.1s ease-out both}
@@ -90,7 +89,7 @@ html{scroll-behavior:smooth}
 .ls-mockup-ring svg{width:66px;height:66px;transform:rotate(-90deg)}
 .ls-mockup-ring circle{fill:none;stroke-width:3.4}
 .ls-mockup-ring .bg{stroke:#ffffff1f}
-.ls-mockup-ring .fg{stroke:var(--ls-light);stroke-linecap:round;stroke-dasharray:100;stroke-dashoffset:4;animation:ls-ring 1.4s ease-out both}
+.ls-mockup-ring .fg{stroke:var(--ls-light);stroke-linecap:round;stroke-dasharray:100;stroke-dashoffset:13;animation:ls-ring 1.4s ease-out both}
 @keyframes ls-ring{from{stroke-dashoffset:100}}
 .ls-mockup-ring>div{position:absolute;text-align:center}
 .ls-mockup-ring strong{font-size:15px;color:#fff;display:block}
