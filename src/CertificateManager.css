@@ -141,6 +141,16 @@
 .admit-action-group{display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end}.admit-action-group button:disabled,.admit-filter-panel button:disabled{opacity:.55;cursor:not-allowed}
 .date-sheet-builder{display:grid;grid-template-columns:220px minmax(260px,1fr) auto;gap:10px;align-items:end;border:1px solid var(--border);background:var(--input);border-radius:8px;padding:12px}.date-sheet-builder label{display:grid;gap:7px;color:var(--muted);font-size:12px;font-weight:800}.exam-preset-row{display:flex;gap:8px;flex-wrap:wrap}.exam-preset-row button{border:1px solid #5483b366;background:#eff6ff;color:#052659;border-radius:999px;padding:8px 12px;font-size:12px;font-weight:800;cursor:pointer}.exam-preset-row button:hover{background:#c1e8ff}
 .missing-date{color:#b91c1c;font-weight:800;font-size:11px}.admit-date-warning{margin:-6px 18px 12px;padding:8px 10px;border:1px solid #fecaca;background:#fff1f2;color:#991b1b;border-radius:6px;font-size:11px;font-weight:800}
+/* (a)/(b) label list ke marker se nahi, apne column me aata hai — CSS ka
+   lower-alpha "a." deta hai, "(a)" nahi, aur marker spacing har print engine
+   me alag padti hai. Label column fix hone se wrap hui line bhi text ke neeche
+   hi rehti hai, label ke neeche nahi. */
+/* Selector jaan-boojh kar `.admit-instructions` se shuru — purana
+   `.admit-instructions ol{padding-left:18px}` (0-1-1) akele
+   `.admit-instruction-list` (0-1-0) ko haraa deta, aur list dobara indent
+   ho jaati. */
+.admit-instructions .admit-instruction-list{margin:0;padding:0;list-style:none}
+.admit-instructions .admit-instruction-list li{display:grid;grid-template-columns:22px 1fr;gap:4px;align-items:start}
 @media(max-width:720px){.date-sheet-builder{grid-template-columns:1fr}.exam-preset-row button{flex:1}}
 @media(max-width:720px){.admit-result-row{grid-template-columns:auto auto 1fr}.admit-result-row small{grid-column:3}.admit-school-header{grid-template-columns:70px 1fr;padding:12px}.admit-school-logo{width:60px;height:60px}.admit-school-copy h1{font-size:18px}.admit-title-band{grid-template-columns:1fr 88px;padding:10px 12px}.admit-title-band h2{font-size:21px}.admit-student-photo{width:82px;height:106px}.admit-student-grid{grid-template-columns:1fr;padding:12px}.admit-student-grid div{grid-template-columns:108px 1fr}.admit-date-table{width:calc(100% - 24px);margin-inline:12px}.admit-instructions{margin-inline:12px}.admit-signatures{grid-template-columns:1fr 1fr;padding-inline:12px}.admit-signatures .principal{grid-column:1/-1;width:200px}}
 

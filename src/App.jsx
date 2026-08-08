@@ -1401,7 +1401,11 @@ function DeletedStudents({ deletedStudents, onRestore, onRestoreAll, onPermanent
 const occupationOptions = ['Business','Service / Job','Government Employee','Private Employee','Farmer','Labour','Teacher','Doctor','Engineer','Lawyer','Self Employed','Armed Forces','Retired','Unemployed','Other']
 const qualificationOptions = ['Below 10th','10th Pass','12th Pass','Graduate','Post Graduate','Professional Degree','Other']
 const religionList = ['Hindu','Muslim','Christian','Sikh','Jain','Buddhist','Parsi','Jewish','Other']
-const casteList = ['General','OBC (Other Backward Class)','SC (Scheduled Caste)','ST (Scheduled Tribe)','EWS (Economically Weaker Section)','Brahmin','Rajput','Yadav','Jat','Gujjar','Kurmi','Baniya/Vaishya','Kayastha','Kshatriya','Lodhi','Kushwaha','Nai','Dhobi','Kummhar','Lohar','Teli','Other']
+// Muslim / Muslim OBC yahan isliye hain ki school ki register me caste ek hi
+// khaana hai — religion alag se poochne par bhi admin isi list me se chunta hai.
+// Naye option list ke aakhir me nahi, 'Other' se pehle rakhe hain taaki 'Other'
+// hamesha aakhri rahe (wahi convention baaki dropdowns me bhi hai).
+const casteList = ['General','OBC (Other Backward Class)','SC (Scheduled Caste)','ST (Scheduled Tribe)','EWS (Economically Weaker Section)','Brahmin','Rajput','Yadav','Jat','Gujjar','Kurmi','Baniya/Vaishya','Kayastha','Kshatriya','Lodhi','Kushwaha','Nai','Dhobi','Kummhar','Lohar','Teli','Muslim','Muslim OBC','Other']
 const categoryList = ['General','OBC','SC','ST','EWS','DG (Disadvantaged Group)']
 const disabilityOptions = ['Visual Impairment (Blind/Low Vision)','Hearing Impairment (Deaf/Hard of Hearing)','Speech Impairment','Locomotor Disability (Physical)','Intellectual Disability','Learning Disability (Dyslexia)','Autism Spectrum Disorder','Cerebral Palsy','Multiple Disabilities','Other']
 const languageOptions = ['Hindi','English','Urdu','Sanskrit','Punjabi','Bengali','Marathi','Tamil','Telugu','Kannada','Gujarati','Other']
