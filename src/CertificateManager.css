@@ -192,6 +192,70 @@
   .admit-signatures i{height:28px!important;border-bottom:1px solid #000!important}
   .admit-signatures .principal{grid-column:auto!important;justify-self:auto!important;width:auto!important}
   .formal-signatures,.tc-signatures,.character-footer{page-break-inside:avoid!important;break-inside:avoid!important}
+
+  /* ── Admit card density tiers (Ctrl+P path) ───────────────────────────────
+     Only the date-sheet table grows with subject count; every other section is
+     fixed height. Past ~5 subjects the fixed 9pt/2.2mm table alone pushed the
+     card over 277mm and the browser split it onto a second page (measured: 6
+     subjects overflowed by 4.5mm, 18 by 100mm).
+
+     `min-height:277mm` above is deliberately NOT a max — the card is allowed to
+     be shorter than a page. These tiers shrink the table (main lever) plus the
+     title band, instructions and signature block (secondary) so the content
+     side stays under one page. Tier values are mirrored from
+     ADMIT_DENSITY_TIERS in CertificateManager.jsx; the JSX sets the
+     `density-a|b|c|d` class via admitDensityKeyFor(), so the thresholds live in
+     exactly one place and these rules only carry the sizing. Keep the two in
+     sync when tuning. */
+  .admit-card.density-a .admit-date-table{font-size:8pt!important}
+  .admit-card.density-a .admit-date-table th,
+  .admit-card.density-a .admit-date-table td{padding:1.6mm 2.6mm!important}
+  .admit-card.density-a .admit-title-band{min-height:38mm!important}
+  .admit-card.density-a .admit-instructions{padding:2.6mm!important}
+  .admit-card.density-a .admit-instructions h3{font-size:9pt!important}
+  .admit-card.density-a .admit-instructions ol{font-size:8pt!important;line-height:1.3!important}
+  .admit-card.density-a .admit-signatures{padding:6mm 9mm 4mm!important}
+  .admit-card.density-a .admit-signatures i{height:9mm!important}
+
+  .admit-card.density-b .admit-date-table{font-size:6.8pt!important}
+  .admit-card.density-b .admit-date-table th,
+  .admit-card.density-b .admit-date-table td{padding:1mm 2mm!important}
+  .admit-card.density-b .admit-title-band{min-height:32mm!important}
+  .admit-card.density-b .admit-instructions{padding:1.8mm!important}
+  .admit-card.density-b .admit-instructions h3{font-size:8pt!important}
+  .admit-card.density-b .admit-instructions ol{font-size:7pt!important;line-height:1.18!important}
+  .admit-card.density-b .admit-signatures{padding:4mm 9mm 2.5mm!important}
+  .admit-card.density-b .admit-signatures i{height:7mm!important}
+
+  .admit-card.density-c .admit-date-table{font-size:6.5pt!important}
+  .admit-card.density-c .admit-date-table th,
+  .admit-card.density-c .admit-date-table td{padding:0.7mm 1.8mm!important}
+  .admit-card.density-c .admit-title-band{min-height:25mm!important}
+  .admit-card.density-c .admit-instructions{padding:1.4mm!important}
+  .admit-card.density-c .admit-instructions h3{font-size:7.4pt!important}
+  .admit-card.density-c .admit-instructions ol{font-size:6.4pt!important;line-height:1.1!important}
+  .admit-card.density-c .admit-signatures{padding:3mm 9mm 2mm!important}
+  .admit-card.density-c .admit-signatures i{height:6mm!important}
+
+  .admit-card.density-d .admit-date-table{font-size:6.3pt!important}
+  .admit-card.density-d .admit-date-table th,
+  .admit-card.density-d .admit-date-table td{padding:0.55mm 1.6mm!important}
+  .admit-card.density-d .admit-title-band{min-height:22mm!important}
+  .admit-card.density-d .admit-instructions{padding:1.1mm!important}
+  .admit-card.density-d .admit-instructions h3{font-size:7pt!important}
+  .admit-card.density-d .admit-instructions ol{font-size:6.2pt!important;line-height:1.05!important}
+  .admit-card.density-d .admit-signatures{padding:2.5mm 9mm 1.5mm!important}
+  .admit-card.density-d .admit-signatures i{height:5mm!important}
+
+  .admit-card.density-e .admit-date-table{font-size:6pt!important}
+  .admit-card.density-e .admit-date-table th,
+  .admit-card.density-e .admit-date-table td{padding:0.25mm 1.4mm!important}
+  .admit-card.density-e .admit-title-band{min-height:18mm!important}
+  .admit-card.density-e .admit-instructions{padding:0.9mm!important}
+  .admit-card.density-e .admit-instructions h3{font-size:6.6pt!important}
+  .admit-card.density-e .admit-instructions ol{font-size:5.9pt!important;line-height:1!important}
+  .admit-card.density-e .admit-signatures{padding:2mm 9mm 1mm!important}
+  .admit-card.density-e .admit-signatures i{height:4mm!important}
 }
 
 /* safePrint overrides (body.erp-printing + .print-target from print-shared.css) */

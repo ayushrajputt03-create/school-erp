@@ -141,6 +141,53 @@ const schoolPhone = (school = {}, settings = {}) => settings.phone || settings.s
 const schoolEmail = (school = {}, settings = {}) => settings.email || settings.schoolEmail || school.schoolEmail || school.email || ''
 const admitTime = (from, to) => [from, to].filter(Boolean).join(' - ') || ''
 const defaultDateSheetRows = ['Mathematics', 'Science', 'English', 'Hindi'].map(subject => ({ subject, date: '', fromTime: '', toTime: '' }))
+
+/**
+ * Admit card must always be exactly one A4 page. Every section of the card is
+ * fixed height except the date-sheet table, which grows one row per subject —
+ * so past ~5 subjects the fixed 9pt/2.2mm-padding table alone pushed the card
+ * past 277mm and the browser was forced onto a second page. Measured with a
+ * Playwright harness against the real print CSS (scripts/_debug-admit-card-*.mjs,
+ * since deleted): at the old fixed sizing, 6 subjects overflowed by 4.5mm, 8 by
+ * 20.4mm, 18 by 100mm — linear growth, confirming the row size (not a missing
+ * page-break rule) was the cause.
+ *
+ * Four density tiers shrink the table (biggest lever) plus the title band,
+ * instructions and signature block (secondary levers) as subject count rises.
+ * Re-measured with the same harness after tuning — every tier fits within
+ * 277mm with a margin, and the smallest tier (17+) keeps a 6.2pt/6.3pt font
+ * floor, which stays legible in print (a full point above the ~5.5pt where
+ * fine print starts becoming unreadable).
+ *
+ * Single source of truth: both the print path (admitCardPrintHtml, inline
+ * styles) and the on-screen preview (AdmitCardPaper, CSS classes in
+ * CertificateManager.css) call this to decide the tier, so they can never
+ * silently diverge on which subject counts hit which tier.
+ */
+const ADMIT_DENSITY_TIERS = {
+  a: { max: 7, tableFont: '8pt', tablePad: '1.6mm 2.6mm', titleMinH: '38mm', instrPad: '2.6mm', instrH3Font: '9pt', instrFont: '8pt', instrLine: '1.3', sigPad: '6mm 6mm 4mm', sigLineH: '9mm' },
+  b: { max: 12, tableFont: '6.8pt', tablePad: '1mm 2mm', titleMinH: '32mm', instrPad: '1.8mm', instrH3Font: '8pt', instrFont: '7pt', instrLine: '1.18', sigPad: '4mm 6mm 2.5mm', sigLineH: '7mm' },
+  c: { max: 16, tableFont: '6.5pt', tablePad: '0.7mm 1.8mm', titleMinH: '25mm', instrPad: '1.4mm', instrH3Font: '7.4pt', instrFont: '6.4pt', instrLine: '1.1', sigPad: '3mm 6mm 2mm', sigLineH: '6mm' },
+  d: { max: 19, tableFont: '6.3pt', tablePad: '0.55mm 1.6mm', titleMinH: '22mm', instrPad: '1.1mm', instrH3Font: '7pt', instrFont: '6.2pt', instrLine: '1.05', sigPad: '2.5mm 6mm 1.5mm', sigLineH: '5mm' },
+  e: { max: Infinity, tableFont: '6pt', tablePad: '0.25mm 1.4mm', titleMinH: '18mm', instrPad: '0.9mm', instrH3Font: '6.6pt', instrFont: '5.9pt', instrLine: '1', sigPad: '2mm 6mm 1mm', sigLineH: '4mm' },
+}
+const admitDensityKeyFor = subjectCount => (subjectCount <= ADMIT_DENSITY_TIERS.a.max ? 'a' : subjectCount <= ADMIT_DENSITY_TIERS.b.max ? 'b' : subjectCount <= ADMIT_DENSITY_TIERS.c.max ? 'c' : subjectCount <= ADMIT_DENSITY_TIERS.d.max ? 'd' : 'e')
+const admitDensityFor = subjectCount => ADMIT_DENSITY_TIERS[admitDensityKeyFor(subjectCount)]
+
+/**
+ * Row count alone is the wrong input: a long subject name wraps onto a second
+ * line, so 12 rows of "Environmental Science and Sustainability Studies" is
+ * taller than 20 rows of "Maths". Measured, that pushed the card to a second
+ * page even at the tightest tier.
+ *
+ * So tiers are chosen on estimated LINE count, not row count. ~46 characters
+ * fit on one line of the subject column (50% of the ~166mm table at the
+ * mid-tier 6.8pt Arial); the estimate is deliberately conservative, since
+ * guessing one line too many only costs a slightly denser card, while guessing
+ * one too few costs a second page — the bug being fixed.
+ */
+const ADMIT_SUBJECT_CHARS_PER_LINE = 46
+const admitLineCount = rows => rows.reduce((total, row) => total + Math.max(1, Math.ceil(String(row?.subject || 'Subject').length / ADMIT_SUBJECT_CHARS_PER_LINE)), 0)
 const safePrint = (selector = '.certificate-preview-shell') =>
   sharedSafePrint(selector, { pageSize: 'A4', pageMargin: '10mm' })
 const admitPrintCss = `
@@ -239,6 +286,7 @@ const imageHtml = (src, fallback, style = '') => src
 const admitCardPrintHtml = ({ student, exam = {}, dateRows = [], school = {}, settings = {}, showPendingFee = false, pendingAmount = 0 }) => {
   const { className, section } = classParts(student?.className)
   const rows = dateRows.length ? dateRows : defaultDateSheetRows
+  const density = admitDensityFor(admitLineCount(rows))
   const schoolName = schoolNameOf(school, settings)
   const address = schoolAddress(school, settings)
   const phone = schoolPhone(school, settings) || 'XXXXXXXX'
@@ -251,9 +299,9 @@ const admitCardPrintHtml = ({ student, exam = {}, dateRows = [], school = {}, se
   const photo = profilePhoto(student)
   const dateRowsHtml = rows.map((row, index) => `
     <tr style="${index % 2 ? 'background:#eff6ff;' : ''}">
-      <td style="padding:2mm 3mm;border:1px solid #777;color:#000;">${escapeHtml(row.subject || 'Subject')}</td>
-      <td style="padding:2mm 3mm;border:1px solid #777;color:#000;">${row.date ? escapeHtml(shortDate(row.date)) : '<span style="color:#991b1b;font-weight:800;font-size:8pt;">Set Date Sheet</span>'}</td>
-      <td style="padding:2mm 3mm;border:1px solid #777;color:#000;">${admitTime(row.fromTime, row.toTime) ? escapeHtml(admitTime(row.fromTime, row.toTime)) : '<span style="color:#991b1b;font-weight:800;font-size:8pt;">Set Time</span>'}</td>
+      <td style="padding:${density.tablePad};border:1px solid #777;color:#000;">${escapeHtml(row.subject || 'Subject')}</td>
+      <td style="padding:${density.tablePad};border:1px solid #777;color:#000;">${row.date ? escapeHtml(shortDate(row.date)) : '<span style="color:#991b1b;font-weight:800;font-size:8pt;">Set Date Sheet</span>'}</td>
+      <td style="padding:${density.tablePad};border:1px solid #777;color:#000;">${admitTime(row.fromTime, row.toTime) ? escapeHtml(admitTime(row.fromTime, row.toTime)) : '<span style="color:#991b1b;font-weight:800;font-size:8pt;">Set Time</span>'}</td>
     </tr>
   `).join('')
   return `
@@ -272,7 +320,7 @@ const admitCardPrintHtml = ({ student, exam = {}, dateRows = [], school = {}, se
         </div>
         <div class="admit-header-spacer" style="width:22mm;height:22mm;"></div>
       </header>
-      <section class="admit-title-band" style="position:relative;z-index:6;display:grid;grid-template-columns:1fr 32mm;gap:7mm;align-items:center;background:#eef6ff;border-bottom:1px solid #000;padding:6mm 6mm;min-height:44mm;box-sizing:border-box;">
+      <section class="admit-title-band" style="position:relative;z-index:6;display:grid;grid-template-columns:1fr 32mm;gap:7mm;align-items:center;background:#eef6ff;border-bottom:1px solid #000;padding:6mm 6mm;min-height:${density.titleMinH};box-sizing:border-box;">
         <div><h2 style="margin:0;color:#052659;font-size:24pt;letter-spacing:2.5px;">ADMIT CARD</h2><strong style="display:block;margin-top:2mm;color:#021024;font-size:11pt;">${escapeHtml(examName)}</strong></div>
         <div class="admit-student-photo" style="width:30mm;height:38mm;justify-self:end;border:1px solid #000;background:#fff;display:grid;place-items:center;color:#64748b;font:700 8pt/1.2 Arial;text-align:center;overflow:hidden;box-sizing:border-box;">
           ${imageHtml(photo, '<span style="border:1px dashed #777;width:calc(100% - 8px);height:calc(100% - 8px);display:grid;place-items:center;padding:4px;">Paste Photo Here</span>', 'width:100%;height:100%;object-fit:cover;display:block;')}
@@ -289,14 +337,19 @@ const admitCardPrintHtml = ({ student, exam = {}, dateRows = [], school = {}, se
         ].map(([label, value]) => `<div style="display:grid;grid-template-columns:32mm 1fr;gap:3mm;align-items:baseline;border-bottom:1px dotted #777;padding-bottom:1.3mm;font-size:9.5pt;box-sizing:border-box;"><strong style="color:#000;">${escapeHtml(label)}</strong><span>${escapeHtml(value)}</span></div>`).join('')}
         <div style="grid-column:1/-1;display:grid;grid-template-columns:32mm 1fr;gap:3mm;align-items:baseline;border-bottom:1px dotted #777;padding-bottom:1.3mm;font-size:9.5pt;box-sizing:border-box;"><strong style="color:#000;">Exam Name</strong><span>${escapeHtml(examName)}</span></div>
       </section>
-      <table class="admit-date-table" style="position:relative;z-index:6;width:calc(100% - 12mm);margin:2mm 6mm 5mm;border-collapse:collapse;font-size:9pt;table-layout:fixed;">
-        <thead><tr><th style="background:#052659;color:#fff;text-align:left;padding:2.2mm 3mm;border:1px solid #000;">Subject</th><th style="background:#052659;color:#fff;text-align:left;padding:2.2mm 3mm;border:1px solid #000;">Date</th><th style="background:#052659;color:#fff;text-align:left;padding:2.2mm 3mm;border:1px solid #000;">Time</th></tr></thead>
+      <table class="admit-date-table" style="position:relative;z-index:6;width:calc(100% - 12mm);margin:2mm 6mm 5mm;border-collapse:collapse;font-size:${density.tableFont};table-layout:fixed;">
+        <!-- table-layout:fixed splits columns evenly unless told otherwise, which
+             left Subject on a third of the width and wrapped real subject names
+             onto two lines. Date and Time are short and predictable, so Subject
+             takes half. -->
+        <colgroup><col style="width:50%;" /><col style="width:26%;" /><col style="width:24%;" /></colgroup>
+        <thead><tr><th style="background:#052659;color:#fff;text-align:left;padding:${density.tablePad};border:1px solid #000;">Subject</th><th style="background:#052659;color:#fff;text-align:left;padding:${density.tablePad};border:1px solid #000;">Date</th><th style="background:#052659;color:#fff;text-align:left;padding:${density.tablePad};border:1px solid #000;">Time</th></tr></thead>
         <tbody>${dateRowsHtml}</tbody>
       </table>
       ${dateRows.length ? '' : '<div class="admit-date-warning" style="position:relative;z-index:6;margin:-2mm 6mm 4mm;padding:2mm 3mm;border:1px solid #fecaca;background:#fff1f2;color:#991b1b;border-radius:2mm;font-size:8pt;font-weight:800;">Date Sheet not saved for this exam/class yet. Add it from the Date Sheet tab.</div>'}
-      <section class="admit-instructions" style="position:relative;z-index:6;margin:0 6mm 5mm;padding:3.5mm;background:#f8fbff;border:1px solid #b9d2f0;border-radius:2mm;page-break-inside:avoid;">
-        <h3 style="margin:0 0 1.5mm;color:#000;font-size:9.5pt;">IMPORTANT INSTRUCTIONS</h3>
-        <ol style="margin:0;padding-left:5mm;font-size:8.6pt;line-height:1.45;">
+      <section class="admit-instructions" style="position:relative;z-index:6;margin:0 6mm 5mm;padding:${density.instrPad};background:#f8fbff;border:1px solid #b9d2f0;border-radius:2mm;page-break-inside:avoid;">
+        <h3 style="margin:0 0 1.5mm;color:#000;font-size:${density.instrH3Font};">IMPORTANT INSTRUCTIONS</h3>
+        <ol style="margin:0;padding-left:5mm;font-size:${density.instrFont};line-height:${density.instrLine};">
           <li>Carry this admit card and valid photo ID to examination centre. Without it entry will be denied.</li>
           <li>Reach 30 minutes before exam.</li>
           <li>No mobile phones, smartwatches, calculators allowed in exam.</li>
@@ -307,15 +360,15 @@ const admitCardPrintHtml = ({ student, exam = {}, dateRows = [], school = {}, se
       </section>
       ${showPendingFee && pendingAmount > 0 ? `<strong class="admit-pending-fee" style="position:relative;z-index:6;display:block;margin:0 6mm 2mm;color:#b91c1c;font-size:9pt;">Pending Fees: Rs. ${Number(pendingAmount).toLocaleString('en-IN')}</strong>` : ''}
       <strong class="admit-issued" style="position:relative;z-index:6;display:block;margin:0 6mm 4mm;color:#000;font:800 9pt Arial,sans-serif;">Issued On: ${escapeHtml(longDate(today()))}</strong>
-      <footer class="admit-signatures" style="position:relative;z-index:6;display:flex;justify-content:space-between;align-items:flex-end;gap:9mm;padding:8mm 6mm 6mm;font-size:8.8pt;page-break-inside:avoid;break-inside:avoid;">
-        <div style="flex:1 1 0;min-width:0;display:grid;gap:1.5mm;text-align:center;"><span>Class Teacher</span><i style="height:12mm;border-bottom:1px solid #000;"></i></div>
-        <div style="flex:1 1 0;min-width:0;display:grid;gap:1.5mm;text-align:center;"><span>Exam Controller</span><i style="height:12mm;border-bottom:1px solid #000;"></i></div>
+      <footer class="admit-signatures" style="position:relative;z-index:6;display:flex;justify-content:space-between;align-items:flex-end;gap:9mm;padding:${density.sigPad};font-size:8.8pt;page-break-inside:avoid;break-inside:avoid;">
+        <div style="flex:1 1 0;min-width:0;display:grid;gap:1.5mm;text-align:center;"><span>Class Teacher</span><i style="height:${density.sigLineH};border-bottom:1px solid #000;"></i></div>
+        <div style="flex:1 1 0;min-width:0;display:grid;gap:1.5mm;text-align:center;"><span>Exam Controller</span><i style="height:${density.sigLineH};border-bottom:1px solid #000;"></i></div>
         ${(() => {
           const hasSig = school.schoolSealURL || school.principalSignatureURL
           const sigRow = hasSig
             ? `<div style="display:flex;align-items:flex-end;justify-content:center;gap:4mm;min-height:15mm;">${imageHtml(school.schoolSealURL, '', 'height:15mm;width:auto;max-width:32mm;object-fit:contain;')}${imageHtml(school.principalSignatureURL, '', 'height:13mm;width:auto;max-width:38mm;object-fit:contain;')}</div>`
             : ''
-          return `<div style="flex:1 1 0;min-width:0;display:grid;gap:1.5mm;text-align:center;">${sigRow}<span>Principal &amp; Stamp</span><i style="height:${hasSig ? '3mm' : '12mm'};border-bottom:1px solid #000;"></i></div>`
+          return `<div style="flex:1 1 0;min-width:0;display:grid;gap:1.5mm;text-align:center;">${sigRow}<span>Principal &amp; Stamp</span><i style="height:${hasSig ? '3mm' : density.sigLineH};border-bottom:1px solid #000;"></i></div>`
         })()}
       </footer>
       <div class="admit-footer-note" style="position:absolute;left:13mm;right:13mm;bottom:8mm;z-index:6;display:flex;justify-content:space-between;gap:8mm;border-top:1px solid #cbd5e1;padding-top:2mm;color:#334155;font-size:7.5pt;">
@@ -630,7 +683,13 @@ function AdmitCardPaper({ student, exam = {}, dateRows = [], school = {}, settin
   const affiliationNo = schoolAffiliationNo(school, settings)
   const code = schoolCodeOf(school, settings)
   const examName = exam.name || 'Annual Examination 2026-27'
-  return <article className="admit-card">
+  // Same tier decision as the print path (admitCardPrintHtml) — see
+  // admitDensityFor's comment. This component is screen preview + the Ctrl+P
+  // fallback only (PreviewModal always routes the actual Print button through
+  // admitCardPrintHtml/printAdmitCardsHtml for type 'admit'), but a manual
+  // Ctrl+P while looking at this preview should still produce one page.
+  const densityKey = admitDensityKeyFor(admitLineCount(rows))
+  return <article className={`admit-card density-${densityKey}`}>
     <header className="admit-school-header">
       <div className="admit-school-logo"><AdmitCardLogo school={school} settings={settings} /></div>
       <div className="admit-school-copy">
@@ -655,6 +714,7 @@ function AdmitCardPaper({ student, exam = {}, dateRows = [], school = {}, settin
       <div className="full"><strong>Exam Name</strong><span>{examName}</span></div>
     </section>
     <table className="admit-date-table">
+      <colgroup><col style={{ width: '50%' }} /><col style={{ width: '26%' }} /><col style={{ width: '24%' }} /></colgroup>
       <thead><tr><th>Subject</th><th>Date</th><th>Time</th></tr></thead>
       <tbody>{rows.map((row, index) => <tr key={`${row.id || row.subject}-${index}`}><td>{row.subject || 'Subject'}</td><td>{row.date ? shortDate(row.date) : <span className="missing-date">Set Date Sheet</span>}</td><td>{admitTime(row.fromTime, row.toTime) || <span className="missing-date">Set Time</span>}</td></tr>)}</tbody>
     </table>
