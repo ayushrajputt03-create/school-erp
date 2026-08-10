@@ -13,7 +13,18 @@ const defaultGroups = [
   { id: 'staff-ward', name: 'STAFF WARD', order: 2, createdBy: 'System', createdAt: 0 },
   { id: 'sibling', name: 'SIBLING', order: 3, createdBy: 'System', createdAt: 0 },
   { id: 'new-admission', name: 'NEW ADMISSION', order: 4, createdBy: 'System', createdAt: 0 },
+  { id: 'no-fee', name: 'NO FEE', order: 5, createdBy: 'System', createdAt: 0 },
 ]
+const feeGroupRows = groups => {
+  const byName = new Map()
+  defaultGroups.forEach(group => byName.set(String(group.name || '').toUpperCase(), group))
+  Object.values(groups || {}).forEach(group => {
+    const name = String(group?.name || '').trim().toUpperCase()
+    if (!name) return
+    byName.set(name, { ...group, name })
+  })
+  return [...byName.values()].sort((a, b) => Number(a.order || 999) - Number(b.order || 999) || String(a.name).localeCompare(String(b.name)))
+}
 const today = () => {
   const date = new Date()
   date.setMinutes(date.getMinutes() - date.getTimezoneOffset())
@@ -47,9 +58,9 @@ const feeMonthMatches = (fee, month) => {
 }
 const feeBelongsToStudent = (fee, student) => String(fee.studentId || '') === String(student.id)
   || String(fee.admissionNumber || fee.admissionNo || fee.roll || '') === String(student.roll || student.admissionNo || '')
-const classStructureRows = (structures = {}, student) => {
+const classStructureRows = (structures = {}, student, feeGroupOverride = '') => {
   const parts = classParts(student?.className)
-  const feeGroup = String(student?.feeGroup || 'REGULAR').toUpperCase()
+  const feeGroup = String(feeGroupOverride || student?.feeGroup || 'REGULAR').toUpperCase()
   const rows = Object.values(structures || {}).filter(structure => {
     const sameClass = !structure.className || String(structure.className) === String(parts.className)
     const sameSection = !structure.section || String(structure.section) === String(parts.section)
@@ -79,6 +90,7 @@ function SubmitFee({ students, fees, onSubmit, onOpenProfile, schoolProfile, rec
   const [receiptNumber, setReceiptNumber] = useState('')
   const [selectedReceipt, setSelectedReceipt] = useState(null)
   const [allowExtraPayment, setAllowExtraPayment] = useState(false)
+  const groupRows = useMemo(() => feeGroupRows(feeManager?.groups), [feeManager?.groups])
   const matches = query.trim() && !student ? students.filter(item => {
     const source = searchBy === 'Admission No.' ? item.roll : searchBy === 'Student Name' ? item.name : item.phone
     return String(source).toLowerCase().includes(query.trim().toLowerCase())
@@ -109,13 +121,9 @@ function SubmitFee({ students, fees, onSubmit, onOpenProfile, schoolProfile, rec
   const paymentStatus = paidAmount <= 0 ? 'Pending' : balance > 0 ? 'Partial' : 'Paid'
   const updateRow = (id, patch) => setRows(current => current.map(row => row.id === id ? { ...row, ...patch } : row))
   const updatePayment = (id, patch) => setPayments(current => current.map(payment => payment.id === id ? { ...payment, ...patch } : payment))
-  const selectStudent = item => {
-    const configured = classStructureRows(feeManager?.structures, item)
+  const buildRowsForStudent = (item, feeGroup) => {
+    const configured = classStructureRows(feeManager?.structures, item, feeGroup)
     const dueBalance = Object.values(fees || {}).filter(row => row.studentId === item.id && Number(row.balance || 0) > 0).reduce((sum, row) => sum + Number(row.balance || 0), 0)
-    setStudent(item)
-    setAllowExtraPayment(false)
-    setQuery(`${item.roll} - ${item.name}`)
-    setReceiptNumber('')
     const feeRows = configured.length ? configured.map((structure, index) => ({
       id: structure.id || index + 1,
       selected: true,
@@ -125,10 +133,26 @@ function SubmitFee({ students, fees, onSubmit, onOpenProfile, schoolProfile, rec
       discount: 0,
     })) : [{ id: 1, selected: true, head: 'Monthly Tuition Fee', due: 0, previous: 0, discount: 0 }]
     if (dueBalance > 0) feeRows.push({ id: `prev_${Date.now()}`, selected: true, head: 'Previous Due', due: 0, previous: dueBalance, discount: 0 })
+    return feeRows
+  }
+  const applyFeeRows = feeRows => {
     setRows(feeRows)
-    setForm(current => ({ ...current, feeGroup: (item.feeGroup || 'REGULAR').toUpperCase() }))
     const defaultPayable = feeRows.reduce((sum, row) => sum + Number(row.due || 0) + Number(row.previous || 0) - Number(row.discount || 0), 0)
     setPayments([{ id: 1, type: 'CASH', amount: Math.max(0, defaultPayable) }])
+  }
+  const selectStudent = item => {
+    const feeGroup = String(item.feeGroup || 'REGULAR').toUpperCase()
+    setStudent(item)
+    setAllowExtraPayment(false)
+    setQuery(`${item.roll} - ${item.name}`)
+    setReceiptNumber('')
+    setForm(current => ({ ...current, feeGroup }))
+    applyFeeRows(buildRowsForStudent(item, feeGroup))
+  }
+  const changeFeeGroup = feeGroup => {
+    const normalized = String(feeGroup || 'REGULAR').toUpperCase()
+    setForm(current => ({ ...current, feeGroup: normalized }))
+    if (student) applyFeeRows(buildRowsForStudent(student, normalized))
   }
   const submit = async event => {
     event.preventDefault()
@@ -197,7 +221,7 @@ function SubmitFee({ students, fees, onSubmit, onOpenProfile, schoolProfile, rec
           <dt>Adm No</dt><dd><strong>{student.roll}</strong><button type="button" className="text-button" onClick={() => onOpenProfile(student)}>Profile</button></dd>
         </dl>
         <div className="fee-side-fields">
-          <label>Fee Group<select value={form.feeGroup} onChange={event => setForm({ ...form, feeGroup: event.target.value })}><option>REGULAR</option><option>STAFF WARD</option><option>SIBLING</option><option>NO FEE</option></select></label>
+          <label>Fee Group<select value={form.feeGroup} onChange={event => changeFeeGroup(event.target.value)}>{groupRows.map(group => <option key={group.id || group.name} value={group.name}>{group.name}</option>)}</select></label>
           <label>Fee Set Type<select value={form.setType} onChange={event => setForm({ ...form, setType: event.target.value })}><option>Group Wise</option><option>Student Wise</option></select></label>
           <label>New Adm<select value={form.newAdmission} onChange={event => setForm({ ...form, newAdmission: event.target.value })}><option>Yes</option><option>No</option></select></label>
           <label>Compulsory Ledger<select value={form.ledger} onChange={event => setForm({ ...form, ledger: event.target.value })}>{feeHeads.map(head => <option key={head}>{head}</option>)}</select></label>
@@ -283,7 +307,7 @@ function SubmitFee({ students, fees, onSubmit, onOpenProfile, schoolProfile, rec
 }
 
 function FeeGroupPage({ groups, onSave, onDelete }) {
-  const rows = [...defaultGroups, ...Object.values(groups).filter(group => !defaultGroups.some(item => item.id === group.id))]
+  const rows = feeGroupRows(groups)
   const [search, setSearch] = useState('')
   const [editing, setEditing] = useState(null)
   const visible = rows.filter(group => group.name.toLowerCase().includes(search.toLowerCase()))
@@ -329,7 +353,7 @@ function SetFeePage({ students, groups, structures, onSave, onDelete }) {
     }
     setEditing(false)
   }
-  const groupRows = [...defaultGroups, ...Object.values(groups).filter(group => !defaultGroups.some(item => item.id === group.id))]
+  const groupRows = feeGroupRows(groups)
   return <>
     <div className="fee-page-toolbar wrap"><label>Search Fee Structure<select value={mode} onChange={event => setMode(event.target.value)}><option>Class Wise</option><option>By Student Wise</option><option>By Group Wise</option></select></label><label>Class<select value={className} onChange={event => setClassName(event.target.value)}><option>All Classes</option>{classes.map(item => <option key={item}>{item}</option>)}</select></label><label>Section<select value={section} onChange={event => setSection(event.target.value)}><option>All Sections</option>{sections.map(item => <option key={item}>{item}</option>)}</select></label><span /><button className="secondary-button" onClick={() => window.print()}><Printer size={15} /> Print</button><button className="primary-button" onClick={() => setEditing(true)}><Plus size={15} /> Add</button></div>
     <div className="panel table-panel"><div className="table-scroll"><table><thead><tr><th>Set Type</th><th>Target</th><th>Class</th><th>Section</th><th>Fee Head</th><th>Amount</th><th>Frequency</th><th>Action</th></tr></thead><tbody>
