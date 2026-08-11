@@ -27,6 +27,7 @@ const normalizeAccounts = accounts => ({
   pendingPayments: {},
   donations: {},
   concessions: {},
+  writeOffs: {},
   fines: {},
   otherIncome: {},
   vouchers: {},
@@ -156,7 +157,7 @@ function AccountsDashboard({ summary, setTab }) {
   </div>
 }
 
-function FeeAccounts({ summary, students, setPage }) {
+function FeeAccounts({ summary, students, accounts, saveAccountsItem, deleteAccountsItem, setPage }) {
   const [sub, setSub] = useState('collection')
   const [query, setQuery] = useState('')
   const rows = sub === 'collection' ? summary.feeRows.filter(row => Number(row.amount || row.paidAmount || 0) > 0) : summary.feePendingRows
@@ -164,12 +165,39 @@ function FeeAccounts({ summary, students, setPage }) {
   const headers = sub === 'collection' ? ['Receipt No','Student','Adm No','Class','Amount','Mode','Date','Status'] : ['Adm No','Student','Class','Father','Phone','Total','Paid','Pending','Actions']
   const exportRows = filtered.map(row => sub === 'collection' ? [row.receiptNo || row.id, row.studentName || students.find(s => s.id === row.studentId)?.name || '-', row.admissionNo || '-', row.className || '-', money(row.amount || row.paidAmount), row.method || row.paymentMode || '-', dateLabel(row.date || row.createdAt), 'Paid'] : [row.admissionNo || '-', row.studentName || '-', row.className || '-', row.fatherName || '-', row.phone || '-', money(row.total || 0), money(row.paidAmount || row.amount || 0), money(row.balance || row.pendingAmount || 0), 'Collect Fee'])
   return <TabbedPage title="Fee Accounts" tabs={[['collection','Collection'],['pending','Pending'],['defaulters','Defaulters'],['writeoff','Write Off']]} active={sub} setActive={setSub}>
-    {sub === 'writeoff' ? <WriteOffForm /> : <><Toolbar query={query} setQuery={setQuery} onPrint={() => printTable(`Fee ${sub}`, headers, exportRows)} onExport={() => exportCsv(headers, exportRows, `fee-${sub}`)} /><SummaryStrip items={[['Total Records', filtered.length], ['Total Collected', money(filtered.reduce((s, r) => s + Number(r.amount || r.paidAmount || 0), 0))], ['Total Pending', money(filtered.reduce((s, r) => s + Number(r.balance || r.pendingAmount || 0), 0))]]} /><section className="panel table-panel"><div className="table-scroll"><table><thead><tr>{headers.map(h => <th key={h}>{h}</th>)}</tr></thead><tbody>{exportRows.map((row, index) => <tr key={index}>{row.map((cell, i) => <td key={i}>{i === row.length - 1 && sub !== 'collection' ? <button className="secondary-button" onClick={() => setPage('fees')}>Collect Fee</button> : cell}</td>)}</tr>)}{!exportRows.length && <tr><td colSpan={headers.length}><div className="empty-state">No fee records found.</div></td></tr>}</tbody></table></div></section></>}
+    {sub === 'writeoff' ? <WriteOffForm accounts={accounts} students={students} saveAccountsItem={saveAccountsItem} deleteAccountsItem={deleteAccountsItem} /> : <><Toolbar query={query} setQuery={setQuery} onPrint={() => printTable(`Fee ${sub}`, headers, exportRows)} onExport={() => exportCsv(headers, exportRows, `fee-${sub}`)} /><SummaryStrip items={[['Total Records', filtered.length], ['Total Collected', money(filtered.reduce((s, r) => s + Number(r.amount || r.paidAmount || 0), 0))], ['Total Pending', money(filtered.reduce((s, r) => s + Number(r.balance || r.pendingAmount || 0), 0))]]} /><section className="panel table-panel"><div className="table-scroll"><table><thead><tr>{headers.map(h => <th key={h}>{h}</th>)}</tr></thead><tbody>{exportRows.map((row, index) => <tr key={index}>{row.map((cell, i) => <td key={i}>{i === row.length - 1 && sub !== 'collection' ? <button className="secondary-button" onClick={() => setPage('fees')}>Collect Fee</button> : cell}</td>)}</tr>)}{!exportRows.length && <tr><td colSpan={headers.length}><div className="empty-state">No fee records found.</div></td></tr>}</tbody></table></div></section></>}
   </TabbedPage>
 }
 
-function WriteOffForm() {
-  return <section className="panel accounts-form"><div className="panel-header"><div><h3>Fee Write Off</h3><p>Record non-collectable fees for audit trail.</p></div></div><div className="form-grid"><label>Select Student<input placeholder="Search student" /></label><label>Amount<input type="number" /></label><label>Reason<select><option>Student Left School</option><option>Scholarship Granted</option><option>Fee Waiver</option><option>RTE Student</option><option>Other</option></select></label><label>Approved By<input placeholder="Principal/Admin" /></label></div><button className="primary-button">Write Off</button></section>
+function WriteOffForm({ accounts, students, saveAccountsItem, deleteAccountsItem }) {
+  const [form, setForm] = useState({ studentId: '', amount: '', reason: 'Student Left School', customReason: '', approvedBy: '', date: today(), remarks: '' })
+  const [saving, setSaving] = useState(false)
+  const rows = values(accounts.writeOffs)
+  const student = students.find(item => item.id === form.studentId)
+  const submit = async event => {
+    event.preventDefault()
+    if (!student) return alert('Please select a student.')
+    if (Number(form.amount || 0) <= 0) return alert('Enter a valid write off amount.')
+    try {
+      setSaving(true)
+      await saveAccountsItem('writeOffs', {
+        ...form,
+        amount: Number(form.amount || 0),
+        reason: form.reason === 'Other' ? form.customReason : form.reason,
+        studentName: studentName(student),
+        admissionNo: studentAdmission(student),
+        className: studentClass(student),
+        status: 'written_off',
+      })
+      setForm({ studentId: '', amount: '', reason: 'Student Left School', customReason: '', approvedBy: '', date: today(), remarks: '' })
+      alert('Fee write off saved.')
+    } catch (error) {
+      alert(`Write off save failed: ${error.message}`)
+    } finally {
+      setSaving(false)
+    }
+  }
+  return <div className="accounts-page"><section className="panel accounts-form"><div className="panel-header"><div><h3>Fee Write Off</h3><p>Record non-collectable fees for audit trail.</p></div></div><form onSubmit={submit}><div className="form-grid"><label>Select Student<select required value={form.studentId} onChange={e => setForm({ ...form, studentId: e.target.value })}><option value="">Select student</option>{students.map(item => <option key={item.id} value={item.id}>{studentName(item)} - Adm {studentAdmission(item)} - {studentClass(item)}</option>)}</select></label><label>Amount<input required min="1" type="number" value={form.amount} onChange={e => setForm({ ...form, amount: e.target.value })} /></label><label>Reason<select value={form.reason} onChange={e => setForm({ ...form, reason: e.target.value })}><option>Student Left School</option><option>Scholarship Granted</option><option>Fee Waiver</option><option>RTE Student</option><option>Other</option></select></label>{form.reason === 'Other' && <label>Custom Reason<input required value={form.customReason} onChange={e => setForm({ ...form, customReason: e.target.value })} /></label>}<label>Approved By<input required value={form.approvedBy} onChange={e => setForm({ ...form, approvedBy: e.target.value })} placeholder="Principal/Admin" /></label><label>Date<DatePicker value={form.date} onChange={value => setForm({ ...form, date: value })} /></label><label className="full">Remarks<textarea value={form.remarks} onChange={e => setForm({ ...form, remarks: e.target.value })} /></label></div><button className="primary-button" disabled={saving}>{saving ? 'Saving...' : 'Write Off'}</button></form></section><SimpleTable headers={['Date','Student','Adm No','Class','Amount','Reason','Approved By','Actions']} rows={rows.map(row => [dateLabel(row.date), row.studentName, row.admissionNo, row.className, money(row.amount), row.reason, row.approvedBy, <button className="icon-button danger" onClick={() => deleteAccountsItem('writeOffs', row.id)}><Trash2 size={14} /></button>])} empty="No fee write off recorded." /></div>
 }
 
 function ExpenseAccounts({ summary, saveExpenseItem }) {
@@ -373,7 +401,7 @@ export default function AccountsManager({ students = [], fees = {}, expenses = {
   ]
   return <div className="accounts-module"><div className="section-actions"><div><h2>Accounts</h2><p>Income, expense, pending payments, donations, vouchers and audit reports.</p></div></div><div className="accounts-tabs">{tabs.map(([id, label]) => <button key={id} className={tab === id ? 'active' : ''} onClick={() => setTab(id)}>{label}</button>)}</div>
     {tab === 'dashboard' && <AccountsDashboard summary={summary} setTab={setTab} />}
-    {tab === 'fee' && <FeeAccounts summary={summary} students={students} setPage={setPage} />}
+    {tab === 'fee' && <FeeAccounts summary={summary} students={students} accounts={safeAccounts} saveAccountsItem={saveAccountsItem} deleteAccountsItem={deleteAccountsItem} setPage={setPage} />}
     {tab === 'expense' && <ExpenseAccounts summary={summary} saveExpenseItem={saveExpenseItem} />}
     {tab === 'salary' && <SalaryAccounts summary={summary} staff={staff} employeeConfig={employeeConfig} saveExpenseItem={saveExpenseItem} />}
     {tab === 'pending' && <PendingPayments summary={summary} />}
