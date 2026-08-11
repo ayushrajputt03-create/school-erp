@@ -1,8 +1,8 @@
-﻿import React, { useEffect, useMemo, useState } from 'react'
+import React, { useEffect, useMemo, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { useStudentPhotos } from './student-photos'
 import {
-  Award, Check, Download, Eye, FileBadge, FileText, GraduationCap,
+  Award, Calendar, Check, Download, Edit2, Eye, FileBadge, FileText, GraduationCap,
   IdCard, Medal, MessageCircle, Printer, Save, Search, Settings,
   ShieldCheck, Trash2, X,
 } from 'lucide-react'
@@ -743,6 +743,7 @@ function AdmitCardManager({ students, fees, school, settings, examData, onSaveEx
   const [sheetExamName, setSheetExamName] = useState('Annual Examination 2026-27')
   const [savingSheet, setSavingSheet] = useState(false)
   const [sheetMessage, setSheetMessage] = useState('')
+  const [editingRowId, setEditingRowId] = useState(null)
   const selectedExam = exams.find(item => item.id === examId) || exams[0] || {}
   const allDateRows = Object.values(examData?.dateSheet || {}).sort((a, b) => `${a.date || ''}${a.fromTime || ''}`.localeCompare(`${b.date || ''}${b.fromTime || ''}`))
   const classSectionTargets = useMemo(() => classSectionOptionsFromStudents(students), [students])
@@ -779,6 +780,29 @@ function AdmitCardManager({ students, fees, school, settings, examData, onSaveEx
     setSelected({ [student.id]: true })
     setGeneratedIds([student.id])
     setSearchMessage(`1 admit card generated for ${student.name}.`)
+  }
+  const startEditRow = row => {
+    setEditingRowId(row.id)
+    setSheetForm({
+      id: row.id,
+      examId: row.examId || examId,
+      target: 'single',
+      className: row.className || '',
+      section: row.section || '',
+      subject: row.subject || '',
+      date: row.date || today(),
+      fromTime: row.fromTime || '10:00',
+      toTime: row.toTime || '12:00',
+    })
+    const ex = exams.find(e => e.id === row.examId)
+    if (ex) setSheetExamName(ex.name)
+    setTab('dateSheet')
+    setSheetMessage(`Editing "${row.subject}" (${row.className}-${row.section}). Modify details below and click Update.`)
+  }
+  const cancelEditRow = () => {
+    setEditingRowId(null)
+    setSheetForm(current => ({ ...current, id: undefined, subject: '', date: today(), fromTime: '10:00', toTime: '12:00' }))
+    setSheetMessage('')
   }
   const runSearch = (silent = false) => {
     if (pickedStudent) {
@@ -832,25 +856,40 @@ function AdmitCardManager({ students, fees, school, settings, examData, onSaveEx
   }
   const addDateRow = async event => {
     event.preventDefault()
-    const targets = sheetForm.target === 'all'
-      ? classSectionTargets
-      : [{ className: sheetForm.className, section: sheetForm.section }]
-    if (!targets.length || targets.some(target => !target.className || !target.section)) {
-      setSheetMessage('Class/section select karo ya All Classes mode use karo.')
-      return
-    }
     setSavingSheet(true)
     setSheetMessage('')
     try {
       await onSaveExam({ id: sheetForm.examId, name: sheetExamName || selectedExam.name || 'Annual Examination 2026-27' })
-      await Promise.all(targets.map(target => onSaveDateSheet({
-        ...sheetForm,
-        className: target.className,
-        section: target.section,
-        target: undefined,
-      })))
-      setSheetMessage(`${sheetForm.subject} saved for ${targets.length} class/section group(s).`)
-      setSheetForm(current => ({ ...current, subject: '', date: today(), fromTime: '10:00', toTime: '12:00' }))
+      if (editingRowId) {
+        await onSaveDateSheet({
+          id: editingRowId,
+          examId: sheetForm.examId,
+          className: sheetForm.className,
+          section: sheetForm.section,
+          subject: sheetForm.subject,
+          date: sheetForm.date,
+          fromTime: sheetForm.fromTime,
+          toTime: sheetForm.toTime,
+        })
+        setSheetMessage(`Subject "${sheetForm.subject}" updated successfully.`)
+        cancelEditRow()
+      } else {
+        const targets = sheetForm.target === 'all'
+          ? classSectionTargets
+          : [{ className: sheetForm.className, section: sheetForm.section }]
+        if (!targets.length || targets.some(target => !target.className || !target.section)) {
+          setSheetMessage('Class/section select karo ya All Classes mode use karo.')
+          return
+        }
+        await Promise.all(targets.map(target => onSaveDateSheet({
+          ...sheetForm,
+          className: target.className,
+          section: target.section,
+          target: undefined,
+        })))
+        setSheetMessage(`${sheetForm.subject} saved for ${targets.length} class/section group(s).`)
+        setSheetForm(current => ({ ...current, subject: '', date: today(), fromTime: '10:00', toTime: '12:00' }))
+      }
     } finally {
       setSavingSheet(false)
     }
@@ -895,7 +934,7 @@ function AdmitCardManager({ students, fees, school, settings, examData, onSaveEx
   return <div className="admit-module">
     <div className="admit-tabs no-print"><button className={tab === 'generate' ? 'active' : ''} onClick={() => setTab('generate')}>Generate Admit Cards</button><button className={tab === 'dateSheet' ? 'active' : ''} onClick={() => setTab('dateSheet')}>Date Sheet</button></div>
     {tab === 'generate' && <section className="panel admit-filter-panel no-print">
-      <div className="panel-header"><div><h3>Admit Card Search</h3><p>Type admission no/name or choose class. Admit cards appear automatically from the current search.</p></div><div className="admit-action-group"><button className="secondary-button" disabled={!selectedStudents.length || pendingPrint} onClick={generatePreview}><Eye size={15} /> Refresh Preview</button><button className="primary-button" disabled={!selectedStudents.length || pendingPrint} onClick={printSelected}><Printer size={15} /> {pendingPrint ? 'Preparing Print...' : 'Print Selected'}</button></div></div>
+      <div className="panel-header"><div><h3>Admit Card Search</h3><p>Type admission no/name or choose class. Admit cards appear automatically from the current search.</p></div><div className="admit-action-group"><button className="secondary-button" onClick={() => { setSheetForm(f => ({ ...f, examId })); setSheetExamName(selectedExam.name || sheetExamName); setTab('dateSheet') }} title="Edit exam details or datesheet rows"><Edit2 size={14} /> Edit Date Sheet / Exam</button><button className="secondary-button" disabled={!selectedStudents.length || pendingPrint} onClick={generatePreview}><Eye size={15} /> Refresh Preview</button><button className="primary-button" disabled={!selectedStudents.length || pendingPrint} onClick={printSelected}><Printer size={15} /> {pendingPrint ? 'Preparing Print...' : 'Print Selected'}</button></div></div>
       <div className="form-grid">
         <label>Select Exam<select value={examId} onChange={event => { setExamId(event.target.value); clearSearch() }}>{exams.map(exam => <option key={exam.id} value={exam.id}>{exam.name}</option>)}</select></label>
         <label>Search By<select value={searchBy} onChange={event => { setSearchBy(event.target.value); clearSearch() }}><option>Class/Section</option><option>Admission No</option><option>Student Name</option></select></label>
@@ -923,26 +962,33 @@ function AdmitCardManager({ students, fees, school, settings, examData, onSaveEx
       </div>
     </section>}
     {tab === 'dateSheet' && <section className="panel admit-date-sheet-form no-print">
-      <div className="panel-header"><div><h3>Date Sheet</h3><p>Create a proper exam date sheet. The same rows appear inside admit cards for that class and section.</p></div></div>
+      <div className="panel-header"><div><h3>Date Sheet Management</h3><p>Create and edit exam date sheet entries. The same rows appear inside admit cards for that class and section.</p></div></div>
       <div className="date-sheet-builder">
         <label>Exam Type<select value={sheetForm.examId} onChange={event => { const exam = exams.find(item => item.id === event.target.value); setSheetForm({ ...sheetForm, examId: event.target.value }); setExamId(event.target.value); setSheetExamName(exam?.name || sheetExamName) }}>{exams.map(exam => <option key={exam.id} value={exam.id}>{exam.name}</option>)}</select></label>
         <label>Exam Name<input value={sheetExamName} onChange={event => setSheetExamName(event.target.value)} placeholder="Annual Examination 2026-27" /></label>
-        <button type="button" className="secondary-button" disabled={savingSheet} onClick={saveExamName}><Save size={15} /> {savingSheet ? 'Saving...' : 'Save Exam'}</button>
+        <button type="button" className="secondary-button" disabled={savingSheet} onClick={saveExamName}><Save size={15} /> {savingSheet ? 'Saving...' : 'Save Exam Name'}</button>
       </div>
       <div className="exam-preset-row">{examPresets.map(preset => <button type="button" key={preset.id} onClick={() => { const id = `${preset.id}-2026`; setSheetForm({ ...sheetForm, examId: id }); setExamId(id); setSheetExamName(`${preset.name} 2026-27`) }}>{preset.name}</button>)}</div>
+      {editingRowId && <div style={{ background: '#eff6ff', border: '1px solid #93c5fd', padding: '10px 14px', borderRadius: '8px', color: '#1e40af', fontWeight: 'bold', display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '13px' }}>
+        <span>✏️ Editing Date Sheet entry for {sheetForm.subject} ({sheetForm.className || 'Class'}-{sheetForm.section || 'Sec'})</span>
+        <button type="button" className="secondary-button" style={{ height: '30px', padding: '0 10px', fontSize: '12px' }} onClick={cancelEditRow}>Cancel Editing</button>
+      </div>}
       <form className="form-grid" onSubmit={addDateRow}>
-        <label>Save For<select value={sheetForm.target} onChange={event => setSheetForm({ ...sheetForm, target: event.target.value })}><option value="single">One Class / Section</option><option value="all">All Classes & Sections</option></select></label>
+        <label>Save For<select value={sheetForm.target} disabled={Boolean(editingRowId)} onChange={event => setSheetForm({ ...sheetForm, target: event.target.value })}><option value="single">One Class / Section</option><option value="all">All Classes & Sections</option></select></label>
         <label>Select Class<select value={sheetForm.className} disabled={sheetForm.target === 'all'} onChange={event => setSheetForm({ ...sheetForm, className: event.target.value })} required={sheetForm.target !== 'all'}><option value="">Select Class</option>{classOptionsFromStudents(students).map(item => <option key={item}>{item}</option>)}</select></label>
         <label>Select Section<select value={sheetForm.section} disabled={sheetForm.target === 'all'} onChange={event => setSheetForm({ ...sheetForm, section: event.target.value })} required={sheetForm.target !== 'all'}><option value="">Select Section</option>{sectionOptionsFromStudents(students).map(item => <option key={item}>{item}</option>)}</select></label>
         <label>Subject<input list="admit-subjects" value={sheetForm.subject} onChange={event => setSheetForm({ ...sheetForm, subject: event.target.value })} required /><datalist id="admit-subjects">{subjectPresets.map(subject => <option key={subject} value={subject} />)}</datalist></label>
         <label>Date<DatePicker value={sheetForm.date} onChange={value => setSheetForm({ ...sheetForm, date: value })} /></label>
         <label>From Time<input type="time" value={sheetForm.fromTime} onChange={event => setSheetForm({ ...sheetForm, fromTime: event.target.value })} required /></label>
         <label>To Time<input type="time" value={sheetForm.toTime} onChange={event => setSheetForm({ ...sheetForm, toTime: event.target.value })} required /></label>
-        <button className="primary-button" disabled={savingSheet}><Save size={15} /> {savingSheet ? 'Saving...' : sheetForm.target === 'all' ? `Save for ${classSectionTargets.length} Groups` : 'Add Subject'}</button>
+        <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+          <button className="primary-button" style={{ flex: 1 }} disabled={savingSheet}><Save size={15} /> {savingSheet ? 'Saving...' : editingRowId ? 'Update Subject' : sheetForm.target === 'all' ? `Save for ${classSectionTargets.length} Groups` : 'Add Subject'}</button>
+          {editingRowId && <button type="button" className="secondary-button" onClick={cancelEditRow}>Cancel</button>}
+        </div>
       </form>
       {sheetMessage && <div className="admit-search-message ok">{sheetMessage}</div>}
       <DateSheetPreview exam={{ ...(exams.find(exam => exam.id === sheetForm.examId) || selectedExam), name: sheetExamName || selectedExam.name }} rows={previewDateRows} school={school} settings={settings} className={sheetForm.className} section={sheetForm.section} />
-      <div className="table-scroll"><table><thead><tr><th>Subject</th><th>Exam</th><th>Class</th><th>Section</th><th>Date</th><th>From</th><th>To</th><th>Actions</th></tr></thead><tbody>{allDateRows.map(row => <tr key={row.id}><td>{row.subject}</td><td>{exams.find(exam => exam.id === row.examId)?.name || row.examId}</td><td>{row.className}</td><td>{row.section}</td><td>{shortDate(row.date)}</td><td>{row.fromTime}</td><td>{row.toTime}</td><td><button className="icon-button danger" onClick={() => onDeleteDateSheet(row.id)}><Trash2 size={14} /></button></td></tr>)}{!allDateRows.length && <tr><td colSpan="8"><div className="empty-state">No date sheet rows added yet.</div></td></tr>}</tbody></table></div>
+      <div className="table-scroll"><table><thead><tr><th>Subject</th><th>Exam</th><th>Class</th><th>Section</th><th>Date</th><th>From</th><th>To</th><th>Actions</th></tr></thead><tbody>{allDateRows.map(row => <tr key={row.id} style={{ background: editingRowId === row.id ? '#f0f9ff' : undefined }}><td><strong>{row.subject}</strong></td><td>{exams.find(exam => exam.id === row.examId)?.name || row.examId}</td><td>{row.className}</td><td>{row.section}</td><td>{shortDate(row.date)}</td><td>{row.fromTime}</td><td>{row.toTime}</td><td><button className="icon-button" style={{ color: '#2563eb', marginRight: '4px' }} title="Edit Date Sheet Row" onClick={() => startEditRow(row)}><Edit2 size={14} /></button><button className="icon-button danger" title="Delete Row" onClick={() => onDeleteDateSheet(row.id)}><Trash2 size={14} /></button></td></tr>)}{!allDateRows.length && <tr><td colSpan="8"><div className="empty-state">No date sheet rows added yet.</div></td></tr>}</tbody></table></div>
     </section>}
     <section className="admit-print-grid">
       {selectedStudents.map(student => <AdmitCardPaper key={student.id} student={student} exam={selectedExam} dateRows={matchingDateRows(student)} school={school} settings={settings} showPendingFee={showPendingFee === 'Yes'} pendingAmount={pendingFeeForStudent(student, fees)} />)}
