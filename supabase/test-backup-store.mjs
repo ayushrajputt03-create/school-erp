@@ -23,8 +23,6 @@ for (const raw of fs.readFileSync(new URL('../.env.local', import.meta.url), 'ut
   const i = l.indexOf('='); if (i < 0) continue
   process.env[l.slice(0, i).trim()] ??= l.slice(i + 1).trim()
 }
-process.env.USE_SUPABASE = 'true'
-process.env.VITE_USE_SUPABASE = 'true'
 
 const { createRequire } = await import('node:module')
 const require = createRequire(import.meta.url)
@@ -92,13 +90,8 @@ console.log('\n=== ASLI SCHOOL KA DATA ===')
 
 const data = await store.schoolData(REAL)
 
-check('teeno sheet ka data mila',
+check('har sheet ka data mila',
   SHEETS.every(node => Array.isArray(data[node])) ? true : `mila: ${JSON.stringify(Object.keys(data))}`)
-
-for (const node of SHEETS) {
-  check(`${node}: ${data[node].length} row (khaali nahi)`,
-    data[node].length > 0 ? true : `0 row — backup me ye sheet khaali jayegi`)
-}
 
 // Ginti seedhe DB se milao. Ye wo assertion hai jo 1000-row wali chup-chaap
 // katauti pakadti hai — PostgREST bina range ke 1000 par ruk jaata hai aur
@@ -111,8 +104,13 @@ const expected = {
   students: await countOf('students'),
   fees: await countOf('fee_receipts', q => q.is('deleted_at', null)),
   attendance: await countOf('attendance'),
+  staffAttendance: await countOf('staff_attendance'),
 }
 for (const node of SHEETS) {
+  // Khaali sheet ki do wajah ho sakti hai: DB me kuch nahi, ya code chhod raha
+  // hai. Dusri wali hi khatarnak hai, isliye ginti se milao — "khaali nahi"
+  // check us school par jhooth bolta jisne wo module use hi nahi kiya.
+  if (!expected[node]) console.log(`  NOTE  ${node}: DB me 0 row hai, isliye sheet khaali jayegi`)
   check(`${node}: poori ${expected[node]} row aayi, 1000 par kati nahi`,
     data[node].length === expected[node] ? true : `mili ${data[node].length}, honi chahiye ${expected[node]}`)
 }
@@ -143,6 +141,21 @@ check('attendance row par studentId hai (join se, source se nahi)',
 check('attendance row par date hai',
   Boolean(attendanceRow.date) ? true : `keys: ${Object.keys(attendanceRow).join(',')}`)
 
+// Staff attendance ki sheet ka poora matlab naam par tika hai — staff_attendance
+// table me sirf staff_id (uuid) hai, aur uuid ki sheet school ke kisi kaam ki
+// nahi. Isliye join tootne par ye check girna chahiye.
+if (data.staffAttendance.length) {
+  const staffRow = data.staffAttendance[0]
+  check('staff attendance row par date aur status hai',
+    Boolean(staffRow.date && staffRow.status) ? true : `mila: ${JSON.stringify(staffRow)}`)
+  check('staff attendance row par employee ka naam hai (join se)',
+    data.staffAttendance.some(r => r.employeeName)
+      ? true : `kisi row par naam nahi. keys: ${Object.keys(staffRow).join(',')}`)
+  check('status padhne layak label hai, single letter code nahi',
+    data.staffAttendance.every(r => String(r.status).length > 2)
+      ? true : `mila: ${[...new Set(data.staffAttendance.map(r => r.status))].join(',')}`)
+}
+
 /* ============================================================
    asli xlsx — jo file school ko mail me jayegi
    ============================================================ */
@@ -154,13 +167,17 @@ const buffer = await createWorkbook(store, REAL)
 const book = await new ExcelJS.Workbook().xlsx.load(buffer)
 
 const sheetRows = name => (book.getWorksheet(name)?.rowCount ?? 0) - 1  // header hata kar
-check(`workbook me teeno sheet hain (${book.worksheets.map(s => s.name).join(', ')})`,
-  ['Students', 'Fees', 'Attendance'].every(n => book.getWorksheet(n))
+check(`workbook me chaaro sheet hain (${book.worksheets.map(s => s.name).join(', ')})`,
+  ['Students', 'Fees', 'Attendance', 'Staff Attendance'].every(n => book.getWorksheet(n))
     ? true : `mili: ${book.worksheets.map(s => s.name).join(',')}`)
 check(`Students sheet me ${sheetRows('Students')} row (DB ki ${expected.students})`,
   sheetRows('Students') === expected.students ? true : 'sheet me row kam/zyada hain')
 check(`Attendance sheet me ${sheetRows('Attendance')} row (DB ki ${expected.attendance})`,
   sheetRows('Attendance') === expected.attendance ? true : 'sheet me row kam/zyada hain')
+// 0 row par addSheet ek "No records" line likhta hai — wo bhi ek row hai.
+check(`Staff Attendance sheet me ${sheetRows('Staff Attendance')} row (DB ki ${expected.staffAttendance})`,
+  sheetRows('Staff Attendance') === (expected.staffAttendance || 1)
+    ? true : 'sheet me row kam/zyada hain')
 
 // Postgres se aane wali rows me nested object hote hain (fee_items, payments).
 // Bina sambhale ExcelJS unhe "[object Object]" likh deta hai — yaani wo data
@@ -200,42 +217,6 @@ try { await store.markSent('is-naam-ka-koi-school-nahi', Date.now()) } catch (e)
 check('anjaan school par markSent chup-chaap nikal jaata hai',
   unknownError === null ? true : `phat gaya: ${unknownError}`)
 
-/* ============================================================
-   dono backend ka interface ek jaisa ho
-   ============================================================ */
-console.log('\n=== DONO BACKEND KA INTERFACE ===')
-
-// firebase-admin stub kar diya hai — service account waise bhi sirf Vercel me
-// hai. Yahan sirf ye dekhna hai ki dono taraf wahi method maujood hain. Naam ka
-// ek farak bhi galat flag par production tak chhupa rehta, aur rollback ke din
-// pata chalta — jo sabse bura waqt hai pata chalne ka.
-const stub = (name, exports) => {
-  require.cache[require.resolve(name)] = { id: name, filename: name, loaded: true, exports }
-}
-const noopRef = () => ({ once: async () => ({ val: () => null }), set: async () => {} })
-stub('firebase-admin/app', {
-  getApps: () => [], getApp: () => ({}), initializeApp: () => ({}), cert: () => ({}),
-})
-stub('firebase-admin/database', { getDatabase: () => ({ ref: () => noopRef() }) })
-
-process.env.USE_SUPABASE = 'false'
-process.env.FIREBASE_SERVICE_ACCOUNT_JSON = JSON.stringify({ project_id: 'stub' })
-delete require.cache[require.resolve('../api/_backup-store.js')]
-const { createStore: createFirebaseStore } = require('../api/_backup-store.js')
-
-let fbStore = null, fbMethods = null
-try {
-  fbStore = createFirebaseStore()
-  fbMethods = Object.keys(fbStore).sort()
-} catch (error) {
-  fbMethods = `Firebase store bana hi nahi: ${error.message}`
-}
-const supaMethods = Object.keys(store).sort()
-check('Firebase aur Supabase store ke method bilkul same hain',
-  Array.isArray(fbMethods) && JSON.stringify(fbMethods) === JSON.stringify(supaMethods)
-    ? true : `supabase: ${supaMethods.join(',')}\n          firebase: ${Array.isArray(fbMethods) ? fbMethods.join(',') : fbMethods}`)
-check('Firebase store apne aap ko firebase batata hai',
-  fbStore?.backend === 'firebase' ? true : `mila: ${fbStore?.backend}`)
 
 await cleanup()
 console.log(`\n${'='.repeat(46)}`)

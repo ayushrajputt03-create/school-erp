@@ -166,6 +166,11 @@
 .admit-signatures .principal{grid-column:auto!important;justify-self:auto!important;width:auto!important}
 .admit-signatures .admit-seal{height:18mm;width:auto;max-width:32mm;object-fit:contain;margin:4px auto 0;display:block}
 .admit-signatures .admit-sign{height:14mm;width:auto;max-width:40mm;object-fit:contain;margin:2px auto 0;display:block}
+/* Seal aur sign line ke uper, ek hi row me — span hai (div nahi) taaki print
+   wala `.admit-signatures div{display:grid}` ise column me na tode. */
+.admit-signatures .admit-sign-row{display:flex;align-items:flex-end;justify-content:center;gap:4mm;min-height:15mm}
+.admit-signatures .admit-sign-row .admit-seal,
+.admit-signatures .admit-sign-row .admit-sign{margin:0}
 
 /* Ctrl+P fallback: hide certificate chrome, show document */
 @media print{

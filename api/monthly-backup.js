@@ -5,7 +5,7 @@ const ExcelJS = require('exceljs')
 const { Resend } = require('resend')
 const { createStore, SHEETS } = require('./_backup-store')
 
-const SHEET_TITLES = { students: 'Students', fees: 'Fees', attendance: 'Attendance' }
+const SHEET_TITLES = { students: 'Students', fees: 'Fees', attendance: 'Attendance', staffAttendance: 'Staff Attendance' }
 
 function addSheet(workbook, name, rows) {
   const sheet = workbook.addWorksheet(name)

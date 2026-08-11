@@ -12,7 +12,26 @@ const downloadBlob = (blob, name) => {
 
 const backupName = extension => `northstar-school-backup-${new Date().toISOString().slice(0, 10)}.${extension}`
 
-export default function BackupCenter({ students, fees, attendance, settings, createBackup, restoreBackup, saveSettings, role }) {
+// H aur HD dono half day hain — purana data H likhta tha, app ab HD likhti hai.
+const STATUS_LABELS = { P: 'Present', A: 'Absent', L: 'Leave', H: 'Half Day', HD: 'Half Day' }
+const statusLabel = code => STATUS_LABELS[code] || code || ''
+const employeeName = employee => `${employee?.firstName || ''} ${employee?.lastName || ''}`.trim() || employee?.name || ''
+
+// staffAttendance is stored as { "2026-08-09": { staffId: "P", _editedBy: "...", ... } }.
+// The `_`-prefixed keys are audit meta on the date row, not employees, so they must never
+// become attendance lines. Same filter EmployeeManager/saveStaffAttendance already apply.
+const staffAttendanceRows = (staffAttendance, staff) => Object.entries(staffAttendance || {})
+  .flatMap(([date, marks]) => Object.entries(marks || {})
+    .filter(([staffId, status]) => !staffId.startsWith('_') && typeof status === 'string')
+    .map(([staffId, status]) => ({
+      date,
+      employeeCode: staff?.[staffId]?.employeeCode || '',
+      employeeName: employeeName(staff?.[staffId]) || staffId,
+      status: statusLabel(status),
+    })))
+  .sort((a, b) => a.date.localeCompare(b.date) || a.employeeName.localeCompare(b.employeeName))
+
+export default function BackupCenter({ students, fees, attendance, staffAttendance, settings, createBackup, restoreBackup, saveSettings, role }) {
   const fileRef = useRef(null)
   const [busy, setBusy] = useState('')
   const [message, setMessage] = useState('')
@@ -21,6 +40,9 @@ export default function BackupCenter({ students, fees, attendance, settings, cre
   // Live attendance state is bounded to the current month (see fix #2); count its marks for the
   // stat card. Full history is still exported via createBackup() in exportExcel/exportJson.
   const attendanceCount = Object.values(attendance || {}).reduce((sum, marks) => sum + Object.keys(marks || {}).length, 0)
+  // Staff attendance ka listener poora node uthata hai, isliye ye total hai —
+  // student attendance jaisa current-month tak bounded nahi.
+  const staffAttendanceCount = staffAttendanceRows(staffAttendance).length
 
   // Read-only. Answers one question before the fees listener can safely be date-bounded:
   // does every stored receipt carry a timestamp to bound on? A bounded query silently skips
@@ -86,11 +108,12 @@ export default function BackupCenter({ students, fees, attendance, settings, cre
       addSheet('Attendance', attendanceRows.map(row => ({
         date: row.date, admissionNumber: students.find(student => String(student.id) === String(row.studentId))?.roll || '',
         studentName: students.find(student => String(student.id) === String(row.studentId))?.name || row.studentId,
-        status: row.status === 'P' ? 'Present' : row.status === 'A' ? 'Absent' : 'Leave',
+        status: statusLabel(row.status),
       })))
+      addSheet('Staff Attendance', staffAttendanceRows(payload.data.staffAttendance, payload.data.staff))
       const buffer = await workbook.xlsx.writeBuffer()
       downloadBlob(new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }), backupName('xlsx'))
-      setMessage('Excel workbook downloaded with Students, Fees and Attendance sheets.')
+      setMessage('Excel workbook downloaded with Students, Fees, Attendance and Staff Attendance sheets.')
     } finally {
       setBusy('')
     }
@@ -138,13 +161,14 @@ export default function BackupCenter({ students, fees, attendance, settings, cre
       <div><span>Students</span><strong>{students.length}</strong></div>
       <div><span>Fee records</span><strong>{Object.keys(fees).length}</strong></div>
       <div><span>Attendance (this month)</span><strong>{attendanceCount}</strong></div>
+      <div><span>Staff attendance</span><strong>{staffAttendanceCount}</strong></div>
       <div><span>Last email backup</span><strong>{settings.lastSentAt ? new Date(settings.lastSentAt).toLocaleDateString('en-IN') : 'Not sent'}</strong></div>
     </section>
 
     <div className="backup-grid">
       <section className="panel backup-card">
         <div className="backup-icon excel"><FileSpreadsheet size={23} /></div>
-        <div><h3>Download Excel</h3><p>Students, fee receipts and attendance in one formatted workbook.</p></div>
+        <div><h3>Download Excel</h3><p>Students, fee receipts, student attendance and staff attendance in one formatted workbook.</p></div>
         <button className="primary-button" disabled={!admin || busy === 'excel'} onClick={exportExcel}><Download size={15} /> {busy === 'excel' ? 'Creating workbook...' : 'Download .xlsx'}</button>
       </section>
       <section className="panel backup-card">

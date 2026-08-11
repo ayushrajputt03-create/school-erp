@@ -1201,17 +1201,14 @@ function StudentProfile({ student, close, attendance, fees, feeManager, schoolPr
   const feeMonths = sessionMonthNames(sessionStartMonth)
   const studentFees = Object.values(fees).filter(fee => fee.studentId === student.id)
   const totalPaid = studentFees.filter(fee => fee.status === 'paid').reduce((sum, fee) => sum + Number(fee.amount || 0), 0)
-  const structures = Object.values(feeManager?.structures || {})
-  const monthlyFee = structures
-    .filter(item => item.frequency === 'Monthly')
-    .filter(item => item.mode === 'By Student Wise'
-      ? String(item.target) === String(student.id)
-      : String(item.target || '').toUpperCase() === String(student.feeGroup || '').toUpperCase()
-        && (!item.className || item.className === student.className.split('-')[0])
-        && (!item.section || item.section === student.className.split('-')[1]))
-    .reduce((sum, item) => sum + Number(item.amount || 0), 0)
   const pending = studentFees.reduce((sum, fee) => sum + Number(fee.balance || 0), 0)
   const pendingSummary = getPendingFeesSummary({ student, fees: studentFees, structures: feeManager?.structures, academicYear, sessionStartMonth })
+  // Monthly fee pendingSummary se hi aata hai — pehle yahan iska apna dusra
+  // calculation tha, jo teen cheezein miss karta tha: 'Class Wise' mode, "Class 1 / A"
+  // jaise class formats, aur receipt-se-fallback. Nateeja: pending panel ₹850 dikhata
+  // tha aur usi screen ka month grid "Not set" — ek hi student ke do jawab. Ek hi
+  // source of truth (lib/pendingFees.js) rakhne se dono hamesha match karenge.
+  const monthlyFee = pendingSummary.monthlyFee
   const results = academics?.[student.id] || {}
   const docs = documents?.[student.id] || {}
   // The profile is the one screen that always shows a photo, so it asks for its own.
@@ -3230,17 +3227,35 @@ function useSchoolWorkspace(session) {
     const ids = [...new Set((studentIds || []).map(String).filter(Boolean))]
     const missing = ids.filter(id => photoCacheRef.current[id] === undefined)
     if (!missing.length) return
-    const token = await session.getIdToken().catch(() => null)
-    if (!token) return
-    const results = await Promise.all(missing.map(async id => {
-      const value = await databaseRequest(`studentPhotos/${workspace.schoolId}/${id}`, token).catch(() => null)
-      return [id, typeof value === 'string' ? value : '']
-    }))
-    results.forEach(([id, value]) => { photoCacheRef.current[id] = value })
-    const found = Object.fromEntries(results.filter(([, value]) => value))
-    if (!Object.keys(found).length) return
-    setStudents(current => current.map(item => found[item.id] ? { ...item, photoUrl: found[item.id] } : item))
-  }, [developmentDemo, session, workspace.schoolId, setStudents])
+    // Supabase pe photos storage bucket me hain. Students row me photo_path stored
+    // hai; signed URLs ke liye hame signPhotoPaths use karna padta hai, jo
+    // dataAdapter se import karna padta hai.
+    const photoPaths = missing
+      .map(id => students.find(s => s.id === id)?.photoPath)
+      .filter(Boolean)
+    if (!photoPaths.length) {
+      // Koi path nahi milti to koi photo nahi dikalegi
+      missing.forEach(id => { photoCacheRef.current[id] = '' })
+      return
+    }
+    try {
+      const { signPhotoPaths } = await import('./lib/dataAdapter.js')
+      const signed = await signPhotoPaths(photoPaths)
+      const urlByPath = new Map(photoPaths.map(path => [path, signed.get(path) || '']))
+      const found = {}
+      missing.forEach(id => {
+        const student = students.find(s => s.id === id)
+        const url = student?.photoPath ? urlByPath.get(student.photoPath) : ''
+        photoCacheRef.current[id] = url
+        if (url) found[id] = url
+      })
+      if (!Object.keys(found).length) return
+      setStudents(current => current.map(item => found[item.id] ? { ...item, photoUrl: found[item.id] } : item))
+    } catch (error) {
+      // Agar signing fail ho to kuch nahi kar sakte, at least cache ko mark kar do
+      missing.forEach(id => { photoCacheRef.current[id] = '' })
+    }
+  }, [developmentDemo, session, workspace.schoolId, students, setStudents])
 
   // Backfill for records created before the index existed: build
   // parentStudentIndex/{phone}/{studentId} so parent login can resolve a phone to its children
@@ -5438,7 +5453,7 @@ export default function App() {
     'id-cards': <IDCardManager students={data.students} staff={data.staff} school={data.workspace.schoolProfile} idCards={data.idCards} settings={data.idCardSettings} onSaveSettings={data.saveIdCardSettings} onSaveCard={data.saveIdCard} onDeleteCard={data.deleteIdCard} onUploadLogo={data.uploadIdCardLogo} />,
     notices: <Notices notices={data.notices} onAddNotice={data.addNotice} />,
     'school-profile': <SchoolProfile profile={data.workspace.schoolProfile} students={data.students} staff={data.staff} save={data.saveSchoolProfile} />,
-    backup: <BackupCenter students={data.students} fees={data.fees} attendance={data.attendance} settings={data.backupSettings} createBackup={data.createBackupPayload} restoreBackup={data.restoreBackup} saveSettings={data.saveBackupSettings} role={data.workspace.role} />,
+    backup: <BackupCenter students={data.students} fees={data.fees} attendance={data.attendance} staffAttendance={data.staffAttendance} settings={data.backupSettings} createBackup={data.createBackupPayload} restoreBackup={data.restoreBackup} saveSettings={data.saveBackupSettings} role={data.workspace.role} />,
   }
   // The session switcher only lists sessions the workspace actually has records for, so a
   // brand new school sees no dropdown at all and nothing about its screens changes.

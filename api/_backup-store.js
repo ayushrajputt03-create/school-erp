@@ -14,84 +14,35 @@
 // USE_SUPABASE=false karte hi sab wapas Firebase par.
 // ============================================================
 
-const useSupabase = String(process.env.USE_SUPABASE ?? process.env.VITE_USE_SUPABASE ?? '') === 'true'
+// Supabase only — Firebase fallback removed. Simpler codebase, no dual-backend logic.
+const SHEETS = ['students', 'fees', 'attendance', 'staffAttendance']
 
-// Backup me sheet ka naam -> RTDB node. Dono backend ek hi teen sheet dete
-// hain, taaki school ko aane wali file ka shape backend badalne se na badle.
-const SHEETS = ['students', 'fees', 'attendance']
+// H aur HD dono half day hain — purana data H likhta tha, app ab HD likhti hai.
+const STATUS_LABELS = { P: 'Present', A: 'Absent', L: 'Leave', H: 'Half Day', HD: 'Half Day' }
+const staffName = staff => `${staff?.firstName || staff?.first_name || ''} ${staff?.lastName || staff?.last_name || ''}`.trim()
+  || staff?.full_name || staff?.name || ''
 
-/* ------------------------------------------------------------------ */
-/* Firebase (purana raasta — USE_SUPABASE=false par abhi bhi chalta hai) */
-/* ------------------------------------------------------------------ */
+/**
+ * { "2026-08-09": { staffId: "P", _editedBy: "..." } } -> flat sheet rows.
+ *
+ * `_` se shuru hone wale keys date row ka audit meta hain (kisne/kab edit kiya),
+ * employee nahi — unhe attendance line banane par sheet me jhoothi rows aa
+ * jaati hain. Isliye filter zaroori hai.
+ */
+const staffAttendanceRows = (staffAttendance, staff) => Object.entries(staffAttendance || {})
+  .flatMap(([date, marks]) => Object.entries(marks || {})
+    .filter(([staffId, status]) => !staffId.startsWith('_') && typeof status === 'string')
+    .map(([staffId, status]) => ({
+      date,
+      employeeCode: staff?.[staffId]?.employeeCode || '',
+      employeeName: staffName(staff?.[staffId]) || staffId,
+      status: STATUS_LABELS[status] || status,
+    })))
+  .sort((a, b) => String(a.date).localeCompare(String(b.date)) || a.employeeName.localeCompare(b.employeeName))
 
-function firebaseStore() {
-  const { getApps, getApp, initializeApp, cert } = require('firebase-admin/app')
-  const { getDatabase } = require('firebase-admin/database')
-
-  const app = (() => {
-    if (getApps().length) return getApp()
-    const raw = process.env.FIREBASE_SERVICE_ACCOUNT_JSON || ''
-    if (!raw) throw new Error('Server config missing: FIREBASE_SERVICE_ACCOUNT_JSON not set.')
-    let credentials
-    try { credentials = JSON.parse(raw) } catch { throw new Error('Server config error: FIREBASE_SERVICE_ACCOUNT_JSON is not valid JSON.') }
-    return initializeApp({
-      credential: cert(credentials),
-      databaseURL: process.env.FIREBASE_DATABASE_URL || process.env.VITE_FIREBASE_DATABASE_URL,
-    })
-  })()
-
-  const database = getDatabase(app)
-  const read = async path => (await database.ref(path).once('value')).val()
-
-  return {
-    backend: 'firebase',
-
-    requiredEnv: ['FIREBASE_SERVICE_ACCOUNT_JSON'],
-
-    // Poora `schools` tree padhna har school ka saara data uthata hai sirf
-    // backupSettings tak pahunchne ke liye. Isliye pehle sirf id ki list, phir
-    // har id se do chhote node. Shallow call na chale to purana raasta, taaki
-    // backup chup-chaap band na ho jaye.
-    async listSchools() {
-      const databaseUrl = process.env.FIREBASE_DATABASE_URL || process.env.VITE_FIREBASE_DATABASE_URL
-      try {
-        const accessToken = await app.options.credential.getAccessToken()
-        const listed = await fetch(`${databaseUrl}/schools.json?shallow=true&access_token=${accessToken.access_token}`)
-        if (!listed.ok) throw new Error(`shallow list failed (${listed.status})`)
-        const ids = Object.keys(await listed.json() || {})
-        return Promise.all(ids.map(async schoolId => {
-          const [settings, name] = await Promise.all([
-            read(`schools/${schoolId}/backupSettings`),
-            read(`schools/${schoolId}/profile/schoolName`),
-          ])
-          return { schoolId, schoolName: name || '', backupSettings: settings || {} }
-        }))
-      } catch (error) {
-        console.warn('[backup] shallow school listing unavailable, falling back to full read:', error.message)
-        const all = await read('schools') || {}
-        return Object.entries(all).map(([schoolId, school]) => ({
-          schoolId,
-          schoolName: school?.profile?.schoolName || school?.name || '',
-          backupSettings: school?.backupSettings || {},
-        }))
-      }
-    },
-
-    async schoolData(schoolId) {
-      const rows = await Promise.all(SHEETS.map(node => read(`schools/${schoolId}/${node}`)))
-      return Object.fromEntries(SHEETS.map((node, i) => [
-        node,
-        Object.entries(rows[i] || {}).map(([id, row]) => ({ id, ...row })),
-      ]))
-    },
-
-    markSent: (schoolId, at) => database.ref(`schools/${schoolId}/backupSettings/lastSentAt`).set(at),
-  }
-}
-
-/* ------------------------------------------------------------------ */
-/* Supabase                                                            */
-/* ------------------------------------------------------------------ */
+/* ================================================================== */
+/* Supabase only                                                        */
+/* ================================================================== */
 
 function supabaseStore() {
   const { createClient } = require('@supabase/supabase-js')
@@ -156,7 +107,7 @@ function supabaseStore() {
       fail(error, 'school lookup')
       if (!school) return Object.fromEntries(SHEETS.map(node => [node, []]))
 
-      const [students, fees, attendance] = await Promise.all([
+      const [students, fees, attendance, staffAttendance] = await Promise.all([
         all(() => db.from('students').select('*').eq('school_id', school.id), 'students read'),
         // Delete ki hui receipts fees me nahi aati — wahi niyam jo app me hai,
         // warna backup ka total school ke apne total se nahi milta.
@@ -164,12 +115,27 @@ function supabaseStore() {
         // Attendance par student ka legacy id join se aata hai: purani nested
         // rows ke source me studentId hai hi nahi, wo parent key me pada tha.
         all(() => db.from('attendance').select('*, student:students(legacy_id)').eq('school_id', school.id), 'attendance read'),
+        // Teacher/staff attendance. Naam join se hi milta hai — is table me sirf
+        // staff_id hai, aur bina naam ki sheet school ke kisi kaam ki nahi.
+        all(() => db.from('staff_attendance')
+          .select('date, status, staff:staff(employee_code, full_name)')
+          .eq('school_id', school.id), 'staff attendance read'),
       ])
 
       return {
         students: students.map(row => flatten(row)),
         fees: fees.map(row => flatten(row)),
         attendance: attendance.map(({ student, ...row }) => flatten(row, { studentId: student?.legacy_id || null })),
+        // Firebase wali sheet ka bilkul wahi shape — school ko file backend se
+        // farq nahi dikhna chahiye.
+        staffAttendance: staffAttendance
+          .map(row => ({
+            date: row.date,
+            employeeCode: row.staff?.employee_code || '',
+            employeeName: staffName(row.staff) || '',
+            status: STATUS_LABELS[row.status] || row.status || '',
+          }))
+          .sort((a, b) => String(a.date).localeCompare(String(b.date)) || a.employeeName.localeCompare(b.employeeName)),
       }
     },
 
@@ -189,13 +155,11 @@ function supabaseStore() {
   }
 }
 
-/* ------------------------------------------------------------------ */
-
 let cached = null
 
 function createStore() {
-  if (!cached) cached = useSupabase ? supabaseStore() : firebaseStore()
+  if (!cached) cached = supabaseStore()
   return cached
 }
 
-module.exports = { createStore, useSupabase, SHEETS }
+module.exports = { createStore, SHEETS }

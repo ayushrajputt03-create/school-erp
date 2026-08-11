@@ -458,6 +458,7 @@ function TransferCertificate({ student, form, school, settings, certificateNumbe
   const phone = schoolPhone(school, settings)
   const recognition = recognitionText(form, settings)
   const logo = schoolLogo(school, settings)
+  const hasPrincipalMark = Boolean(school.schoolSealURL || school.principalSignatureURL)
   const display = {
     regNo: form.regNo || student.roll || admissionNo(student),
     srNo: form.srNo || serialOnly(certificateNumber),
@@ -509,7 +510,13 @@ function TransferCertificate({ student, form, school, settings, certificateNumbe
     </table>
     <section className="tc-certification"><p>{form.bottomText || settings.defaultBottomText || tcBottomText}</p></section>
     <div className="tc-signature-date"><strong>Date: {dashDate(form.issueDate)}</strong></div>
-    <div className="formal-signatures three tc-signatures"><div><span className="signature-line" /><strong>({form.sig1Label || settings.sig1Label || 'Prepared By'})</strong></div><div><span className="signature-line" /><strong>({form.sig2Label || settings.sig2Label || 'Checked By'})</strong></div><div className="principal-block">{(school.schoolSealURL || school.principalSignatureURL) && <div className="principal-sign-row">{school.schoolSealURL && <img className="admit-seal" src={school.schoolSealURL} alt="Seal" />}{school.principalSignatureURL && <img className="admit-sign" src={school.principalSignatureURL} alt="Signature" />}</div>}<span className="signature-line" /><strong>{form.sig3Label || settings.sig3Label || 'Principal'}&apos;s Signature</strong><small>{settings.principalName || 'Name'}</small>{!school.schoolSealURL && <small className="seal-placeholder">School Seal</small>}</div></div>
+    {/* Teen signature column ek hi row me hain, isliye teeno ki line ek hi
+        height par honi chahiye. Principal wale column me seal/sign ki row line
+        ke UPAR aati hai — us row ke barabar khaali jagah baaki do column me na
+        rakhein to unki line 16mm uper reh jaati hai. Spacer sirf tab aata hai
+        jab school ne seal/sign upload kiya ho, warna TC ki footer bewajah 16mm
+        lambi ho kar A4 se bahar chali jayegi. */}
+    <div className="formal-signatures three tc-signatures"><div>{hasPrincipalMark && <span className="principal-sign-row" aria-hidden="true" />}<span className="signature-line" /><strong>({form.sig1Label || settings.sig1Label || 'Prepared By'})</strong></div><div>{hasPrincipalMark && <span className="principal-sign-row" aria-hidden="true" />}<span className="signature-line" /><strong>({form.sig2Label || settings.sig2Label || 'Checked By'})</strong></div><div className="principal-block">{hasPrincipalMark && <div className="principal-sign-row">{school.schoolSealURL && <img className="admit-seal" src={school.schoolSealURL} alt="Seal" />}{school.principalSignatureURL && <img className="admit-sign" src={school.principalSignatureURL} alt="Signature" />}</div>}<span className="signature-line" /><strong>{form.sig3Label || settings.sig3Label || 'Principal'}&apos;s Signature</strong><small>{settings.principalName || 'Name'}</small>{!school.schoolSealURL && <small className="seal-placeholder">School Seal</small>}</div></div>
   </article>
 }
 
@@ -646,7 +653,11 @@ function AdmitCardPaper({ student, exam = {}, dateRows = [], school = {}, settin
     <footer className="admit-signatures">
       <div><span>Class Teacher</span><i /></div>
       <div><span>Exam Controller</span><i /></div>
-      <div className="principal"><span>Principal &amp; Stamp</span><i />{school.schoolSealURL && <img className="admit-seal" src={school.schoolSealURL} alt="School seal" />}{school.principalSignatureURL && <img className="admit-sign" src={school.principalSignatureURL} alt="Principal signature" />}</div>
+      {/* Seal/sign line ke UPAR — neeche rakhne par is column ki line baaki do
+          se uper uthh jaati thi (footer bottom-aligned hai, aur tab is column ka
+          aakhri element image ban jaata tha). Wahi order jo print wale HTML me
+          hai, taaki preview aur print dono me teeno line ek hi height par rahein. */}
+      <div className="principal">{(school.schoolSealURL || school.principalSignatureURL) && <span className="admit-sign-row">{school.schoolSealURL && <img className="admit-seal" src={school.schoolSealURL} alt="School seal" />}{school.principalSignatureURL && <img className="admit-sign" src={school.principalSignatureURL} alt="Principal signature" />}</span>}<span>Principal &amp; Stamp</span><i /></div>
     </footer>
     {code && <small className="certificate-school-code">School Code: {code}</small>}
   </article>
