@@ -3705,15 +3705,18 @@ function useSchoolWorkspace(session) {
     // Firebase Storage is unavailable on the Spark plan, so uploadStudentPhotoFile falls back to
     // a base64 data URL. Those bytes go to studentPhotos/{schoolId}/{id}, never onto the row.
     const inline = isInlinePhoto(photo.url)
-    await databaseRequest('', token, { method: 'PATCH', body: {
-      [`schools/${workspace.schoolId}/students/${studentId}/photo_url`]: persistablePhotoUrl(photo.url),
-      [`schools/${workspace.schoolId}/students/${studentId}/photo_inline`]: inline,
-      [`schools/${workspace.schoolId}/students/${studentId}/photo_path`]: photo.path,
-      [`schools/${workspace.schoolId}/students/${studentId}/photo_size`]: photo.size,
-      [`schools/${workspace.schoolId}/students/${studentId}/photo_updated_at`]: photo.updatedAt,
-      [`schools/${workspace.schoolId}/students/${studentId}/updatedAt`]: photo.updatedAt,
-      ...(inline ? { [`studentPhotos/${workspace.schoolId}/${studentId}`]: photo.url } : {}),
-    } })
+    const studentBody = {
+      photo_url: persistablePhotoUrl(photo.url),
+      photo_inline: inline,
+      photo_path: photo.path,
+      photo_size: photo.size,
+      photo_updated_at: photo.updatedAt,
+      updatedAt: photo.updatedAt,
+    }
+    await databaseRequest(`schools/${workspace.schoolId}/students/${studentId}`, token, { method: 'PATCH', body: studentBody })
+    if (inline) {
+      await databaseRequest(`studentPhotos/${workspace.schoolId}/${studentId}`, token, { method: 'PUT', body: photo.url }).catch(() => {})
+    }
     // In-memory cache — yahan signed URL rakhna theek hai, save nahi ho rahi.
     // Iske bina Supabase par photo badalne ke baad screen turant khaali dikhti.
     photoCacheRef.current[studentId] = photo.url || ''
