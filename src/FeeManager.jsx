@@ -406,7 +406,12 @@ function ParentFeesView({ students, fees, feeManager, parents, schoolProfile }) 
       group.parentPhone = first?.parentLoginPhone || first?.fatherPhone || first?.phone || ''
       // Try to get better name from parents state (keyed by phone)
       const parentRecord = group.parentPhone ? Object.values(parents || {}).find(p => p.phone === group.parentPhone || p.id === group.parentPhone) : null
-      if (parentRecord?.name) group.parentName = parentRecord.name
+      if (parentRecord?.name) {
+        const cleaned = parentRecord.name.trim()
+        if (!['male', 'female', 'other', 'm', 'f', 'boy', 'girl'].includes(cleaned.toLowerCase())) {
+          group.parentName = cleaned
+        }
+      }
     })
     return { parentGroups: Object.values(groups), unlinkedStudents: unlinked }
   }, [students, parents])
