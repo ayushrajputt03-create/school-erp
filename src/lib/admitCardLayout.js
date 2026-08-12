@@ -37,47 +37,47 @@ export const admitInstructionLabel = index => `(${String.fromCharCode(97 + index
 
 /** Print iframe ka poora CSS. Iframe me app ki koi doosri stylesheet nahi jati. */
 export const admitPrintCss = `
-  @page { size: A4 portrait; margin: 10mm; }
+  @page { size: A4 portrait; margin: 4mm; }
   * { box-sizing: border-box; }
-  html, body { width: 210mm; min-height: 297mm; margin: 0; padding: 0; background: #fff; }
+  html, body { width: 210mm; max-height: 289mm; margin: 0; padding: 0; background: #fff; }
   body { color: #021024; font-family: Arial, sans-serif; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
   .admit-print-grid { display: block; width: 100%; margin: 0; padding: 0; background: #fff; }
-  .admit-card { width: 190mm; min-height: 277mm; margin: 0 auto; padding: 7mm; background: #fff; color: #021024; border: 2px solid #000; border-radius: 0; overflow: hidden; position: relative; page-break-after: always; page-break-inside: avoid; break-inside: avoid; box-shadow: none; font-family: Arial, sans-serif; letter-spacing: 0; }
+  .admit-card { width: 198mm; max-height: 280mm; margin: 0 auto; padding: 4mm; background: #fff; color: #021024; border: 2px solid #000; border-radius: 0; overflow: hidden; position: relative; page-break-after: always; page-break-inside: avoid; break-inside: avoid; box-shadow: none; font-family: Arial, sans-serif; letter-spacing: 0; box-sizing: border-box; }
   .admit-card::after { content: ""; position: absolute; inset: 3mm; border: 1px solid #000; pointer-events: none; z-index: 5; }
   .admit-card > * { position: relative; z-index: 6; }
-  .admit-school-header { display: grid; grid-template-columns: 24mm minmax(0, 1fr) 24mm; gap: 5mm; align-items: center; background: #052659; color: #fff; border-bottom: 2px solid #000; padding: 5mm 6mm; }
-  .admit-school-logo { width: 22mm; height: 22mm; border: 1px solid #fff; background: #fff; border-radius: 3px; display: grid; place-items: center; overflow: hidden; color: #052659; }
+  .admit-school-header { display: grid; grid-template-columns: 24mm minmax(0, 1fr) 24mm; gap: 5mm; align-items: center; background: #052659; color: #fff; border-bottom: 2px solid #000; padding: 4mm 5mm; }
+  .admit-school-logo { width: 20mm; height: 20mm; border: 1px solid #fff; background: #fff; border-radius: 3px; display: grid; place-items: center; overflow: hidden; color: #052659; }
   .admit-school-logo img { width: 100%; height: 100%; object-fit: contain; }
-  .admit-school-logo span { display: grid; text-align: center; font-size: 12pt; line-height: 1; }
-  .admit-school-logo small { font-size: 6pt; letter-spacing: 1px; }
+  .admit-school-logo span { display: grid; text-align: center; font-size: 11pt; line-height: 1; }
+  .admit-school-logo small { font-size: 5.5pt; letter-spacing: 1px; }
   .admit-school-copy { min-width: 0; text-align: center; }
-  .admit-school-copy h1 { margin: 0 0 1.5mm; color: #fff; font-size: 18pt; line-height: 1.05; text-transform: uppercase; letter-spacing: .2px; overflow-wrap: anywhere; }
-  .admit-school-copy p, .admit-school-copy small { display: block; margin: 0 0 .8mm; color: #fff; font-size: 8pt; line-height: 1.2; overflow-wrap: anywhere; }
-  .admit-header-spacer { width: 22mm; height: 22mm; }
-  .admit-title-band { display: grid; grid-template-columns: 1fr 32mm; gap: 7mm; align-items: center; background: #eef6ff; border-bottom: 1px solid #000; padding: 6mm 6mm; min-height: 44mm; }
-  .admit-title-band h2 { margin: 0; color: #052659; font-size: 24pt; letter-spacing: 2.5px; }
-  .admit-title-band strong { display: block; margin-top: 2mm; color: #021024; font-size: 11pt; }
-  .admit-student-photo { width: 30mm; height: 38mm; justify-self: end; border: 1px solid #000; background: #fff; display: grid; place-items: center; color: #64748b; font: 700 8pt/1.2 Arial; text-align: center; overflow: hidden; }
+  .admit-school-copy h1 { margin: 0 0 1mm; color: #fff; font-size: 17pt; line-height: 1.05; text-transform: uppercase; letter-spacing: .2px; overflow-wrap: anywhere; }
+  .admit-school-copy p, .admit-school-copy small { display: block; margin: 0 0 .5mm; color: #fff; font-size: 7.5pt; line-height: 1.15; overflow-wrap: anywhere; }
+  .admit-header-spacer { width: 20mm; height: 20mm; }
+  .admit-title-band { display: grid; grid-template-columns: 1fr 30mm; gap: 5mm; align-items: center; background: #eef6ff; border-bottom: 1px solid #000; padding: 4mm 5mm; min-height: 38mm; }
+  .admit-title-band h2 { margin: 0; color: #052659; font-size: 22pt; letter-spacing: 2px; }
+  .admit-title-band strong { display: block; margin-top: 1.5mm; color: #021024; font-size: 10.5pt; }
+  .admit-student-photo { width: 28mm; height: 35mm; justify-self: end; border: 1px solid #000; background: #fff; display: grid; place-items: center; color: #64748b; font: 700 7.5pt/1.2 Arial; text-align: center; overflow: hidden; }
   .admit-student-photo img { width: 100%; height: 100%; object-fit: cover; }
   .admit-student-photo span { border: 1px dashed #777; width: calc(100% - 8px); height: calc(100% - 8px); display: grid; place-items: center; padding: 4px; }
-  .admit-student-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 2.2mm 7mm; padding: 6mm 6mm 4mm; }
-  .admit-student-grid div { display: grid; grid-template-columns: 32mm 1fr; gap: 3mm; align-items: baseline; border-bottom: 1px dotted #777; padding-bottom: 1.3mm; font-size: 9.5pt; }
+  .admit-student-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1.8mm 6mm; padding: 4mm 5mm 3mm; }
+  .admit-student-grid div { display: grid; grid-template-columns: 30mm 1fr; gap: 2.5mm; align-items: baseline; border-bottom: 1px dotted #777; padding-bottom: 1mm; font-size: 9pt; }
   .admit-student-grid .full { grid-column: 1 / -1; }
   .admit-student-grid strong { color: #000; }
-  .admit-date-table { width: calc(100% - 12mm); margin: 2mm 6mm 5mm; border-collapse: collapse; font-size: 9pt; table-layout: fixed; }
-  .admit-date-table th { background: #052659; color: #fff; text-align: left; padding: 2.2mm 3mm; border: 1px solid #000; }
-  .admit-date-table td { padding: 2.2mm 3mm; border: 1px solid #777; color: #000; word-break: break-word; }
+  .admit-date-table { width: calc(100% - 10mm); margin: 2mm 5mm 4mm; border-collapse: collapse; font-size: 8.5pt; table-layout: fixed; }
+  .admit-date-table th { background: #052659; color: #fff; text-align: left; padding: 1.8mm 2.5mm; border: 1px solid #000; }
+  .admit-date-table td { padding: 1.8mm 2.5mm; border: 1px solid #777; color: #000; word-break: break-word; }
   .admit-date-table tbody tr:nth-child(even) { background: #eff6ff; }
   .missing-date { color: #991b1b; font-weight: 800; font-size: 8pt; }
-  .admit-date-warning { margin: -2mm 6mm 4mm; padding: 2mm 3mm; border: 1px solid #fecaca; background: #fff1f2; color: #991b1b; border-radius: 2mm; font-size: 8pt; font-weight: 800; }
-  .admit-instructions { margin: 0 6mm 5mm; padding: 3.5mm; background: #f8fbff; border: 1px solid #b9d2f0; border-radius: 2mm; page-break-inside: avoid; }
-  .admit-instructions h3 { margin: 0 0 1.5mm; color: #000; font-size: 9.5pt; }
-  .admit-instructions ol { margin: 0; padding-left: 5mm; font-size: 8.6pt; line-height: 1.45; }
-  .admit-pending-fee { display: block; margin: 0 6mm 2mm; color: #b91c1c; font-size: 9pt; }
-  .admit-issued { display: block; margin: 0 6mm 4mm; color: #000; font: 800 9pt Arial, sans-serif; }
-  .admit-signatures { display: flex; justify-content: space-between; align-items: flex-end; gap: 9mm; padding: 8mm 6mm 6mm; font-size: 8.8pt; page-break-inside: avoid; break-inside: avoid; }
-  .admit-signatures div { flex: 1 1 0; min-width: 0; display: grid; gap: 1.5mm; text-align: center; }
-  .admit-signatures i { height: 12mm; border-bottom: 1px solid #000; }
-  .admit-footer-note { position: absolute; left: 13mm; right: 13mm; bottom: 8mm; z-index: 6; display: flex; justify-content: space-between; gap: 8mm; border-top: 1px solid #cbd5e1; padding-top: 2mm; color: #334155; font-size: 7.5pt; }
+  .admit-date-warning { margin: -1mm 5mm 3mm; padding: 1.5mm 2.5mm; border: 1px solid #fecaca; background: #fff1f2; color: #991b1b; border-radius: 1.5mm; font-size: 8pt; font-weight: 800; }
+  .admit-instructions { margin: 0 5mm 4mm; padding: 2.8mm; background: #f8fbff; border: 1px solid #b9d2f0; border-radius: 1.5mm; page-break-inside: avoid; }
+  .admit-instructions h3 { margin: 0 0 1mm; color: #000; font-size: 9pt; }
+  .admit-instructions ol { margin: 0; padding-left: 4.5mm; font-size: 8pt; line-height: 1.35; }
+  .admit-pending-fee { display: block; margin: 0 5mm 1.5mm; color: #b91c1c; font-size: 8.5pt; }
+  .admit-issued { display: block; margin: 0 5mm 3mm; color: #000; font: 800 8.5pt Arial, sans-serif; }
+  .admit-signatures { display: flex; justify-content: space-between; align-items: flex-end; gap: 8mm; padding: 5mm 5mm 4mm; font-size: 8.5pt; page-break-inside: avoid; break-inside: avoid; }
+  .admit-signatures div { flex: 1 1 0; min-width: 0; display: grid; gap: 1mm; text-align: center; }
+  .admit-signatures i { height: 10mm; border-bottom: 1px solid #000; }
+  .admit-footer-note { position: absolute; left: 10mm; right: 10mm; bottom: 6mm; z-index: 6; display: flex; justify-content: space-between; gap: 6mm; border-top: 1px solid #cbd5e1; padding-top: 1.5mm; color: #334155; font-size: 7pt; }
   @media print { .admit-card { page-break-after: always; } .admit-card:last-child { page-break-after: auto; } }
 `

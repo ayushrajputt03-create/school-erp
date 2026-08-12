@@ -224,7 +224,7 @@ const admitCardPrintHtml = ({ student, exam = {}, dateRows = [], school = {}, se
     </tr>
   `).join('')
   return `
-    <article class="admit-card" style="width:190mm;min-height:277mm;margin:0 auto;padding:7mm;background:#fff;color:#021024;border:2px solid #000;overflow:hidden;position:relative;page-break-after:always;page-break-inside:avoid;break-inside:avoid;font-family:Arial,sans-serif;letter-spacing:0;box-sizing:border-box;">
+    <article class="admit-card" style="width:198mm;max-height:280mm;margin:0 auto;padding:4mm;background:#fff;color:#021024;border:2px solid #000;overflow:hidden;position:relative;page-break-after:always;page-break-inside:avoid;break-inside:avoid;font-family:Arial,sans-serif;letter-spacing:0;box-sizing:border-box;">
       <div style="position:absolute;inset:3mm;border:1px solid #000;pointer-events:none;z-index:5;"></div>
       <header class="admit-school-header" style="position:relative;z-index:6;display:grid;grid-template-columns:24mm minmax(0,1fr) 24mm;gap:5mm;align-items:center;background:#052659;color:#fff;border-bottom:2px solid #000;padding:5mm 6mm;box-sizing:border-box;">
         <div class="admit-school-logo" style="width:22mm;height:22mm;border:1px solid #fff;background:#fff;border-radius:3px;display:grid;place-items:center;overflow:hidden;color:#052659;box-sizing:border-box;">

@@ -3225,35 +3225,46 @@ function useSchoolWorkspace(session) {
   const ensureStudentPhotos = useCallback(async (studentIds = []) => {
     if (developmentDemo || !session || !workspace.schoolId) return
     const ids = [...new Set((studentIds || []).map(String).filter(Boolean))]
+
+    // Populate cache with any photoUrl already present in memory for these students
+    ids.forEach(id => {
+      const s = students.find(item => String(item.id) === id)
+      if (s && s.photoUrl && typeof s.photoUrl === 'string' && (s.photoUrl.startsWith('http') || s.photoUrl.startsWith('data:'))) {
+        photoCacheRef.current[id] = s.photoUrl
+      }
+    })
+
     const missing = ids.filter(id => photoCacheRef.current[id] === undefined)
     if (!missing.length) return
-    // Supabase pe photos storage bucket me hain. Students row me photo_path stored
-    // hai; signed URLs ke liye hame signPhotoPaths use karna padta hai, jo
-    // dataAdapter se import karna padta hai.
-    const photoPaths = missing
-      .map(id => students.find(s => s.id === id)?.photoPath)
+
+    const studentMap = new Map(students.map(s => [String(s.id), s]))
+    const validMissing = missing.filter(id => studentMap.has(id))
+    if (!validMissing.length) return
+
+    const photoPaths = validMissing
+      .map(id => studentMap.get(id)?.photoPath)
       .filter(Boolean)
+
     if (!photoPaths.length) {
-      // Koi path nahi milti to koi photo nahi dikalegi
-      missing.forEach(id => { photoCacheRef.current[id] = '' })
+      validMissing.forEach(id => { photoCacheRef.current[id] = '' })
       return
     }
+
     try {
       const { signPhotoPaths } = await import('./lib/dataAdapter.js')
       const signed = await signPhotoPaths(photoPaths)
       const urlByPath = new Map(photoPaths.map(path => [path, signed.get(path) || '']))
       const found = {}
-      missing.forEach(id => {
-        const student = students.find(s => s.id === id)
-        const url = student?.photoPath ? urlByPath.get(student.photoPath) : ''
+      validMissing.forEach(id => {
+        const student = studentMap.get(id)
+        const url = student?.photoPath ? (urlByPath.get(student.photoPath) || '') : (student?.photoUrl || '')
         photoCacheRef.current[id] = url
         if (url) found[id] = url
       })
       if (!Object.keys(found).length) return
-      setStudents(current => current.map(item => found[item.id] ? { ...item, photoUrl: found[item.id] } : item))
+      setStudents(current => current.map(item => found[String(item.id)] ? { ...item, photoUrl: found[String(item.id)] } : item))
     } catch (error) {
-      // Agar signing fail ho to kuch nahi kar sakte, at least cache ko mark kar do
-      missing.forEach(id => { photoCacheRef.current[id] = '' })
+      validMissing.forEach(id => { photoCacheRef.current[id] = '' })
     }
   }, [developmentDemo, session, workspace.schoolId, students, setStudents])
 
@@ -3387,14 +3398,17 @@ function useSchoolWorkspace(session) {
       updatedAt: Date.now(),
     }
     let inlinePhoto = ''
+    let uploadedPhotoUrl = ''
     if (student.photoFile) {
       const photo = await uploadStudentPhotoFile(student.photoFile, assignedNumber, token, '', student.photoPreview || '')
+      uploadedPhotoUrl = photo?.url || ''
       inlinePhoto = isInlinePhoto(photo.url) ? photo.url : ''
       row.photo_url = persistablePhotoUrl(photo.url)
       row.photo_inline = Boolean(inlinePhoto)
       row.photo_path = photo.path
       row.photo_size = photo.size
       row.photo_updated_at = photo.updatedAt
+      if (photo?.url) photoCacheRef.current[studentId] = photo.url
     }
     const parentPhone = parentIdOf(row.parent_login_phone || row.father_phone || row.guardian_phone)
     const parentRow = parentPhone ? buildParentAccount(await databaseRequest(`schools/${workspace.schoolId}/parents/${parentPhone}`, token).catch(() => null) || {}, studentId, studentFromRow({ id: studentId, ...row }, students.length), workspace.schoolProfile) : null
@@ -3417,10 +3431,8 @@ function useSchoolWorkspace(session) {
       ...(parentRow ? { [`schools/${workspace.schoolId}/parents/${parentPhone}`]: parentRow } : {}),
       ...(parentNotification ? { [`schools/${workspace.schoolId}/parentNotifications/${parentNotification.id}`]: parentNotification } : {}),
     } })
-    if (inlinePhoto) photoCacheRef.current[studentId] = inlinePhoto
-    // studentFromRow already carries row.photo_url (a storage URL, or base64 that has not been
-    // migrated yet); only override when we hold inline bytes that were written out separately.
-    setStudents(current => [{ ...studentFromRow({ id: studentId, ...row }, current.length), ...(inlinePhoto ? { photoUrl: inlinePhoto } : {}) }, ...current])
+    const activePhotoUrl = uploadedPhotoUrl || inlinePhoto || photoCacheRef.current[studentId] || ''
+    setStudents(current => [{ ...studentFromRow({ id: studentId, ...row }, current.length), ...(activePhotoUrl ? { photoUrl: activePhotoUrl, photoPath: row.photo_path || '' } : {}) }, ...current])
     if (parentRow) setParents(current => ({ ...current, [parentPhone]: parentRow }))
     if (parentNotification) setParentNotifications(current => ({ ...current, [parentNotification.id]: parentNotification }))
     setActivities(current => [{ id: `student-${studentId}`, title: 'Student admitted', detail: `${student.name} joined Class ${student.className}`, at: row.createdAt, icon: '+' }, ...current])
@@ -3445,15 +3457,18 @@ function useSchoolWorkspace(session) {
     row.admission_number = String(existing.roll)
     row.updatedAt = Date.now()
     let inlinePhoto = ''
+    let uploadedPhotoUrl = ''
     if (updates.photoFile) {
       const token = developmentDemo ? null : await session.getIdToken()
       const photo = await uploadStudentPhotoFile(updates.photoFile, existing.roll, token, existing.photoPath, updates.photoPreview || existing.photoUrl || '')
+      uploadedPhotoUrl = photo?.url || ''
       inlinePhoto = isInlinePhoto(photo.url) ? photo.url : ''
       row.photo_url = persistablePhotoUrl(photo.url)
       row.photo_inline = Boolean(inlinePhoto)
       row.photo_path = photo.path
       row.photo_size = photo.size
       row.photo_updated_at = photo.updatedAt
+      if (photo?.url) photoCacheRef.current[studentId] = photo.url
     }
     // A PUT replaces the row, so re-assert the inline marker for a student whose photo was
     // migrated earlier and is not part of this edit - otherwise the flag would be dropped.
@@ -3490,14 +3505,14 @@ function useSchoolWorkspace(session) {
     }
     // Prefer the row's own photo; fall back to bytes we already hold for a student whose photo
     // lives in studentPhotos, so an unrelated edit never blanks the image on screen.
-    const localPhoto = inlinePhoto || photoCacheRef.current[studentId] || existing.photoUrl || ''
+    const localPhoto = uploadedPhotoUrl || inlinePhoto || photoCacheRef.current[studentId] || existing.photoUrl || ''
     const rowIndex = students.findIndex(item => item.id === studentId)
     const normalizedStudent = studentFromRow({ id: studentId, ...row }, rowIndex >= 0 ? rowIndex : 0)
-    const updatedStudent = normalizedStudent.photoUrl ? normalizedStudent : { ...normalizedStudent, photoUrl: localPhoto }
+    const updatedStudent = normalizedStudent.photoUrl ? normalizedStudent : { ...normalizedStudent, photoUrl: localPhoto, photoPath: row.photo_path || existing.photoPath }
     setStudents(current => current.map((item, index) => {
       if (item.id !== studentId) return item
       const next = studentFromRow({ id: studentId, ...row }, index)
-      return next.photoUrl ? next : { ...next, photoUrl: localPhoto }
+      return next.photoUrl ? next : { ...next, photoUrl: localPhoto, photoPath: row.photo_path || existing.photoPath }
     }))
     setActivities(current => [{ id: `student-update-${studentId}-${Date.now()}`, title: 'Student updated', detail: `${updated.name} moved to Class ${updated.className}`, at: row.updatedAt, icon: 'U' }, ...current])
     return updatedStudent
