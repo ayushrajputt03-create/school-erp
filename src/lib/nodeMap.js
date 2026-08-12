@@ -59,7 +59,7 @@ export const NODES = {
     // photo_path, photo_url aur deleted_at padhta hai — baaki sab source ki hi
     // nakal hai jo taar par jaake phenk di jaati hai. deletedStudents (544 rows)
     // isi wajah se 9.8 second le raha tha.
-    select: 'legacy_id, source, photo_path, photo_url, deleted_at',
+    select: 'legacy_id, source, photo_path, photo_url, parent_id, deleted_at',
     softDelete: { column: 'deleted_at', activeOnly: true },
     project: (d) => ({
       full_name: d.full_name || d.name || 'Unnamed',
@@ -81,6 +81,7 @@ export const NODES = {
       fee_status: d.fee_status ?? null,
       photo_path: d.photo_path ?? null,
       photo_url: d.photo_url ?? null,
+      parent_id: d.parent_id ?? d.parentId ?? null,
       active: d.active !== false,
       updated_at: ts(d.updatedAt) || new Date().toISOString(),
     }),
@@ -188,7 +189,12 @@ export const NODES = {
   parents: {
     table: 'parents',
     key: 'legacy_id',
+    select: 'legacy_id, id, source',
+    fill: (row) => ({
+      id: row.id,
+    }),
     project: (d) => ({
+      id: d.id ?? null,
       name: d.name ?? null,
       phone: d.phone || d.id || null,
       email: d.email ?? null,

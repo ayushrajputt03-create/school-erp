@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from 'react'
-import { Check, Plus, Printer, Receipt, Save, Search, X, Pencil, Trash2, Eye, RotateCcw } from 'lucide-react'
+import { Check, Plus, Printer, Receipt, Save, Search, X, Pencil, Trash2, Eye, RotateCcw, Users, ChevronDown, ChevronRight, AlertCircle } from 'lucide-react'
 import FeeReceipt from './FeeReceipt'
 import DatePicker from './DatePicker'
 import { getPendingFeesSummary } from './lib/pendingFees'
@@ -364,7 +364,158 @@ function SetFeePage({ students, groups, structures, onSave, onDelete }) {
   </>
 }
 
-function FeeStatusPage({ students, fees, feeManager, schoolProfile }) {
+function computeStudentFeeRow(student, fees, feeManager, schoolProfile, sessionStartMonth) {
+  const parts = classParts(student.className)
+  const structures = classStructureRows(feeManager?.structures, student)
+  const configuredMonthly = structures.filter(row => isMonthlyHead(row.feeHead)).reduce((sum, row) => sum + Number(row.amount || 0), 0)
+  const receipts = Object.values(fees || {}).filter(fee => feeBelongsToStudent(fee, student))
+  const paidAmount = receipts.reduce((sum, fee) => sum + Number(fee.paidAmount || fee.amount || 0), 0)
+  const receiptDue = receipts.reduce((sum, fee) => sum + Number(fee.totalDue || fee.grandTotal || fee.amount || fee.paidAmount || 0), 0)
+  const receiptBalance = receipts.reduce((sum, fee) => sum + Number(fee.balance || 0), 0)
+  const monthlyFee = configuredMonthly || receiptDue || paidAmount
+  const pendingAmount = receiptBalance > 0 ? receiptBalance : Math.max(0, monthlyFee - paidAmount)
+  const hasPaidReceipt = receipts.some(fee => String(fee.status || '').toLowerCase() === 'paid' || Number(fee.balance || 0) === 0)
+  const status = paidAmount <= 0 ? 'Pending' : pendingAmount <= 0 && hasPaidReceipt ? 'Paid' : paidAmount >= monthlyFee && pendingAmount <= 0 ? 'Paid' : 'Partial'
+  const pendingSummary = getPendingFeesSummary({ student, fees, structures: feeManager?.structures, academicYear: schoolProfile?.academicYear, sessionStartMonth })
+  const lastPayment = receipts.filter(fee => fee.paidAt || fee.receiptDate).sort((a, b) => (b.paidAt || 0) - (a.paidAt || 0))[0]
+  return { student, className: parts.className, section: parts.section, monthlyFee, paidAmount, pendingAmount, status, pendingSummary, lastPaymentDate: lastPayment?.paidAt ? new Date(lastPayment.paidAt).toLocaleDateString('en-IN') : lastPayment?.receiptDate || '-' }
+}
+
+function ParentFeesView({ students, fees, feeManager, parents, schoolProfile }) {
+  const [searchQuery, setSearchQuery] = useState('')
+  const [expandedParents, setExpandedParents] = useState(new Set())
+  const [showUnlinked, setShowUnlinked] = useState(false)
+  const sessionStartMonth = sessionStartMonthOf(schoolProfile)
+
+  // Build parent groups strictly by parentId
+  const { parentGroups, unlinkedStudents } = useMemo(() => {
+    const groups = {}
+    const unlinked = []
+    students.forEach(student => {
+      if (student.parentId) {
+        if (!groups[student.parentId]) groups[student.parentId] = { parentId: student.parentId, parentName: '', parentPhone: '', children: [] }
+        groups[student.parentId].children.push(student)
+      } else {
+        unlinked.push(student)
+      }
+    })
+    // Derive parent display info from children's fields
+    Object.values(groups).forEach(group => {
+      const first = group.children[0]
+      group.parentName = first?.fatherName || first?.guardian || 'Parent'
+      group.parentPhone = first?.parentLoginPhone || first?.fatherPhone || first?.phone || ''
+      // Try to get better name from parents state (keyed by phone)
+      const parentRecord = group.parentPhone ? Object.values(parents || {}).find(p => p.phone === group.parentPhone || p.id === group.parentPhone) : null
+      if (parentRecord?.name) group.parentName = parentRecord.name
+    })
+    return { parentGroups: Object.values(groups), unlinkedStudents: unlinked }
+  }, [students, parents])
+
+  // Filter parents by search
+  const filteredGroups = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase()
+    if (!q) return parentGroups
+    return parentGroups.filter(group =>
+      group.parentName.toLowerCase().includes(q) ||
+      group.parentPhone.includes(q) ||
+      group.children.some(s => s.name.toLowerCase().includes(q))
+    )
+  }, [parentGroups, searchQuery])
+
+  const toggleParent = parentId => {
+    setExpandedParents(current => {
+      const next = new Set(current)
+      next.has(parentId) ? next.delete(parentId) : next.add(parentId)
+      return next
+    })
+  }
+
+  return <div className="fee-status-page">
+    <div className="fee-page-toolbar fee-status-filters">
+      <label className="full" style={{gridColumn:'1/-1'}}><Search size={14} style={{position:'absolute',left:10,top:'50%',transform:'translateY(-50%)',color:'#7b8596'}} />
+        <input type="text" placeholder="Search parent by name or phone..." value={searchQuery} onChange={e => setSearchQuery(e.target.value)} style={{paddingLeft:30,width:'100%'}} />
+      </label>
+    </div>
+    <div className="fee-status-summary" style={{gridTemplateColumns:'repeat(3,1fr)'}}>
+      <div><span>Total Parents</span><strong>{parentGroups.length}</strong></div>
+      <div><span>Total Children Linked</span><strong>{students.filter(s => s.parentId).length}</strong></div>
+      <div><span>Unlinked Students</span><strong style={unlinkedStudents.length > 0 ? {color:'#dc2626'} : {}}>{unlinkedStudents.length}</strong></div>
+    </div>
+
+    {filteredGroups.map(group => {
+      const expanded = expandedParents.has(group.parentId)
+      const childRows = group.children.map(student => computeStudentFeeRow(student, fees, feeManager, schoolProfile, sessionStartMonth))
+      const totalPending = childRows.reduce((sum, r) => sum + r.pendingAmount, 0)
+      const totalPaid = childRows.reduce((sum, r) => sum + r.paidAmount, 0)
+      const totalFee = childRows.reduce((sum, r) => sum + r.monthlyFee, 0)
+      return <div key={group.parentId} className="panel" style={{marginBottom:10,border:'1px solid var(--line)',borderRadius:8}}>
+        <div onClick={() => toggleParent(group.parentId)} style={{display:'flex',alignItems:'center',justifyContent:'space-between',padding:'12px 16px',cursor:'pointer',gap:12}}>
+          <div style={{display:'flex',alignItems:'center',gap:10}}>
+            {expanded ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
+            <Users size={16} color="#052659" />
+            <div>
+              <strong style={{fontSize:14}}>{group.parentName}</strong>
+              <span style={{display:'block',fontSize:11,color:'#7b8596'}}>{group.parentPhone} · {group.children.length} child{group.children.length > 1 ? 'ren' : ''}</span>
+            </div>
+          </div>
+          <div style={{display:'flex',gap:20,alignItems:'center',fontSize:12}}>
+            <span>Paid: <strong style={{color:'#16a34a'}}>{money(totalPaid)}</strong></span>
+            <span>Pending: <strong style={{color: totalPending > 0 ? '#dc2626' : '#16a34a'}}>{money(totalPending)}</strong></span>
+            <span>Total: <strong>{money(totalFee)}</strong></span>
+          </div>
+        </div>
+        {expanded && <div style={{borderTop:'1px solid var(--line)',padding:'0 8px 8px'}}>
+          <div className="table-scroll"><table><thead><tr><th>Student Name</th><th>Class</th><th>Pending</th><th>Paid</th><th>Total</th><th>Status</th><th>Last Payment</th></tr></thead><tbody>
+            {childRows.map(row => <tr key={row.student.id}>
+              <td><strong>{row.student.name}</strong><br/><small style={{color:'#7b8596'}}>Adm: {row.student.roll}</small></td>
+              <td>{row.className}-{row.section}</td>
+              <td style={{color: row.pendingAmount > 0 ? '#dc2626' : '#16a34a',fontWeight:600}}>{money(row.pendingAmount)}</td>
+              <td>{money(row.paidAmount)}</td>
+              <td>{money(row.monthlyFee)}</td>
+              <td><span className={`status ${row.status.toLowerCase()}`}>{row.status}</span></td>
+              <td>{row.lastPaymentDate}</td>
+            </tr>)}
+          </tbody><tfoot><tr style={{background:'#f0f4ff',fontWeight:700}}>
+            <td colSpan="2">Total Pending (All Children)</td>
+            <td style={{color: totalPending > 0 ? '#dc2626' : '#16a34a'}}>{money(totalPending)}</td>
+            <td>{money(totalPaid)}</td>
+            <td>{money(totalFee)}</td>
+            <td colSpan="2" />
+          </tr></tfoot></table></div>
+        </div>}
+      </div>
+    })}
+
+    {!filteredGroups.length && searchQuery && <div className="panel" style={{padding:24,textAlign:'center',color:'#7b8596'}}>No parents found matching "{searchQuery}"</div>}
+
+    {unlinkedStudents.length > 0 && <div className="panel" style={{marginTop:16,border:'1px solid #fecaca',borderRadius:8}}>
+      <div onClick={() => setShowUnlinked(!showUnlinked)} style={{display:'flex',alignItems:'center',justifyContent:'space-between',padding:'12px 16px',cursor:'pointer',gap:12,background:'#fff7ed',borderRadius:'8px 8px 0 0'}}>
+        <div style={{display:'flex',alignItems:'center',gap:10}}>
+          {showUnlinked ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
+          <AlertCircle size={16} color="#dc2626" />
+          <div>
+            <strong style={{fontSize:14,color:'#dc2626'}}>Unlinked Students</strong>
+            <span style={{display:'block',fontSize:11,color:'#7b8596'}}>{unlinkedStudents.length} student{unlinkedStudents.length > 1 ? 's' : ''} without parent link — assign from Student Profile</span>
+          </div>
+        </div>
+      </div>
+      {showUnlinked && <div style={{borderTop:'1px solid #fecaca',padding:'0 8px 8px'}}>
+        <div className="table-scroll"><table><thead><tr><th>Student Name</th><th>Admission No</th><th>Class</th><th>Father/Guardian</th><th>Phone</th></tr></thead><tbody>
+          {unlinkedStudents.map(student => <tr key={student.id}>
+            <td><strong>{student.name}</strong></td>
+            <td>{student.roll}</td>
+            <td>{student.className}</td>
+            <td>{student.fatherName || student.guardian || '-'}</td>
+            <td>{student.parentLoginPhone || student.fatherPhone || student.phone || '-'}</td>
+          </tr>)}
+        </tbody></table></div>
+      </div>}
+    </div>}
+  </div>
+}
+
+function FeeStatusPage({ students, fees, feeManager, parents, schoolProfile }) {
+  const [viewMode, setViewMode] = useState('student')
   const classes = [...new Set(students.map(student => classParts(student.className).className))]
   const sections = [...new Set(students.map(student => classParts(student.className).section).filter(Boolean))]
   const [filters, setFilters] = useState({ className: 'All Classes', section: 'All Sections', month: new Date().toLocaleDateString('en-IN', { month: 'long' }), status: 'All' })
@@ -405,7 +556,12 @@ function FeeStatusPage({ students, fees, feeManager, schoolProfile }) {
     collection: rows.reduce((sum, row) => sum + row.paidAmount, 0),
     pendingAmount: rows.reduce((sum, row) => sum + row.pendingAmount, 0),
   }
-  return <div className="fee-status-page">
+  return <>
+    <div className="fee-manager-tabs" style={{marginBottom:12}}>
+      <button className={viewMode === 'student' ? 'active' : ''} onClick={() => setViewMode('student')}>By Student</button>
+      <button className={viewMode === 'parent' ? 'active' : ''} onClick={() => setViewMode('parent')}><Users size={14} style={{marginRight:4}} /> By Parent</button>
+    </div>
+    {viewMode === 'parent' ? <ParentFeesView students={students} fees={fees} feeManager={feeManager} parents={parents} schoolProfile={schoolProfile} /> : <div className="fee-status-page">
     <div className="fee-page-toolbar fee-status-filters">
       <label>Class<select value={filters.className} onChange={event => setFilters({ ...filters, className: event.target.value })}><option>All Classes</option>{classes.map(item => <option key={item}>{item}</option>)}</select></label>
       <label>Section<select value={filters.section} onChange={event => setFilters({ ...filters, section: event.target.value })}><option>All Sections</option>{sections.map(item => <option key={item}>{item}</option>)}</select></label>
@@ -421,7 +577,8 @@ function FeeStatusPage({ students, fees, feeManager, schoolProfile }) {
       <div><span>Total Pending</span><strong>{money(summary.pendingAmount)}</strong></div>
     </div>
     <div className="panel table-panel"><div className="panel-header"><div><h3>Fee Status / Fee Check</h3><p>Class-wise and month-wise fee report</p></div><button className="secondary-button" onClick={() => window.print()}><Printer size={15} /> Print</button></div><div className="table-scroll"><table><thead><tr><th>Student Name</th><th>Admission No</th><th>Class</th><th>Section</th><th>Monthly Fee</th><th>Paid Amount</th><th>Pending Amount</th><th>Status</th><th>Multi-Month Pending</th><th>Receipt</th></tr></thead><tbody>{rows.map(row => <tr key={row.student.id}><td><strong>{row.student.name}</strong></td><td>{row.student.roll}</td><td>{row.className}</td><td>{row.section}</td><td>{money(row.monthlyFee)}</td><td>{money(row.paidAmount)}</td><td>{money(row.pendingAmount)}</td><td><span className={`status ${row.status.toLowerCase()}`}>{row.status}</span></td><td>{row.pendingSummary.pendingMonthsCount > 0 ? <span className="fee-months-badge pending" title={row.pendingSummary.pendingMonths.map(item => `${item.month}: ${money(item.amountDue)}`).join(', ')}>{row.pendingSummary.pendingMonthsCount} month{row.pendingSummary.pendingMonthsCount > 1 ? 's' : ''} pending ({money(row.pendingSummary.totalPendingAmount)})</span> : <span className="fee-months-badge clear">Up to date</span>}</td><td>{row.receipt || '-'}</td></tr>)}{!rows.length && <tr><td colSpan="10"><div className="empty-state">No students found for selected filters.</div></td></tr>}</tbody></table></div></div>
-  </div>
+  </div>}
+  </>
 }
 
 function FeeReportPage({ page, students, fees, feeManager, approvals, onSaveConfig, onDeleteReceipt, onRestoreReceipt, onDecideApproval, schoolProfile }) {
@@ -460,7 +617,7 @@ function FeeReportPage({ page, students, fees, feeManager, approvals, onSaveConf
   </tbody></table></div></div>{selectedReceipt && <FeeReceipt receipt={selectedReceipt} student={students.find(item => item.id === selectedReceipt.studentId)} school={schoolProfile} settings={savedSettings} onClose={() => setSelectedReceipt(null)} />}</>
 }
 
-export default function FeeManager({ students, fees, feeManager, approvals, schoolProfile, onSubmitFee, onSaveGroup, onDeleteGroup, onSaveStructure, onDeleteStructure, onDeleteReceipt, onRestoreReceipt, onDecideApproval, onSaveConfig, onOpenProfile }) {
+export default function FeeManager({ students, fees, feeManager, approvals, parents, schoolProfile, onSubmitFee, onSaveGroup, onDeleteGroup, onSaveStructure, onDeleteStructure, onDeleteReceipt, onRestoreReceipt, onDecideApproval, onSaveConfig, onOpenProfile }) {
   const [page, setPage] = useState('submit')
   const menu = [['submit','Submit Fee'],['groups','Fee Group'],['set','Set Fee'],['status','Fee Status / Fee Check'],['fine','Manage Fine'],['defaulters','Defaulters'],['register','Fee Register'],['report','Master Fee Report'],['receipt-settings','Receipt Settings'],['deleted','Deleted Fee Record'],['approve','Fee Approve']]
   return <>
@@ -469,7 +626,7 @@ export default function FeeManager({ students, fees, feeManager, approvals, scho
     {page === 'submit' && <SubmitFee students={students} fees={fees} onSubmit={onSubmitFee} onOpenProfile={onOpenProfile} schoolProfile={schoolProfile} receiptSettings={feeManager.settings?.config || {}} feeManager={feeManager} />}
     {page === 'groups' && <FeeGroupPage groups={feeManager.groups} onSave={onSaveGroup} onDelete={onDeleteGroup} />}
     {page === 'set' && <SetFeePage students={students} groups={feeManager.groups} structures={feeManager.structures} onSave={onSaveStructure} onDelete={onDeleteStructure} />}
-    {page === 'status' && <FeeStatusPage students={students} fees={fees} feeManager={feeManager} schoolProfile={schoolProfile} />}
+    {page === 'status' && <FeeStatusPage students={students} fees={fees} feeManager={feeManager} parents={parents} schoolProfile={schoolProfile} />}
     {!['submit','groups','set','status'].includes(page) && <FeeReportPage page={page} students={students} fees={fees} feeManager={feeManager} approvals={approvals} onSaveConfig={onSaveConfig} onDeleteReceipt={onDeleteReceipt} onRestoreReceipt={onRestoreReceipt} onDecideApproval={onDecideApproval} schoolProfile={schoolProfile} />}
   </>
 }

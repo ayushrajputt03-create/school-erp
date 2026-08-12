@@ -271,6 +271,7 @@ function rowToDoc(row, def) {
 
   if (row.photo_path !== undefined && row.photo_path !== null) doc.photo_path = row.photo_path
   if (row.photo_url !== undefined) doc.photo_url = row.photo_url ?? ''
+  if (row.parent_id !== undefined) doc.parent_id = row.parent_id ?? null
   if (def?.table === 'students' && row.deleted_at) doc.deletedAt = new Date(row.deleted_at).getTime()
 
   // jin fields ka sach column me hai (source me nahi), unhe upar se chadha do

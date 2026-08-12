@@ -1050,7 +1050,7 @@ function Dashboard({ students, notices, fees, attendance, activities, staff, sta
   )
 }
 
-function StudentModal({ close, addStudent, updateStudent, getNextAdmissionNumber, student }) {
+function StudentModal({ close, addStudent, updateStudent, getNextAdmissionNumber, student, parents }) {
   const [form, setForm] = useState(student ? {
     name: student.name || '',
     className: student.className || '1-A',
@@ -1066,6 +1066,7 @@ function StudentModal({ close, addStudent, updateStudent, getNextAdmissionNumber
     status: student.status || 'active',
     dropOutDate: student.dropOutDate || '',
     dropOutReason: student.dropOutReason || '',
+    parentId: student.parentId || null,
   } : {
     name: '',
     className: '1-A',
@@ -1081,6 +1082,7 @@ function StudentModal({ close, addStudent, updateStudent, getNextAdmissionNumber
     status: 'active',
     dropOutDate: '',
     dropOutReason: '',
+    parentId: null,
   })
   const [saving, setSaving] = useState(false)
   const [admissionNumber, setAdmissionNumber] = useState(student ? student.roll : '')
@@ -1152,7 +1154,43 @@ function StudentModal({ close, addStudent, updateStudent, getNextAdmissionNumber
         <label>Date of Birth<DatePicker value={form.dob} onChange={value => setForm({...form, dob: value})} max={today()} /></label>
         <label>Gender<select value={form.gender} onChange={e => setForm({...form, gender: e.target.value})}><option value="">Select gender</option><option>Male</option><option>Female</option><option>Other</option></select></label>
         <label>Guardian name<input required value={form.guardian} onChange={e => setForm({...form, guardian: e.target.value})} placeholder="Parent / guardian" /></label>
-        <label>Phone number<input required value={form.phone} onChange={e => setForm({...form, phone: e.target.value})} placeholder="10-digit mobile number" /></label>
+        <label>Phone number
+          <input required value={form.phone} onChange={e => {
+            const val = e.target.value;
+            setForm(current => ({ ...current, phone: val }));
+          }} placeholder="10-digit mobile number" />
+        </label>
+        {(() => {
+          const cleanPhone = String(form.phone || '').replace(/\D/g, '');
+          const matchedParent = Object.values(parents || {}).find(p => {
+            const pPhone = String(p.phone || '').replace(/\D/g, '');
+            return cleanPhone.length >= 10 && pPhone.length >= 10 && cleanPhone.endsWith(pPhone.slice(-10));
+          });
+          
+          if (form.parentId) {
+            const parentRecord = Object.values(parents || {}).find(p => p.id === form.parentId);
+            return <div className="parent-link-status linked" style={{ gridColumn: '1 / -1', background: '#f0fdf4', border: '1px solid #bbf7d0', padding: '10px 14px', borderRadius: 8, fontSize: 12, display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: -6, marginBottom: 8, color: '#166534' }}>
+              <span>Linked to parent: <strong>{parentRecord?.name || form.guardian}</strong> ({parentRecord?.phone || form.phone})</span>
+              <button type="button" className="text-button" style={{ color: '#dc2626', padding: 0, fontWeight: 600 }} onClick={() => setForm(c => ({ ...c, parentId: null }))}>Unlink</button>
+            </div>;
+          } else if (matchedParent) {
+            return <div className="parent-link-status suggestion" style={{ gridColumn: '1 / -1', background: '#eff6ff', border: '1px solid #bfdbfe', padding: '10px 14px', borderRadius: 8, fontSize: 12, display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: -6, marginBottom: 8, color: '#1e40af' }}>
+              <span>Matches existing parent: <strong>{matchedParent.name}</strong> ({matchedParent.phone})</span>
+              <button type="button" className="text-button" style={{ color: '#2563eb', padding: 0, fontWeight: 600 }} onClick={() => {
+                setForm(c => ({
+                  ...c,
+                  parentId: matchedParent.id,
+                  guardian: matchedParent.name,
+                  phone: matchedParent.phone
+                }));
+              }}>Link parent</button>
+            </div>;
+          } else {
+            return <div className="parent-link-status unlinked" style={{ gridColumn: '1 / -1', fontSize: 11, color: '#7b8596', marginTop: -6, marginBottom: 8, paddingLeft: 4 }}>
+              No parent link assigned. Will be saved as a new unlinked student.
+            </div>;
+          }
+        })()}
         <label>Email<input type="email" value={form.email} onChange={e => setForm({...form, email: e.target.value})} placeholder="Email address" /></label>
         <label>Admission Date<DatePicker value={form.admissionDate} onChange={value => setForm({...form, admissionDate: value})} /></label>
         <label>Admission Scheme<select value={form.admissionScheme} onChange={e => setForm({...form, admissionScheme: e.target.value})}>{['General','RTE','EWS','Staff Ward','Sibling','Scholarship'].map(s => <option key={s}>{s}</option>)}</select></label>
@@ -1258,7 +1296,7 @@ function StudentStatusBadge({ student }) {
   return <span className="student-status-badge" style={{ background: meta.bg, color: meta.color }}>{meta.label}</span>
 }
 
-function Students({ students, onAddStudent, onUpdateStudent, onSelectStudent, getNextAdmissionNumber, onDeleteStudents, schoolName }) {
+function Students({ students, onAddStudent, onUpdateStudent, onSelectStudent, getNextAdmissionNumber, onDeleteStudents, schoolName, parents }) {
   const [search, setSearch] = useState('')
   const [codeSearch, setCodeSearch] = useState('')
   const [filter, setFilter] = useState('All classes')
@@ -1333,7 +1371,7 @@ function Students({ students, onAddStudent, onUpdateStudent, onSelectStudent, ge
       <div><strong><AlertTriangle size={15} /> Danger zone</strong><small>Deletes every student in this school. Records are archived to Deleted Students and can be restored.</small></div>
       <button type="button" className="primary-button" style={{ background: '#c0392b', borderColor: '#a93226' }} disabled={!students.length} onClick={() => setDeleteTarget({ mode: 'all', students })}><Trash2 size={16} /> Delete All Students</button>
     </div>
-    {modal && <StudentModal close={() => setModal(null)} student={modal !== 'add' ? modal : undefined} addStudent={addStudent} updateStudent={onUpdateStudent} getNextAdmissionNumber={getNextAdmissionNumber} />}
+    {modal && <StudentModal close={() => setModal(null)} student={modal !== 'add' ? modal : undefined} addStudent={addStudent} updateStudent={onUpdateStudent} getNextAdmissionNumber={getNextAdmissionNumber} parents={parents} />}
     {deleteTarget && <StudentDeleteModal target={deleteTarget} schoolName={schoolName} onCancel={() => setDeleteTarget(null)} onConfirm={runDelete} />}
   </>
 }
@@ -2283,6 +2321,7 @@ function studentFromRow(row, index) {
     photoUpdatedAt: row.photo_updated_at || row.photoUpdatedAt || 0,
     smsEnabled: row.sms_enabled !== false,
     active: row.active !== false,
+    parentId: row.parent_id || row.parentId || null,
     initials,
     tone: tones[index % tones.length],
   }
@@ -2391,6 +2430,7 @@ function studentToRow(student) {
     photo_size: Number(student.photoSize || 0),
     photo_updated_at: student.photoUpdatedAt || 0,
     sms_enabled: student.smsEnabled !== false,
+    parent_id: student.parentId || null,
     active: student.active !== false,
     createdAt: student.createdAt || Date.now(),
     updatedAt: Date.now(),
@@ -5448,14 +5488,14 @@ export default function App() {
   const screens = {
     dashboard: <Dashboard students={data.students} notices={data.notices} fees={data.fees} attendance={data.attendance} activities={data.activities} staff={data.staff} staffAttendance={data.staffAttendance} employeeConfig={data.employeeConfig} approvals={data.approvals} expenses={data.expenses} transport={data.transport} library={data.library} leaveData={data.leave} setPage={setPage} onSelectStudent={setSelectedStudent} />,
     admissions: <Admissions students={data.students} enquiries={data.enquiries} onAddStudent={data.addStudent} onUpdateStudent={data.updateStudent} onSaveEnquiry={data.saveEnquiry} getNextAdmissionNumber={data.getNextAdmissionNumber} school={data.workspace.schoolProfile} />,
-    students: <Students students={data.students} onAddStudent={data.addStudent} onUpdateStudent={data.updateStudent} onSelectStudent={setSelectedStudent} getNextAdmissionNumber={data.getNextAdmissionNumber} onDeleteStudents={data.deleteStudents} schoolName={data.workspace.schoolName} />,
+    students: <Students students={data.students} onAddStudent={data.addStudent} onUpdateStudent={data.updateStudent} onSelectStudent={setSelectedStudent} getNextAdmissionNumber={data.getNextAdmissionNumber} onDeleteStudents={data.deleteStudents} schoolName={data.workspace.schoolName} parents={data.parents} />,
     'deleted-students': <DeletedStudents deletedStudents={data.deletedStudents} onRestore={data.restoreStudent} onRestoreAll={data.restoreAllStudents} onPermanentDelete={data.permanentDeleteStudent} />,
     employees: <EmployeeManager staff={data.staff} attendance={data.staffAttendance} config={data.employeeConfig} saveConfig={data.saveEmployeeConfig} deleteConfig={data.deleteEmployeeConfig} saveEmployee={data.saveEmployee} deleteEmployee={data.deleteEmployee} saveAttendance={data.saveStaffAttendance} />,
     leave: <LeaveManager staff={data.staff} config={data.employeeConfig} leave={data.leave} saveLeaveItem={data.saveLeaveItem} deleteLeaveItem={data.deleteLeaveItem} saveStaffAttendance={data.saveStaffAttendance} />,
     'admission-requests': <AdmissionRequestsManager schoolId={data.workspace.schoolId} schoolName={data.workspace.schoolName} pendingRequests={data.admissionRequests} onApprove={data.approveAdmissionRequest} onReject={data.rejectAdmissionRequest} onLoadHistory={data.loadAdmissionHistory} role={data.workspace.role} />,
     'student-leave': <StudentLeaveManager leaveRequests={data.leaveRequests} onDecide={data.decideLeaveRequest} role={data.workspace.role} />,
     attendance: <Attendance students={data.students} attendance={data.attendance} onSaveAttendance={data.saveAttendance} />,
-    fees: <FeeManager students={data.students} fees={data.fees} feeManager={data.feeManager} approvals={data.approvals.fees || {}} schoolProfile={data.workspace.schoolProfile} onSubmitFee={data.submitFeeReceipt} onSaveGroup={data.saveFeeGroup} onDeleteGroup={data.deleteFeeGroup} onSaveStructure={data.saveFeeStructure} onDeleteStructure={data.deleteFeeStructure} onDeleteReceipt={data.deleteFeeReceipt} onRestoreReceipt={data.restoreFeeReceipt} onDecideApproval={data.decideFeeApproval} onSaveConfig={data.saveFeeManagerConfig} onOpenProfile={setSelectedStudent} />,
+    fees: <FeeManager students={data.students} fees={data.fees} feeManager={data.feeManager} approvals={data.approvals.fees || {}} parents={data.parents} schoolProfile={data.workspace.schoolProfile} onSubmitFee={data.submitFeeReceipt} onSaveGroup={data.saveFeeGroup} onDeleteGroup={data.deleteFeeGroup} onSaveStructure={data.saveFeeStructure} onDeleteStructure={data.deleteFeeStructure} onDeleteReceipt={data.deleteFeeReceipt} onRestoreReceipt={data.restoreFeeReceipt} onDecideApproval={data.decideFeeApproval} onSaveConfig={data.saveFeeManagerConfig} onOpenProfile={setSelectedStudent} />,
     academics: <Academics schoolId={data.workspace.schoolId} schoolName={data.workspace.schoolName} timetableData={data.timetableData} timetableRecords={data.timetableRecords} students={data.students} onSavePeriod={data.savePeriod} onSaveTimetable={data.saveTimetableRecord} onDeleteTimetable={data.deleteTimetableRecord} />,
     homework: <HomeworkManager students={data.students} homework={data.homework} saveHomework={data.saveHomework} deleteHomework={data.deleteHomework} markHomeworkDone={data.markHomeworkDone} markHomeworkSeen={data.markHomeworkSeen} profile={profile} />,
     transport: <TransportManager students={data.students} transport={data.transport} saveTransportItem={data.saveTransportItem} deleteTransportItem={data.deleteTransportItem} />,
@@ -5489,5 +5529,5 @@ export default function App() {
     await signOutUser()
     setPage('dashboard')
   }
-  return <StudentPhotoContext.Provider value={data.ensureStudentPhotos}><div className={`app-shell ${darkMode ? 'theme-dark' : 'theme-light'}`}><Sidebar page={page} setPage={next => { setViewSession(''); setPage(next) }} open={menuOpen} close={() => setMenuOpen(false)} schoolName={data.workspace.schoolName} schoolLogo={data.workspace.schoolProfile.logoURL || data.workspace.schoolProfile.logo} schoolCode={data.workspace.schoolProfile.schoolCode} cloudMode={!data.developmentDemo} profile={profile} /><main className="main-area"><Header title={archiveSession ? `${archiveSession} Archive` : current.label} subtitle={`${data.workspace.schoolName} · ${archiveSession || currentSession}`} schoolCode={data.workspace.schoolProfile.schoolCode} onMenu={() => setMenuOpen(true)} profile={profile} onSignOut={logout} students={data.students} onSelectStudent={setSelectedStudent} darkMode={darkMode} onToggleTheme={() => setDarkMode(current => !current)} sessions={sessionOptions} currentSession={currentSession} viewSession={archiveSession} onChangeSession={setViewSession} /><div className="page-content page-enter" key={archiveSession || page}><Suspense fallback={<div className="module-loading"><span className="module-loading-dot" />Loading module...</div>}>{archiveSession ? <SessionArchive session={archiveSession} sessionStartMonth={sessionStartMonthOf(data.workspace.schoolProfile)} students={data.students} fees={data.fees} loadSessionAttendance={data.loadSessionAttendance} /> : lazyModulePending ? <div className="module-loading"><span className="module-loading-dot" />Loading module...</div> : screens[page]}</Suspense></div></main>{selectedStudent && <StudentProfile student={data.students.find(student => student.id === selectedStudent.id) || selectedStudent} close={() => setSelectedStudent(null)} attendance={data.attendance} fees={data.fees} feeManager={data.feeManager} schoolProfile={data.workspace.schoolProfile} academics={data.academics} documents={data.documents} onRecordPayment={data.recordPayment} onUploadDocument={data.uploadStudentDocument} onUpdatePhoto={data.updateStudentPhoto} onEdit={s => setEditingStudent(s)} loadStudentAttendance={data.loadStudentAttendance} />}{editingStudent && <StudentModal close={() => setEditingStudent(null)} student={editingStudent} updateStudent={async (id, updates) => { await data.updateStudent(id, updates); setEditingStudent(null) }} />}</div></StudentPhotoContext.Provider>
+  return <StudentPhotoContext.Provider value={data.ensureStudentPhotos}><div className={`app-shell ${darkMode ? 'theme-dark' : 'theme-light'}`}><Sidebar page={page} setPage={next => { setViewSession(''); setPage(next) }} open={menuOpen} close={() => setMenuOpen(false)} schoolName={data.workspace.schoolName} schoolLogo={data.workspace.schoolProfile.logoURL || data.workspace.schoolProfile.logo} schoolCode={data.workspace.schoolProfile.schoolCode} cloudMode={!data.developmentDemo} profile={profile} /><main className="main-area"><Header title={archiveSession ? `${archiveSession} Archive` : current.label} subtitle={`${data.workspace.schoolName} · ${archiveSession || currentSession}`} schoolCode={data.workspace.schoolProfile.schoolCode} onMenu={() => setMenuOpen(true)} profile={profile} onSignOut={logout} students={data.students} onSelectStudent={setSelectedStudent} darkMode={darkMode} onToggleTheme={() => setDarkMode(current => !current)} sessions={sessionOptions} currentSession={currentSession} viewSession={archiveSession} onChangeSession={setViewSession} /><div className="page-content page-enter" key={archiveSession || page}><Suspense fallback={<div className="module-loading"><span className="module-loading-dot" />Loading module...</div>}>{archiveSession ? <SessionArchive session={archiveSession} sessionStartMonth={sessionStartMonthOf(data.workspace.schoolProfile)} students={data.students} fees={data.fees} loadSessionAttendance={data.loadSessionAttendance} /> : lazyModulePending ? <div className="module-loading"><span className="module-loading-dot" />Loading module...</div> : screens[page]}</Suspense></div></main>{selectedStudent && <StudentProfile student={data.students.find(student => student.id === selectedStudent.id) || selectedStudent} close={() => setSelectedStudent(null)} attendance={data.attendance} fees={data.fees} feeManager={data.feeManager} schoolProfile={data.workspace.schoolProfile} academics={data.academics} documents={data.documents} onRecordPayment={data.recordPayment} onUploadDocument={data.uploadStudentDocument} onUpdatePhoto={data.updateStudentPhoto} onEdit={s => setEditingStudent(s)} loadStudentAttendance={data.loadStudentAttendance} />}{editingStudent && <StudentModal close={() => setEditingStudent(null)} student={editingStudent} updateStudent={async (id, updates) => { await data.updateStudent(id, updates); setEditingStudent(null) }} parents={data.parents} />}</div></StudentPhotoContext.Provider>
 }
