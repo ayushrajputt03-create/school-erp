@@ -145,31 +145,13 @@ function useReveal() {
 }
 
 function HeroMockup() {
-  return <div className="ls-mockup reveal" aria-hidden="true">
-    <div className="ls-mockup-glass">
-      <div className="ls-mockup-head">
-        <span className="ls-mockup-dot" /><span className="ls-mockup-dot" /><span className="ls-mockup-dot" />
-        <b>SCHOOL99 · Command Center</b>
+  return <div className="ls-mockup reveal">
+    <div className="ls-product-window">
+      <div className="ls-product-window-bar">
+        <span className="ls-window-brand"><Activity size={15} /> Command Center</span>
+        <span className="ls-window-live"><i /> Live school view</span>
       </div>
-      <div className="ls-mockup-stats">
-        <div><span>Students</span><strong>236</strong></div>
-        <div><span>Fees (mo)</span><strong>₹3.8L</strong></div>
-        <div><span>Attendance</span><strong>87%</strong></div>
-      </div>
-      <div className="ls-mockup-chart">
-        <div className="ls-mockup-bars">
-          {[52, 68, 44, 80, 61, 92].map((h, i) => <span key={i} style={{ height: `${h}%` }} />)}
-        </div>
-        <div className="ls-mockup-chart-label">Fee collection · last 6 months</div>
-      </div>
-      <div className="ls-mockup-activity">
-        <div className="ls-mockup-ring"><svg viewBox="0 0 36 36"><circle className="bg" cx="18" cy="18" r="15.9" /><circle className="fg" cx="18" cy="18" r="15.9" /></svg><div><strong>87%</strong><span>Present</span></div></div>
-        <ul>
-          <li><i className="g" /> New admission · Class 6-A</li>
-          <li><i className="b" /> Fee received · ₹12,500</li>
-          <li><i className="a" /> Notice published</li>
-        </ul>
-      </div>
+      <img src="/screens/dashboard.jpg" alt="SCHOOL99 Command Center dashboard" />
     </div>
     <div className="ls-mockup-float ls-float-a"><CalendarCheck size={16} /> Attendance marked</div>
     <div className="ls-mockup-float ls-float-b"><Wallet size={16} /> ₹3.8L collected</div>
@@ -280,7 +262,7 @@ export default function LandingPage() {
         </button>
       </div>
       <div className="ls-showcase reveal">
-        {SHOWCASE.map(s => <article key={s.title} className="ls-showcase-card">
+        {SHOWCASE.map((s, index) => <article key={s.title} className="ls-showcase-card">
           <button type="button" className="ls-showcase-glass" onClick={() => setDemoOpen(true)}
             aria-label={`${s.title} — open demo`}>
             {s.shot
@@ -292,12 +274,16 @@ export default function LandingPage() {
                   <div className="ls-showcase-mini">{[60, 40, 85, 55].map((h, i) => <span key={i} style={{ height: `${h}%` }} />)}</div>
                   <div className="ls-showcase-row"><i className="w3" /><i /></div>
                 </div>
-              </>}
+            </>}
           </button>
-          <span className="ls-showcase-tag">{s.tag}</span>
+          <div className="ls-showcase-meta"><span className="ls-showcase-no">0{index + 1}</span><span className="ls-showcase-tag">{s.tag}</span></div>
           <h3>{s.title}</h3>
           <p>{s.desc}</p>
         </article>)}
+      </div>
+      <div className="ls-demo-band reveal">
+        <div><strong>See the complete school workflow in one guided demo.</strong><span>Admissions, attendance, fees and reports, shown with the same product screens.</span></div>
+        <a className="ls-btn ls-btn-primary" href={WHATSAPP_URL} target="_blank" rel="noopener noreferrer">Book a Live Demo <ArrowRight size={16} /></a>
       </div>
     </section>
 
@@ -451,6 +437,11 @@ export default function LandingPage() {
         <a href="mailto:ayushrajputt03@gmail.com">ayushrajputt03@gmail.com</a>
       </div>
     </footer>
+
+    <div className="ls-mobile-cta" aria-label="Quick actions">
+      <a href={WHATSAPP_URL} target="_blank" rel="noopener noreferrer"><MessageCircle size={18} /> Book Demo</a>
+      <a href="/register"><Rocket size={18} /> Start Free</a>
+    </div>
 
     <ContactWidget />
 

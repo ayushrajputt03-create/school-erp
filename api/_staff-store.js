@@ -93,7 +93,7 @@ function firebaseStore() {
 
     async grantSession(schoolId, id, profile) {
       const token = await getAuth(app).createCustomToken(id, {
-        role: 'staff', schoolId, department: profile.department,
+        role: profile.role || profile.employeeRole || 'staff', schoolId, department: profile.department,
       })
       return { token }
     },
@@ -121,11 +121,12 @@ function firebaseStore() {
         ? (await adminAuth.updateUser(existing.uid, { password, displayName }), existing.uid)
         : (await adminAuth.createUser({ email, password, displayName })).uid
 
+      const role = profile.role || profile.employeeRole || 'staff'
       await database.ref(`schools/${schoolId}/teachers/${uid}`).set({
-        ...profile, uid, email, role: 'teacher', schoolId, isActive: true,
+        ...profile, uid, email, role, schoolId, isActive: true,
         createdAt: profile.createdAt || Date.now(), updatedAt: Date.now(),
       })
-      await database.ref(`teachersIndex/${uid}`).set({ schoolId, teacherId: uid, role: 'teacher' })
+      await database.ref(`teachersIndex/${uid}`).set({ schoolId, teacherId: uid, role })
       return { staffId: uid, created: !existing }
     },
 
@@ -135,18 +136,19 @@ function firebaseStore() {
       const schoolId = index?.schoolId || user?.schoolId
       if (!schoolId) return null
 
+      const receptionist = index?.role === 'receptionist'
       const [staff, teacher, profile, students, homework, notices, attendance] = await Promise.all([
         read(`schools/${schoolId}/staff/${uid}`),
         read(`schools/${schoolId}/teachers/${uid}`),
         read(`schools/${schoolId}/profile`),
-        read(`schools/${schoolId}/students`),
-        read(`schools/${schoolId}/homework`),
-        read(`schools/${schoolId}/notices`),
+        receptionist ? Promise.resolve({}) : read(`schools/${schoolId}/students`),
+        receptionist ? Promise.resolve({}) : read(`schools/${schoolId}/homework`),
+        receptionist ? Promise.resolve({}) : read(`schools/${schoolId}/notices`),
         // Attendance yahan akela aisa node hai jo bina rukey badhta hai —
         // students x school days. Staff app sirf abhi ka mahina dikhata hai
         // (uska live listener bhi utna hi bandha hua hai), to pehla payload
         // bhi utna hi. `attendance` ka maujooda .indexOn ["date"] use hota hai.
-        (async () => (await database.ref(`schools/${schoolId}/attendance`).orderByChild('date').startAt(monthStart).once('value')).val())(),
+        receptionist ? Promise.resolve({}) : (async () => (await database.ref(`schools/${schoolId}/attendance`).orderByChild('date').startAt(monthStart).once('value')).val())(),
       ])
       const record = staff || teacher
       if (!record) return { schoolId, record: null }
@@ -231,15 +233,12 @@ function supabaseStore() {
     async linkStaffIndex() {},
 
     /**
-     * Session. Supabase custom token nahi deta, isliye ek magic link banate
-     * hain aur uska hashed_token client ko dete hain — client verifyOtp() se
-     * use asli session me badal leta hai. Koi email nahi jaati; generate_link
-     * sirf token banata hai, bhejta nahi.
-     *
-     * Yahan tak pahunchne ka matlab hai ki school code, phone aur DOB teeno
-     * pehle hi jaanche ja chuke hain.
+     * Server pe school code, mobile aur DOB verify hone ke baad auth password
+     * usi verified input se set hota hai. Isse Supabase magic-link/email
+     * provider par dependency nahi rehti aur client normal password session
+     * banata hai.
      */
-    async grantSession(schoolLegacy, id, profile) {
+    async grantSession(schoolLegacy, id, profile, password) {
       const found = await school(schoolLegacy)
       if (!found) throw new Error('School not found.')
 
@@ -247,20 +246,22 @@ function supabaseStore() {
         p_school: found.id,
         p_staff_legacy: id,
         p_email: staffEmail(id, found.code),
-        p_role: profile.department === 'Teacher' ? 'teacher' : 'staff',
+        p_role: profile.role || profile.employeeRole || (profile.department === 'Teacher' ? 'teacher' : 'staff'),
         p_name: profile.name || '',
       })
       fail(ensureError, 'staff auth user')
       // Pehle se maujood khaate ka email badalte nahi — RPC wahi lautata hai jo
-      // sach me row me hai. Magic link usi par banana zaroori hai.
+      // auth.users me sach me pada hai.
       const email = ensured?.[0]?.user_email
-      if (!email) throw new Error('Staff account could not be prepared.')
+      const userId = ensured?.[0]?.user_id
+      if (!email || !userId) throw new Error('Staff account could not be prepared.')
+      if (!password || String(password).length < 6) throw new Error('Date of birth password is invalid.')
 
-      const { data, error } = await db.auth.admin.generateLink({ type: 'magiclink', email })
-      if (error) throw new Error(`login link: ${error.message}`)
-      const tokenHash = data?.properties?.hashed_token
-      if (!tokenHash) throw new Error('Login link could not be created.')
-      return { tokenHash, email }
+      const { error: passwordError } = await db.auth.admin.updateUserById(userId, {
+        password: String(password),
+      })
+      if (passwordError) throw new Error(`staff password setup: ${passwordError.message || 'failed'}`)
+      return { email, passwordLogin: true }
     },
 
     // Firebase wale se ek farak: yahan school bhi mil jaata hai, kyunki
@@ -294,7 +295,7 @@ function supabaseStore() {
         p_school: found.id,
         p_staff_legacy: staffId,
         p_email: staffEmail(staffId, found.code),
-        p_role: profile.department === 'Teacher' ? 'teacher' : 'staff',
+        p_role: profile.role || profile.employeeRole || (profile.department === 'Teacher' ? 'teacher' : 'staff'),
         p_name: profile.name || '',
       })
       fail(error, 'staff auth user')
@@ -303,7 +304,7 @@ function supabaseStore() {
     },
 
     async staffSession(uid, { monthStart }) {
-      const { data: me } = await db.from('app_users').select('school_id').eq('legacy_uid', uid).maybeSingle()
+      const { data: me } = await db.from('app_users').select('school_id, role').eq('legacy_uid', uid).maybeSingle()
       if (!me?.school_id) return null
       const { data: found } = await db.from('schools').select('id, legacy_id, name, source').eq('id', me.school_id).maybeSingle()
       if (!found) return null
@@ -318,14 +319,15 @@ function supabaseStore() {
       const map = (rows, extra = () => ({})) => Object.fromEntries(
         (rows || []).map(row => [row.legacy_id, flat(row, extra(row))]))
 
+      const receptionist = me.role === 'receptionist'
       const [staffRow, students, homework, notices, attendance] = await Promise.all([
         db.from('staff').select('*').eq('school_id', found.id).eq('legacy_id', uid).maybeSingle(),
-        db.from('students').select('*').eq('school_id', found.id),
-        db.from('homework').select('*').eq('school_id', found.id),
-        db.from('notices').select('*').eq('school_id', found.id),
+        receptionist ? Promise.resolve({ data: [] }) : db.from('students').select('*').eq('school_id', found.id),
+        receptionist ? Promise.resolve({ data: [] }) : db.from('homework').select('*').eq('school_id', found.id),
+        receptionist ? Promise.resolve({ data: [] }) : db.from('notices').select('*').eq('school_id', found.id),
         // Wahi bandhan jo Firebase raaste par hai: attendance bina rukey badhta
         // hai, aur staff app sirf abhi ka mahina dikhata hai.
-        db.from('attendance').select('*, student:students(legacy_id)').eq('school_id', found.id).gte('date', monthStart),
+        receptionist ? Promise.resolve({ data: [] }) : db.from('attendance').select('*, student:students(legacy_id)').eq('school_id', found.id).gte('date', monthStart),
       ])
       if (!staffRow.data) return { schoolId: uid && found.legacy_id, record: null }
 

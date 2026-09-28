@@ -43,7 +43,7 @@ function buildStaffProfile(id, e, schoolId) {
     photoUrl: e.photoUrl || '',
     joiningDate: e.joiningDate || '',
     dob: e.dob || '',
-    role: 'staff',
+    role: String(e.role || e.employeeRole || '').toLowerCase() || (String(e.department || '').toLowerCase() === 'teacher' ? 'teacher' : 'staff'),
     schoolId,
   }
 }
@@ -94,13 +94,13 @@ module.exports = async (req, res) => {
     const profile = buildStaffProfile(id, record, schoolId)
 
     await store.linkStaffIndex(schoolId, id, {
-      role: profile.department === 'Teacher' ? 'teacher' : 'staff',
+      role: profile.role,
       source: found.source,
     })
 
-    // Firebase par { token } (custom token), Supabase par { tokenHash } (magic
-    // link). Client dono ko authAdapter ke ek hi function ko de deta hai.
-    const grant = await store.grantSession(schoolId, id, profile)
+    // Firebase custom token deta hai; Supabase verified DOB ko password session
+    // me badalne ke liye account password set karke email return karta hai.
+    const grant = await store.grantSession(schoolId, id, profile, password)
 
     return res.status(200).json({ ok: true, ...grant, schoolId, employee: profile })
   } catch (error) {

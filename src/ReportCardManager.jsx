@@ -36,9 +36,26 @@ const classOptions = students => [...new Set(students.map(student => classParts(
 const sectionOptions = students => [...new Set(students.map(student => classParts(student.className).section).filter(Boolean))].sort()
 const profilePhoto = student => student?.photoUrl || student?.photo || student?.photoURL || student?.imageUrl || ''
 const reportKey = (examId, studentId) => `${examId}_${studentId}`
-const gradeFor = percent => percent >= 91 ? 'A1' : percent >= 81 ? 'A2' : percent >= 71 ? 'B1' : percent >= 61 ? 'B2' : percent >= 51 ? 'C1' : percent >= 41 ? 'C2' : percent >= 33 ? 'D' : 'E'
+// Edit these bands if a school has not configured its own grading scale yet.
+export const DEFAULT_GRADING_SCALE = [
+  { min: 91, grade: 'A1' }, { min: 81, grade: 'A2' }, { min: 71, grade: 'B1' },
+  { min: 61, grade: 'B2' }, { min: 51, grade: 'C1' }, { min: 41, grade: 'C2' },
+  { min: 33, grade: 'D' }, { min: 0, grade: 'E' },
+]
+const normalizedScale = scale => Array.isArray(scale) && scale.length
+  ? scale.map(item => ({ min: Number(item.min ?? item.minimum ?? item.from ?? 0), grade: item.grade || item.label || '—' })).sort((a, b) => b.min - a.min)
+  : DEFAULT_GRADING_SCALE
+export const getGrade = (percentage, scale = DEFAULT_GRADING_SCALE) => {
+  if (!Number.isFinite(Number(percentage))) return '—'
+  return normalizedScale(scale).find(band => Number(percentage) >= band.min)?.grade || '—'
+}
+const gradingScaleFor = (school, reportData = {}) => normalizedScale(
+  reportData?.settings?.gradingScale || reportData?.gradingScale || school?.gradingScale || school?.settings?.gradingScale || school?.reportSettings?.gradingScale,
+)
+const gradeFor = (percent, scale) => getGrade(percent, scale)
 const percentTone = percent => percent >= 91 ? 'gold' : percent >= 71 ? 'green' : percent >= 51 ? 'blue' : percent >= 33 ? 'yellow' : 'red'
-const resultStatus = (subjects, passingMarks) => subjects.every(row => Number(row.obtained || 0) >= Number(row.passingMarks || passingMarks || 33)) ? 'Pass' : 'Fail'
+const isAbsentMark = value => value === '' || value === null || value === undefined || String(value).trim().toUpperCase() === 'AB'
+const resultStatus = (subjects, passingMarks) => subjects.every(row => !row.absent && Number(row.obtained || 0) >= Number(row.passingMarks || passingMarks || 33)) ? 'Pass' : 'Fail'
 
 function defaultExam(id = '') {
   return { id, name: 'Annual Examination', examDate: today(), session: '2026-27', maxMarks: 100, passingMarks: 33, enabled: true, subjects: defaultSubjects }
@@ -65,12 +82,13 @@ async function downloadReportPdf(filename = 'report-card.pdf') {
   }
 }
 
-function calculateReport(exam, markRecord = {}, classRows = []) {
+function calculateReport(exam, markRecord = {}, classRows = [], gradingScale = DEFAULT_GRADING_SCALE) {
   const subjects = (markRecord.subjects || (exam.subjects || defaultSubjects).map(subject => ({ subject, maxMarks: exam.maxMarks, passingMarks: exam.passingMarks, obtained: 0, remarks: '' }))).map(row => {
     const maxMarks = Number(row.maxMarks || exam.maxMarks || 100)
-    const obtained = Number(row.obtained || 0)
+    const absent = isAbsentMark(row.obtained)
+    const obtained = absent ? 0 : Number(row.obtained || 0)
     const percent = maxMarks ? Math.round((obtained / maxMarks) * 100) : 0
-    return { ...row, maxMarks, obtained, grade: gradeFor(percent), percent }
+    return { ...row, maxMarks, obtained, absent, grade: absent ? '—' : gradeFor(percent, gradingScale), percent }
   })
   const totalMax = subjects.reduce((sum, row) => sum + Number(row.maxMarks || 0), 0)
   const obtained = subjects.reduce((sum, row) => sum + Number(row.obtained || 0), 0)
@@ -82,7 +100,7 @@ function calculateReport(exam, markRecord = {}, classRows = []) {
     totalMax,
     obtained,
     percentage,
-    grade: gradeFor(percentage),
+    grade: gradeFor(percentage, gradingScale),
     status: resultStatus(subjects, exam.passingMarks),
     rank,
     promotionStatus: percentage >= 33 ? 'Promoted' : 'Needs Improvement',
@@ -314,6 +332,113 @@ function ReportCardSurface({ templateId, student, exam, record, school, classRec
   />
 }
 
+function BulkResultCard({ student, exam, record, school, classRecords, gradingScale, isLast }) {
+  const summary = calculateReport(exam, record, classRecords, gradingScale)
+  const parts = classParts(student.className)
+  const logo = school.logo || school.logoURL || ''
+  const scale = normalizedScale(gradingScale)
+  return <article className={`bulk-result-card${isLast ? ' is-last' : ''}`}>
+    <header className="bulk-result-header">
+      <div className="bulk-result-logo">{logo ? <img src={logo} alt="" /> : <FileText size={25} />}</div>
+      <div>
+        <h1>{school.schoolName || 'School Name'}</h1>
+        <p>{school.address || ''}</p>
+        <h2>REPORT CARD</h2>
+        <strong>{exam.name || 'Examination'} | Session {exam.session || school.academicYear || '2026-27'}</strong>
+      </div>
+    </header>
+    <section className="bulk-result-student-info">
+      <div><span>Student Name</span><strong>{student.name || '-'}</strong></div>
+      <div><span>Class / Section</span><strong>{parts.className} / {parts.section}</strong></div>
+      <div><span>Roll No.</span><strong>{student.rollNo || student.roll || '-'}</strong></div>
+      <div><span>Admission No.</span><strong>{student.roll || student.admissionNo || '-'}</strong></div>
+    </section>
+    <table className="bulk-result-table">
+      <thead><tr><th>Subject</th><th>Max Marks</th><th>Obtained</th><th>Grade</th></tr></thead>
+      <tbody>{summary.subjects.map((row, index) => {
+        const failed = row.absent || Number(row.obtained) < Number(row.passingMarks || exam.passingMarks || 33)
+        return <tr key={`${row.subject}-${index}`} className={failed ? 'failed-subject' : ''}>
+          <td>{row.subject || '-'}</td><td>{row.maxMarks}</td><td>{row.absent ? 'AB' : row.obtained}</td><td>{row.grade}</td>
+        </tr>
+      })}</tbody>
+    </table>
+    <section className={`bulk-result-summary ${summary.status === 'Pass' ? 'pass' : 'fail'}`}>
+      <div><span>Total</span><strong>{summary.obtained} / {summary.totalMax}</strong></div>
+      <div><span>Percentage</span><strong>{summary.percentage}%</strong></div>
+      <div><span>Overall Grade</span><strong>{summary.grade}</strong></div>
+      <div><span>Result</span><strong>{summary.status}</strong></div>
+      {Number.isFinite(Number(summary.rank)) && <div><span>Rank</span><strong>{summary.rank}</strong></div>}
+    </section>
+    <section className="bulk-grade-legend" aria-label="Grading legend">
+      <strong>Grading Scale:</strong>{scale.map(band => <span key={`${band.grade}-${band.min}`}>{band.grade}: {band.min}%+</span>)}
+    </section>
+    <footer className="bulk-result-signatures"><div><i /><span>Class Teacher</span></div><div><i /><span>Principal</span></div></footer>
+  </article>
+}
+
+function BulkResultPrint({ students, school, reportData }) {
+  const exams = Object.values(reportData.exams || {}).filter(exam => exam.enabled !== false)
+  const [examId, setExamId] = useState(exams[0]?.id || '')
+  const [className, setClassName] = useState('')
+  const [section, setSection] = useState('')
+  const [selected, setSelected] = useState({})
+  const [message, setMessage] = useState('')
+  const gradingScale = gradingScaleFor(school, reportData)
+  const exam = exams.find(item => item.id === examId) || exams[0] || defaultExam()
+  const candidates = useMemo(() => students.filter(student => {
+    const parts = classParts(student.className)
+    return (!className || parts.className === className) && (!section || parts.section === section)
+  }), [students, className, section])
+  const recordsByStudent = useMemo(() => new Map(
+    Object.values(reportData.marks || {}).filter(row => row.examId === exam.id).map(row => [row.studentId, row]),
+  ), [reportData.marks, exam.id])
+  const published = useMemo(() => candidates.filter(student => recordsByStudent.get(student.id)?.status === 'published'), [candidates, recordsByStudent])
+  const unpublishedCount = Math.max(0, candidates.length - published.length)
+  const selectedStudents = published.filter(student => selected[student.id])
+  const classRecords = useMemo(() => Object.values(reportData.marks || {}).filter(row => row.examId === exam.id && row.status === 'published'), [reportData.marks, exam.id])
+
+  useEffect(() => { setSelected({}); setMessage('') }, [examId, className, section])
+
+  const toggleAll = checked => setSelected(checked ? Object.fromEntries(published.map(student => [student.id, true])) : {})
+  const printSelected = () => {
+    if (!selectedStudents.length) {
+      setMessage('Select at least one published result before printing.')
+      return
+    }
+    setMessage(unpublishedCount ? `${unpublishedCount} student(s) skipped because their result is not published.` : `${selectedStudents.length} result card(s) ready to print.`)
+    requestAnimationFrame(() => safePrint('.bulk-results-print-grid'))
+  }
+
+  return <section className="panel bulk-result-panel">
+    <div className="panel-header"><div><h3>Bulk Result Print</h3><p>Select a class, section and exam, then print only published results.</p></div><button className="primary-button" type="button" disabled={!selectedStudents.length} onClick={printSelected}><Printer size={15} /> Print Selected ({selectedStudents.length})</button></div>
+    <div className="form-grid no-print">
+      <label>Class<select value={className} onChange={event => setClassName(event.target.value)}><option value="">All Classes</option>{classOptions(students).map(item => <option key={item}>{item}</option>)}</select></label>
+      <label>Section<select value={section} onChange={event => setSection(event.target.value)}><option value="">All Sections</option>{sectionOptions(candidates).map(item => <option key={item}>{item}</option>)}</select></label>
+      <label>Exam<select value={examId} onChange={event => setExamId(event.target.value)}>{exams.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
+    </div>
+    {message && <div className={`report-message ${message.startsWith('Select') ? 'error' : 'ok'} no-print`}>{message}</div>}
+    <div className="bulk-result-selection no-print">
+      <label className="bulk-select-all"><input type="checkbox" checked={published.length > 0 && selectedStudents.length === published.length} onChange={event => toggleAll(event.target.checked)} /> Select All Published ({published.length})</label>
+      <small>{unpublishedCount ? `${unpublishedCount} unpublished / missing result${unpublishedCount === 1 ? '' : 's'} will be skipped.` : 'All matching students have published results.'}</small>
+      <div className="bulk-result-student-list">
+        {candidates.map(student => {
+          const record = recordsByStudent.get(student.id)
+          const available = record?.status === 'published'
+          return <label key={student.id} className={!available ? 'unpublished' : ''}>
+            <input type="checkbox" disabled={!available} checked={Boolean(selected[student.id])} onChange={event => setSelected(current => ({ ...current, [student.id]: event.target.checked }))} />
+            <span><strong>{student.name}</strong><small>Adm {student.roll || student.admissionNo || '-'} | {student.className || '-'}</small></span>
+            <em>{available ? 'Published' : 'Not published'}</em>
+          </label>
+        })}
+        {!candidates.length && <div className="empty-state">No students match the selected class and section.</div>}
+      </div>
+    </div>
+    <section className="bulk-results-print-grid">
+      {selectedStudents.map((student, index) => <BulkResultCard key={student.id} student={student} exam={exam} record={recordsByStudent.get(student.id)} school={school} classRecords={classRecords} gradingScale={gradingScale} isLast={index === selectedStudents.length - 1} />)}
+    </section>
+  </section>
+}
+
 function ReportGenerator({ students, school, reportData, onSaveMarks, onSaveReport, onUpdateReport }) {
   const exams = Object.values(reportData.exams || {})
   const [examId, setExamId] = useState(exams[0]?.id || '')
@@ -369,18 +494,21 @@ function ReportGenerator({ students, school, reportData, onSaveMarks, onSaveRepo
     }
   }
 
-  return <div className="report-two-column">
-    <section className="panel report-form">
+  return <div className="report-generator-layout">
+    <div className="report-two-column">
+      <section className="panel report-form">
       <div className="panel-header"><div><h3>Report Card Generator</h3><p>Generate one student or bulk class-wise report cards.</p></div></div>
       <label>Select Exam<select value={examId} onChange={event => { setExamId(event.target.value); setStudent(null); setGenerated(null); setMessage('') }}>{exams.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
       <StudentPicker students={students} value={student} onSelect={value => { setStudent(value); setGenerated(null); setMessage('') }} />
       <TemplatePicker value={templateId} onChange={setTemplateId} />
       <button className="primary-button" disabled={loading || !student} onClick={generate}><FileText size={15} /> {loading ? 'Generating...' : 'Generate Result'}</button>
       {message && <div className={`report-message ${message.startsWith('Generation failed') ? 'error' : 'ok'}`}>{message}</div>}
-      <div className="report-actions"><button className="secondary-button" disabled={!record} onClick={() => safePrint('.report-card-paper')}><Printer size={15} /> Print Report Card</button><button className="secondary-button" disabled={!record} onClick={() => downloadReportPdf(`${student?.name || 'student'}-report-card.pdf`)}><Download size={15} /> Download PDF</button><button className="secondary-button" disabled={!record} onClick={() => safePrint('.report-card-paper')}><Users size={15} /> Bulk Print Class</button><button className="secondary-button" disabled={!record} onClick={() => downloadReportPdf('bulk-report-cards.pdf')}><Download size={15} /> Bulk PDF</button></div>
+      <div className="report-actions"><button className="secondary-button" disabled={!record} onClick={() => safePrint('.report-card-paper')}><Printer size={15} /> Print Report Card</button><button className="secondary-button" disabled={!record} onClick={() => downloadReportPdf(`${student?.name || 'student'}-report-card.pdf`)}><Download size={15} /> Download PDF</button></div>
       {record && <div className="report-admin-controls"><button onClick={() => onUpdateReport(key, { status: 'published' })}><Eye size={14} /> Publish</button><button onClick={() => onUpdateReport(key, { status: 'draft' })}><Unlock size={14} /> Unpublish</button><button onClick={() => onUpdateReport(key, { locked: true })}><Lock size={14} /> Lock</button><button onClick={() => onUpdateReport(key, { locked: false })}><Unlock size={14} /> Unlock</button></div>}
-    </section>
-    <section className="report-preview-wrap">{record && student ? <ReportCardSurface templateId={templateId} student={student} exam={exam} record={record} school={school} classRecords={classRows} onEditMark={editMark} exams={reportData.exams} allMarks={reportData.marks} /> : <div className="empty-state large"><FileText size={30} /><strong>No report selected</strong><p>First save marks, select student, then click Generate Result.</p></div>}</section>
+      </section>
+      <section className="report-preview-wrap">{record && student ? <ReportCardSurface templateId={templateId} student={student} exam={exam} record={record} school={school} classRecords={classRows} onEditMark={editMark} exams={reportData.exams} allMarks={reportData.marks} /> : <div className="empty-state large"><FileText size={30} /><strong>No report selected</strong><p>First save marks, select student, then click Generate Result.</p></div>}</section>
+    </div>
+    <BulkResultPrint students={students} school={school} reportData={reportData} />
   </div>
 }
 

@@ -147,6 +147,18 @@
 .notice-full-header span{font-size:9px;color:#8490a2}
 .teacher-notice-full p{font-size:10px;color:#697386;margin:8px 0 0}
 
+/* Reception desk: complete student record is visible but never editable. */
+.receptionist-student-card{margin-bottom:16px;background:#fff;border:1px solid #e5e9f0;border-radius:10px;overflow:hidden}
+.receptionist-student-summary{display:flex;align-items:center;gap:14px;padding:16px;border-bottom:1px solid #e9edf3;background:#f9fbff}
+.receptionist-student-photo{width:68px;height:82px;border:1px solid #cfd8e6;border-radius:6px;background:#eef3ff;color:#5270ac;display:grid;place-items:center;overflow:hidden;flex:none}
+.receptionist-student-photo img{width:100%;height:100%;object-fit:cover}
+.receptionist-student-summary h3{font:700 14px Manrope;margin:0;color:#172033}.receptionist-student-summary p{font-size:10px;color:#697386;margin:4px 0 7px}
+.receptionist-active,.receptionist-inactive{display:inline-flex;font-size:8px;font-weight:700;border-radius:10px;padding:3px 7px}.receptionist-active{background:#e5f6ed;color:#168357}.receptionist-inactive{background:#fee8e6;color:#b42318}
+.receptionist-detail-groups{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:0;border-top:0}
+.receptionist-detail-group{padding:15px 16px;border-bottom:1px solid #edf0f4}.receptionist-detail-group:nth-child(odd){border-right:1px solid #edf0f4}
+.receptionist-detail-group h4{display:flex;align-items:center;gap:6px;font:700 10px Manrope;color:#2457d6;margin:0 0 10px}.receptionist-detail-group h4 svg{flex:none}
+.receptionist-detail-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px 14px;margin:0}.receptionist-detail-grid>div{min-width:0}.receptionist-detail-grid dt{font-size:8px;color:#8490a2;margin:0}.receptionist-detail-grid dd{font-size:10px;font-weight:600;color:#344054;margin:3px 0 0;overflow-wrap:anywhere}
+
 /* Profile */
 .teacher-profile-card{display:flex;align-items:center;gap:16px;background:#fff;border:1px solid #e5e9f0;border-radius:10px;padding:20px;margin:16px 0}
 .teacher-profile-avatar{width:64px;height:64px;border-radius:12px;overflow:hidden;background:#e5edff;color:#2956bd;display:grid;place-items:center;font-size:22px;font-weight:700;flex:none}
@@ -200,6 +212,7 @@
   .teacher-hw-form{grid-template-columns:1fr}
   .teacher-hw-form label.full{grid-column:auto}
   .teacher-profile-grid{grid-template-columns:1fr}
+  .receptionist-detail-groups{grid-template-columns:1fr}.receptionist-detail-group:nth-child(odd){border-right:0}.receptionist-detail-grid{grid-template-columns:1fr 1fr}
   .teacher-pw-change{grid-template-columns:1fr}
   .att-buttons{flex-wrap:wrap}
   .att-mark{flex:1;text-align:center}

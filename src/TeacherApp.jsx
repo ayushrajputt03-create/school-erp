@@ -11,6 +11,7 @@ import { databaseRequest as supabaseRequest, subscribe as supabaseSubscribe } fr
 import { watchAuth, signOutUser, getToken, changePassword, signInWithStaffGrant } from './lib/authAdapter'
 import DatePicker from './DatePicker'
 import TeacherTimetable from './timetable/TeacherTimetable'
+import ReceptionistDesk from './ReceptionistDesk'
 import './teacher-app.css'
 import './timetable.css'
 
@@ -57,6 +58,7 @@ function buildStaffProfile(id, e) {
     name: e.name || `${e.firstName || ''} ${e.lastName || ''}`.trim() || 'Staff',
     department: e.department || 'Staff',
     designation: e.designation || e.employeeRole || '',
+    role: e.role || e.employeeRole || 'staff',
     classes: splitCsv(e.assignedClasses || e.classes),
     sections: splitCsv(e.assignedSections || e.sections),
   }
@@ -90,7 +92,8 @@ function parseAttendanceToTeacherFormat(raw, studentsData) {
   return result
 }
 
-async function loadTeacherSession(token, uid) {
+async function loadTeacherSession(token, uid, role) {
+  if (useSupabase && role === 'receptionist') return loadTeacherSessionFromApi(token)
   try {
     const index = await dbRequest(`teachersIndex/${uid}`, token)
     if (!index || !index.schoolId) throw new Error('No staff account found. Contact your school admin.')
@@ -183,18 +186,16 @@ function TeacherLogin() {
     if (phone.length < 10) { setError('Enter a valid 10-digit mobile number.'); setLoading(false); return }
     if (!dob.trim()) { setError('Enter your date of birth.'); setLoading(false); return }
     try {
-      // /api/teacher-login school code + phone + DOB jaanchta hai. Uske baad jo
-      // "grant" milta hai wo backend ke hisaab se alag hota hai — Firebase par
-      // custom token, Supabase par magic link ka hashed token — par authAdapter
-      // dono ko ek hi tarah se session me badal deta hai.
+      // /api/teacher-login school code + phone + DOB jaanchta hai. Firebase
+      // custom token deta hai, Supabase verified DOB se password session.
       const response = await fetch('/api/teacher-login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ schoolCode: code, phone, password: dob.trim() }),
       })
       const data = await response.json().catch(() => ({}))
-      if (!response.ok || !(data.token || data.tokenHash)) throw new Error(data.error || 'Login failed.')
-      await signInWithStaffGrant(data)
+      if (!response.ok || !(data.token || data.tokenHash || data.passwordLogin)) throw new Error(data.error || 'Login failed.')
+      await signInWithStaffGrant(data, dob.trim())
     } catch (err) {
       setError(err?.message?.replace('Firebase: ', '') || 'Login failed.')
     } finally { setLoading(false) }
@@ -665,7 +666,7 @@ export default function TeacherApp() {
     const load = async () => {
       try {
         const token = await session.getIdToken()
-        const bundle = await loadTeacherSession(token, session.uid)
+        const bundle = await loadTeacherSession(token, session.uid, session.role)
         if (!active) return
         setSchoolId(bundle.schoolId)
         setTeacher(bundle.teacher)
@@ -693,7 +694,7 @@ export default function TeacherApp() {
   // in-progress marks in its own local state (seeded only when date/class/students change),
   // so a live push never clobbers marks the teacher is entering.
   useEffect(() => {
-    if (!session || !schoolId || (!rtdb && !useSupabase)) return undefined
+    if (!session || session.role === 'receptionist' || !schoolId || (!rtdb && !useSupabase)) return undefined
     let active = true
     const unsubs = []
     const sub = (path, handler) => {
@@ -780,10 +781,14 @@ export default function TeacherApp() {
 
   const teacherName = teacher.name || `${teacher.firstName || ''} ${teacher.lastName || ''}`.trim() || 'Staff'
   const teacherInitials = teacherName.split(/\s+/).map(p => p[0]).slice(0, 2).join('').toUpperCase()
-  const isTeacher = String(teacher.department || '').toLowerCase() === 'teacher'
+  const isReceptionist = session.role === 'receptionist'
+  const isTeacher = String(teacher.role || '').toLowerCase() === 'teacher' || String(teacher.department || '').toLowerCase() === 'teacher'
   // Role-based sidebar: teachers get classes/attendance/homework; other staff see a
   // lean dashboard + notices + profile (broader per-department modules can be added later).
-  const visibleNav = isTeacher ? teacherNav : teacherNav.filter(n => ['dashboard', 'notices', 'profile'].includes(n.id))
+  const visibleNav = isReceptionist
+    ? [{ id: 'reception', label: 'Reception Desk', icon: Search }, { id: 'profile', label: 'My Profile', icon: User }]
+    : isTeacher ? teacherNav : teacherNav.filter(n => ['dashboard', 'notices', 'profile'].includes(n.id))
+  const activePage = isReceptionist && page !== 'profile' ? 'reception' : page
 
   return <div className="teacher-shell">
     {sidebarOpen && <button className="teacher-sidebar-overlay" onClick={() => setSidebarOpen(false)} />}
@@ -805,20 +810,21 @@ export default function TeacherApp() {
     <main className="teacher-main">
       <header className="teacher-topbar">
         <button className="teacher-menu-btn" onClick={() => setSidebarOpen(true)}><Menu size={20} /></button>
-        <div className="teacher-topbar-title"><h1>{visibleNav.find(n => n.id === page)?.label || 'Dashboard'}</h1></div>
+        <div className="teacher-topbar-title"><h1>{visibleNav.find(n => n.id === activePage)?.label || 'Dashboard'}</h1></div>
         <div className="teacher-topbar-profile">
           <div className="teacher-avatar">{teacher.photoUrl ? <img src={teacher.photoUrl} alt="" /> : <span>{teacherInitials}</span>}</div>
         </div>
       </header>
       <div className="teacher-content">
-        {page === 'dashboard' && <TeacherDashboard teacher={teacher} schoolProfile={schoolProfile} students={students} attendance={attendance} homework={homework} notices={notices} token={null} schoolId={schoolId} onLogout={doLogout} onNavigate={setPage} />}
+        {activePage === 'reception' && <ReceptionistDesk session={session} schoolId={schoolId} />}
+        {activePage === 'dashboard' && <TeacherDashboard teacher={teacher} schoolProfile={schoolProfile} students={students} attendance={attendance} homework={homework} notices={notices} token={null} schoolId={schoolId} onLogout={doLogout} onNavigate={setPage} />}
         {page === 'attendance' && <TeacherAttendance teacher={teacher} students={students} attendance={attendance} token={null} schoolId={schoolId} onSaved={(d, c, data) => setAttendance(a => ({ ...a, [d]: { ...(a[d] || {}), [c]: data } }))} />}
         {page === 'classes' && <TeacherClasses teacher={teacher} students={students} />}
         {page === 'timetable' && <TeacherTimetable schoolId={schoolId} teacherLegacyId={teacher.uid} teacherName={teacher.name} />}
         {page === 'homework' && <TeacherHomework teacher={teacher} homework={homework} students={students} token={null} schoolId={schoolId} />}
         {page === 'leave-requests' && <TeacherLeaveRequests leaveRequests={leaveRequests} classSections={myClassSections} />}
         {page === 'notices' && <TeacherNotices notices={notices} />}
-        {page === 'profile' && <TeacherProfile teacher={teacher} schoolProfile={schoolProfile} />}
+        {activePage === 'profile' && <TeacherProfile teacher={teacher} schoolProfile={schoolProfile} />}
       </div>
     </main>
   </div>

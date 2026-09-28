@@ -1,4 +1,4 @@
-import React, { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import React, { lazy, Suspense, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react'
 import imageCompression from 'browser-image-compression'
 import {
   Bell, BookOpen, BusFront, CalendarCheck, Check, ChevronRight, IndianRupee,
@@ -253,10 +253,17 @@ async function prepareStudentPhoto(file) {
 
 function StudentAvatar({ student, size = 'default', loading = false }) {
   const [failed, setFailed] = useState(false)
+  const ensureStudentPhotos = useContext(StudentPhotoContext)
   useEffect(() => setFailed(false), [student?.photoUrl, student?.photo, student?.id])
   if (loading) return <span className={`student-photo-avatar ${size} skeleton`} />
   const photo = student?.photoUrl || student?.photo || student?.photoURL || student?.imageUrl
-  if (photo && !failed) return <img className={`student-photo-avatar ${size}`} src={photo} alt={`${student.name} photo`} loading="lazy" referrerPolicy="no-referrer" onError={() => setFailed(true)} />
+  if (photo && !failed) return <img className={`student-photo-avatar ${size}`} src={photo} alt={`${student.name} photo`} loading="lazy" referrerPolicy="no-referrer" onError={() => {
+    // A private Storage URL can expire or be invalidated after an overwrite. Ask for
+    // one fresh signed URL before falling back to initials; this repairs old records
+    // without the operator having to reload the whole ERP.
+    setFailed(true)
+    ensureStudentPhotos?.([student.id], { force: true })
+  }} />
   return <span className={`student-photo-avatar ${size} initials tone-${student?.tone || 'blue'}`}>{student?.initials || '?'}</span>
 }
 
@@ -2195,6 +2202,16 @@ const isInlinePhoto = value => typeof value === 'string' && value.startsWith('da
  */
 const persistablePhotoUrl = url => (useSupabase || isInlinePhoto(url)) ? '' : url
 
+// Supabase Storage URLs are deliberately short lived. `photoPath` is the durable
+// reference; the signed `photoUrl` is only for the current browser session. Never
+// write that temporary URL back while saving another student field, otherwise the
+// next login eventually receives an expired image URL instead of a fresh one.
+const photoUrlForStudentRow = student => {
+  const url = student?.photoUrl || ''
+  if (useSupabase && student?.photoPath) return ''
+  return url
+}
+
 // Older imports (and some source sheets) dropped the Gender column's value into the guardian/father
 // name field, so parent accounts built from those rows stored "Male"/"Female" as the parent name.
 // Treat a bare gender token in a name slot as "no name" so it never displays or gets re-persisted.
@@ -2418,13 +2435,9 @@ function studentToRow(student) {
     documents: student.documents || {},
     parent_login_phone: student.parentLoginPhone || student.fatherPhone || student.phone || '',
     parent_password_dob: student.parentPasswordDOB !== false,
-    // Preserve whatever photo the caller holds, base64 included. Blanking inline photos here
-    // destroyed them: updateStudent PUTs this whole row, so editing any unrelated field on a
-    // student whose photo had not been migrated yet wrote photo_url as '' and lost the image.
-    // Only the migration (which copies the bytes out first, in the same atomic write) and the
-    // explicit photo-upload paths are allowed to clear this field - and they overwrite
-    // row.photo_url after calling this function.
-    photo_url: student.photoUrl || '',
+    // Storage photos keep only their permanent path in the database. Legacy inline/external
+    // photos remain intact, but a temporary Supabase signed URL must not be persisted.
+    photo_url: photoUrlForStudentRow(student),
     photo_inline: Boolean(student.photoInline),
     photo_path: student.photoPath || '',
     photo_size: Number(student.photoSize || 0),
@@ -3262,51 +3275,85 @@ function useSchoolWorkspace(session) {
   // changed the context on every render (re-rendering every consumer) and re-fired the hook's
   // effect every render. Only the photo cache stopped that from becoming a real request loop.
   const photoCacheRef = useRef({})
-  const ensureStudentPhotos = useCallback(async (studentIds = []) => {
+  const ensureStudentPhotos = useCallback(async (studentIds = [], { force = false } = {}) => {
     if (developmentDemo || !session || !workspace.schoolId) return
     const ids = [...new Set((studentIds || []).map(String).filter(Boolean))]
-
-    // Populate cache with any photoUrl already present in memory for these students
-    ids.forEach(id => {
-      const s = students.find(item => String(item.id) === id)
-      if (s && s.photoUrl && typeof s.photoUrl === 'string' && (s.photoUrl.startsWith('http') || s.photoUrl.startsWith('data:'))) {
-        photoCacheRef.current[id] = s.photoUrl
-      }
-    })
-
-    const missing = ids.filter(id => photoCacheRef.current[id] === undefined)
+    const missing = force ? ids : ids.filter(id => photoCacheRef.current[id] === undefined)
     if (!missing.length) return
-
-    const studentMap = new Map(students.map(s => [String(s.id), s]))
+    const studentMap = new Map(students.map(student => [String(student.id), student]))
     const validMissing = missing.filter(id => studentMap.has(id))
     if (!validMissing.length) return
-
-    const photoPaths = validMissing
-      .map(id => studentMap.get(id)?.photoPath)
-      .filter(Boolean)
-
+    const photoPaths = validMissing.map(id => studentMap.get(id)?.photoPath).filter(Boolean)
     if (!photoPaths.length) {
       validMissing.forEach(id => { photoCacheRef.current[id] = '' })
       return
     }
-
     try {
       const { signPhotoPaths } = await import('./lib/dataAdapter.js')
       const signed = await signPhotoPaths(photoPaths)
-      const urlByPath = new Map(photoPaths.map(path => [path, signed.get(path) || '']))
       const found = {}
       validMissing.forEach(id => {
         const student = studentMap.get(id)
-        const url = student?.photoPath ? (urlByPath.get(student.photoPath) || '') : (student?.photoUrl || '')
-        photoCacheRef.current[id] = url
-        if (url) found[id] = url
+        const photoUrl = student?.photoPath ? (signed.get(student.photoPath) || '') : (student?.photoUrl || '')
+        photoCacheRef.current[id] = photoUrl
+        if (photoUrl) found[id] = photoUrl
       })
-      if (!Object.keys(found).length) return
-      setStudents(current => current.map(item => found[String(item.id)] ? { ...item, photoUrl: found[String(item.id)] } : item))
-    } catch (error) {
+      if (Object.keys(found).length) setStudents(current => current.map(student => found[String(student.id)] ? { ...student, photoUrl: found[String(student.id)] } : student))
+    } catch (_) {
       validMissing.forEach(id => { photoCacheRef.current[id] = '' })
     }
-  }, [developmentDemo, session, workspace.schoolId, students, setStudents])
+  }, [developmentDemo, session, students, workspace.schoolId, setStudents])
+
+  // Supabase me students.photo_path private Storage ka path hota hai, browser URL nahi. Pehle
+  // har visible row apni alag signed-URL request karti thi; page/change ke beech kuch rows
+  // initials par dikhte the aur login ke baad photos "gayab" lagti thi. Ek school-scoped request
+  // sabhi paths ko sign karke session cache me daal deti hai. Actual image bytes phir bhi browser
+  // sirf visible lazy <img> tags ke liye download karta hai, so this does not eagerly download
+  // every student's photograph.
+  const photoPrefetchRef = useRef(new Set())
+  useEffect(() => {
+    if (!useSupabase || developmentDemo || !session || !workspace.schoolId || !students.length) return undefined
+    const schoolId = workspace.schoolId
+    if (photoPrefetchRef.current.has(schoolId)) return undefined
+    let cancelled = false
+    let refreshTimer
+
+    const prefetch = async () => {
+      try {
+        const token = await session.getIdToken().catch(() => null)
+        if (!token) return
+        const photos = await databaseRequest(`studentPhotos/${schoolId}`, token).catch(() => null)
+        if (cancelled || !photos || typeof photos !== 'object') return
+
+        Object.entries(photos).forEach(([id, url]) => {
+          photoCacheRef.current[String(id)] = typeof url === 'string' ? url : ''
+        })
+        setStudents(current => current.map(student => {
+          const url = photos[String(student.id)]
+          // A legacy inline/external URL is already renderable. Storage-backed records carry
+          // photoPath and must receive the freshly signed URL on every new login.
+          return typeof url === 'string' && url && (student.photoPath || !student.photoUrl)
+            ? { ...student, photoUrl: url }
+            : student
+        }))
+        photoPrefetchRef.current.add(schoolId)
+
+        // Storage URLs are valid for one hour. Re-sign before that window closes so a
+        // photo that was visible after login never turns into initials in a long session.
+        refreshTimer = window.setTimeout(prefetch, 56 * 60 * 1000)
+      } catch (error) {
+        // The per-row lazy loader remains available as a fallback. Do not block the workspace
+        // because one private Storage signing request had a temporary problem.
+        console.warn('[student-photos] startup prefetch skipped:', error?.message)
+      }
+    }
+
+    prefetch()
+    return () => {
+      cancelled = true
+      window.clearTimeout(refreshTimer)
+    }
+  }, [developmentDemo, session, students.length, workspace.schoolId, setStudents])
 
   // Backfill for records created before the index existed: build
   // parentStudentIndex/{phone}/{studentId} so parent login can resolve a phone to its children
@@ -3471,6 +3518,10 @@ function useSchoolWorkspace(session) {
       ...(parentRow ? { [`schools/${workspace.schoolId}/parents/${parentPhone}`]: parentRow } : {}),
       ...(parentNotification ? { [`schools/${workspace.schoolId}/parentNotifications/${parentNotification.id}`]: parentNotification } : {}),
     } })
+    if (uploadedPhotoUrl) photoCacheRef.current[studentId] = uploadedPhotoUrl
+    // A private Storage URL is intentionally absent from row.photo_url. Keep its just-created
+    // signed URL in memory so a new admission shows its photo immediately; next login re-signs
+    // it from row.photo_path.
     const activePhotoUrl = uploadedPhotoUrl || inlinePhoto || photoCacheRef.current[studentId] || ''
     setStudents(current => [{ ...studentFromRow({ id: studentId, ...row }, current.length), ...(activePhotoUrl ? { photoUrl: activePhotoUrl, photoPath: row.photo_path || '' } : {}) }, ...current])
     if (parentRow) setParents(current => ({ ...current, [parentPhone]: parentRow }))
@@ -3545,7 +3596,8 @@ function useSchoolWorkspace(session) {
     }
     // Prefer the row's own photo; fall back to bytes we already hold for a student whose photo
     // lives in studentPhotos, so an unrelated edit never blanks the image on screen.
-    const localPhoto = uploadedPhotoUrl || inlinePhoto || photoCacheRef.current[studentId] || existing.photoUrl || ''
+    if (uploadedPhotoUrl) photoCacheRef.current[String(studentId)] = uploadedPhotoUrl
+    const localPhoto = uploadedPhotoUrl || inlinePhoto || photoCacheRef.current[String(studentId)] || existing.photoUrl || ''
     const rowIndex = students.findIndex(item => item.id === studentId)
     const normalizedStudent = studentFromRow({ id: studentId, ...row }, rowIndex >= 0 ? rowIndex : 0)
     const updatedStudent = normalizedStudent.photoUrl ? normalizedStudent : { ...normalizedStudent, photoUrl: localPhoto, photoPath: row.photo_path || existing.photoPath }
@@ -4543,12 +4595,17 @@ function useSchoolWorkspace(session) {
         }
       }
     }
+    const requestedRole = String(form.role || '').toLowerCase()
+    const accessRole = ['admin', 'teacher', 'receptionist', 'accountant', 'staff'].includes(requestedRole)
+      ? requestedRole
+      : String(designation).toLowerCase().includes('teacher') ? 'teacher' : 'staff'
     const row = cleanDatabaseValue({
       ...existing,
       ...form,
       department,
       designation,
-      employeeRole: designation,
+      role: accessRole,
+      employeeRole: accessRole,
       id,
       employeeCode,
       photoUrl,
@@ -4568,7 +4625,7 @@ function useSchoolWorkspace(session) {
     }
     setStaff(current => ({ ...current, [id]: row }))
     setActivities(current => [{ id: `employee-${id}-${Date.now()}`, title: existing ? 'Employee updated' : 'Employee added', detail: `${form.firstName} ${form.lastName} · ${employeeCode}`, at: row.updatedAt, icon: 'E' }, ...current])
-    return employeeCode
+    return { employeeCode, id }
   }
 
   const deleteEmployee = async employee => {

@@ -36,6 +36,7 @@ module.exports = async (req, res) => {
       schoolId: bundle.schoolId,
       teacher: {
         ...record,
+        role: caller.role,
         uid: caller.uid,
         name: record.name || `${record.firstName || ''} ${record.lastName || ''}`.trim() || 'Staff',
         department: record.department || 'Staff',

@@ -126,19 +126,17 @@ export async function signIn(email, password) {
 
 /**
  * Staff login ka aakhri kadam. /api/teacher-login school code + phone + DOB
- * jaanchne ke baad ek "grant" deta hai — Firebase par custom token, Supabase
- * par magic link ka hashed token. Dono ko yahan ek hi tarah nigla jaata hai.
- *
- * Supabase me custom token hota hi nahi; magic link se banaya session hi
- * ekmatra supported raasta hai. Koi email nahi jaati — token seedhe API se
- * aata hai, aur wo tabhi banta hai jab DOB pehle sahi nikli ho.
+ * jaanchne ke baad ek grant deta hai — Firebase par custom token, Supabase par
+ * verified DOB se normal email/password session. Supabase route email delivery
+ * ya magic-link configuration par depend nahi karta.
  */
-export async function signInWithStaffGrant(grant) {
+export async function signInWithStaffGrant(grant, password) {
   if (!useSupabase) {
     if (!grant?.token) throw new Error('Login failed.')
     const { signInWithCustomToken } = await import('firebase/auth')
     return signInWithCustomToken(auth, grant.token)
   }
+  if (grant?.passwordLogin && grant?.email) return signIn(grant.email, password)
   if (!grant?.tokenHash) throw new Error('Login failed.')
   const { data, error } = await supabase.auth.verifyOtp({ token_hash: grant.tokenHash, type: 'email' })
   if (error) throw new Error(translateAuthError(error.message))

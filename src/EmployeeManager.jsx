@@ -18,6 +18,12 @@ const employeeName = employee => `${employee.firstName || ''} ${employee.lastNam
 const values = object => Object.values(object || {}).sort((a, b) => Number(a.order || 0) - Number(b.order || 0))
 const CLASS_OPTIONS = classOptions
 const SECTION_OPTIONS = ['A', 'B', 'C', 'D']
+const ACCESS_ROLES = ['admin', 'teacher', 'receptionist', 'accountant', 'staff']
+const readableRole = value => ({ admin: 'Admin', teacher: 'Teacher', receptionist: 'Receptionist', accountant: 'Accountant', staff: 'Staff' }[value] || 'Staff')
+const inferredRole = employee => {
+  const raw = String(employee?.role || employee?.employeeRole || employee?.designation || '').toLowerCase()
+  return ACCESS_ROLES.includes(raw) ? raw : raw.includes('teacher') ? 'teacher' : raw.includes('reception') ? 'receptionist' : raw.includes('account') ? 'accountant' : 'staff'
+}
 const splitCsv = value => String(value || '').split(',').map(item => item.trim()).filter(Boolean)
 // Last-10 digits — same rule staff login uses, so the uniqueness check matches login behaviour.
 const phone10 = value => { const d = String(value || '').replace(/\D/g, ''); return d.length > 10 ? d.slice(-10) : d }
@@ -137,26 +143,25 @@ function EmployeeForm({ staff, config, saveEmployee, initial, cancelEdit, onSave
     return `EMP${String(highest + 1).padStart(3, '0')}`
   }, [staff])
   const departments = values(config.departments)
-  const [form, setForm] = useState(initial || {
+  const [form, setForm] = useState(initial ? { ...initial, role: inferredRole(initial) } : {
     employeeCode: nextCode, firstName: '', lastName: '', fatherName: '', motherName: '',
     gender: '', dob: '', phone: '', email: '', departmentId: '', designationId: '',
-    joiningDate: today(), salary: '', address: '', aadhaar: '', photo: null, employeeStatus: 'active',
+    joiningDate: today(), salary: '', address: '', aadhaar: '', photo: null, employeeStatus: 'active', role: 'staff',
   })
   const [message, setMessage] = useState('')
   const [error, setError] = useState('')
   const [saving, setSaving] = useState(false)
   const [photoPreview, setPhotoPreview] = useState(initial?.photoUrl || '')
   const designations = values(config.designations).filter(item => !form.departmentId || item.departmentId === form.departmentId)
-  const isTeacherDept = (config.departments?.[form.departmentId]?.name || '').toLowerCase().includes('teacher')
-    || (config.designations?.[form.designationId]?.name || '').toLowerCase().includes('teacher')
+  const isTeacherDept = form.role === 'teacher'
   const field = (key, value) => setForm(current => ({ ...current, [key]: value }))
   const [teacherCreating, setTeacherCreating] = useState(false)
   const [teacherMsg, setTeacherMsg] = useState('')
-  const createTeacherLogin = async () => {
+  const createStaffLogin = async (employeeId = initial?.id) => {
     const phone = (form.phone || '').replace(/\D/g, '')
     if (phone.length < 10) { setTeacherMsg('Employee mobile number is required (min 10 digits).'); return }
     const dob = form.dob || form.dateOfBirth || ''
-    if (!dob) { setTeacherMsg('Date of birth is required to create teacher login (used as password).'); return }
+    if (!dob) { setTeacherMsg('Date of birth is required to create staff login (used as password).'); return }
     const d = new Date(dob); if (isNaN(d)) { setTeacherMsg('Invalid date of birth.'); return }
     const dd = String(d.getDate()).padStart(2, '0'), mm = String(d.getMonth() + 1).padStart(2, '0'), yyyy = d.getFullYear()
     const password = `${dd}${mm}${yyyy}`
@@ -173,7 +178,7 @@ function EmployeeForm({ staff, config, saveEmployee, initial, cancelEdit, onSave
       if (!schoolCode) { setTeacherMsg('Error: School code not found in school profile. Open Settings and save the profile once.'); setTeacherCreating(false); return }
       // Supabase par login `staff` row ke mobile + DOB se chalta hai, to us row
       // ka hona zaroori hai — aur wo employee save karne par hi banti hai.
-      if (!initial?.id) { setTeacherMsg('Pehle employee ko save karo, phir edit karke login banao.'); setTeacherCreating(false); return }
+      if (!employeeId) { setTeacherMsg('Pehle employee ko save karo, phir edit karke login banao.'); setTeacherCreating(false); return }
       const syntheticEmail = `${phone}@${String(schoolCode).trim().toLowerCase()}.teacher.schoolerp.app`
       const name = `${form.firstName || ''} ${form.lastName || ''}`.trim()
       const classes = (form.assignedClasses || '').split(',').map(c => c.trim()).filter(Boolean)
@@ -181,9 +186,9 @@ function EmployeeForm({ staff, config, saveEmployee, initial, cancelEdit, onSave
       const res = await fetch('/api/create-teacher', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-        body: JSON.stringify({ schoolId, email: syntheticEmail, password, staffId: initial.id, teacherData: {
+        body: JSON.stringify({ schoolId, email: syntheticEmail, password, staffId: employeeId, teacherData: {
           name, firstName: form.firstName, lastName: form.lastName, phone: form.phone, email: form.email?.trim() || '',
-          subject: form.subject || '', classes, sections, department: 'Teacher',
+          role: form.role, subject: form.subject || '', classes, sections, department: config.departments?.[form.departmentId]?.name || 'Staff',
           designation: config.designations?.[form.designationId]?.name || 'Teacher',
           employeeCode: form.employeeCode || initial?.employeeCode || '', photoUrl: form.photoUrl || '',
           joiningDate: form.joiningDate || '', dob,
@@ -191,7 +196,7 @@ function EmployeeForm({ staff, config, saveEmployee, initial, cancelEdit, onSave
       })
       const data = await res.json()
       if (!res.ok) throw new Error(data.error || 'Failed')
-      setTeacherMsg(`Teacher login created! School Code: ${schoolCode}, Mobile: ${phone}, Password: DOB (${dd}/${mm}/${yyyy}). Login at /teacher/login`)
+      setTeacherMsg(`${readableRole(form.role)} login created! School Code: ${schoolCode}, Mobile: ${phone}, Password: DOB (${dd}/${mm}/${yyyy}). Login at /teacher/login`)
     } catch (err) { setTeacherMsg('Error: ' + err.message) }
     finally { setTeacherCreating(false) }
   }
@@ -235,13 +240,16 @@ function EmployeeForm({ staff, config, saveEmployee, initial, cancelEdit, onSave
     setSaving(true)
     setError('')
     try {
-      const code = await saveEmployee({ ...form, id: initial?.id })
-      setMessage(`${code} ${initial ? 'updated' : 'created'} successfully.`)
+      const saved = await saveEmployee({ ...form, id: initial?.id })
+      setMessage(`${saved.employeeCode} ${initial ? 'updated' : 'created'} successfully.`)
+      if (!initial && form.role === 'receptionist') {
+        await createStaffLogin(saved.id)
+      }
       if (initial) {
         cancelEdit()
         return
       }
-      setForm({ employeeCode: `EMP${String(Number(code.replace(/\D/g, '')) + 1).padStart(3, '0')}`, firstName: '', lastName: '', fatherName: '', motherName: '', gender: '', dob: '', phone: '', email: '', departmentId: '', designationId: '', joiningDate: today(), salary: '', address: '', aadhaar: '', photo: null })
+      setForm({ employeeCode: `EMP${String(Number(saved.employeeCode.replace(/\D/g, '')) + 1).padStart(3, '0')}`, firstName: '', lastName: '', fatherName: '', motherName: '', gender: '', dob: '', phone: '', email: '', departmentId: '', designationId: '', joiningDate: today(), salary: '', address: '', aadhaar: '', photo: null, role: 'staff' })
       setTimeout(() => onSaved?.(), 450)
     } catch (saveError) {
       console.error('Employee save failed', saveError)
@@ -262,6 +270,7 @@ function EmployeeForm({ staff, config, saveEmployee, initial, cancelEdit, onSave
       <label>Date of Birth<DatePicker value={form.dob} onChange={value => field('dob', value)} max={today()} /></label>
       <label>Phone*<input required inputMode="tel" value={form.phone} onChange={e => field('phone', e.target.value)} /></label>
       <label>Email<input type="email" value={form.email} onChange={e => field('email', e.target.value)} /></label>
+      <label>Access Role*<select required value={form.role} onChange={e => field('role', e.target.value)}>{ACCESS_ROLES.map(role => <option key={role} value={role}>{readableRole(role)}</option>)}</select></label>
       <label>Department*<select required value={form.departmentId} onChange={e => setForm({ ...form, departmentId: e.target.value, designationId: '' })}><option value="">Select department</option>{departments.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
       <label>Designation*<select required value={form.designationId} onChange={e => field('designationId', e.target.value)}><option value="">Select designation</option>{designations.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
       <label>Joining Date*<DatePicker required value={form.joiningDate} onChange={value => field('joiningDate', value)} /></label>
@@ -294,8 +303,8 @@ function EmployeeForm({ staff, config, saveEmployee, initial, cancelEdit, onSave
         </div>
       </>}
     </div>
-    {isTeacherDept && <div className="teacher-login-section">
-      <button type="button" className="secondary-button" onClick={createTeacherLogin} disabled={teacherCreating}><Key size={14} /> {teacherCreating ? 'Creating...' : 'Create Teacher Login'}</button>
+    {initial && <div className="teacher-login-section">
+      <button type="button" className="secondary-button" onClick={() => createStaffLogin()} disabled={teacherCreating}><Key size={14} /> {teacherCreating ? 'Creating...' : `Create ${readableRole(form.role)} Login`}</button>
       {teacherMsg && <small className={teacherMsg.startsWith('Error') ? 'photo-error' : 'compression-info'}>{teacherMsg}</small>}
     </div>}
     {message && <div className="success-banner">{message}</div>}
@@ -331,7 +340,7 @@ function EmployeeRegister({ staff, config, deleteEmployee, openAdd, editEmployee
     <MasterTable columns={[
       { key: 'name', label: 'Name', render: row => <div className="employee-name-cell">{row.photoUrl ? <img src={row.photoUrl} alt="" /> : <span>{employeeName(row).split(/\s+/).map(part => part[0]).slice(0, 2).join('')}</span>}<div><strong>{employeeName(row)}</strong><small>{row.email || row.phone}</small></div></div> },
       { key: 'employeeCode', label: 'Emp Code' }, { key: 'joiningDate', label: 'Joining Date' },
-      { key: 'role', label: 'Employee Role', render: row => designationName(row.designationId) },
+      { key: 'role', label: 'Access Role', render: row => readableRole(inferredRole(row)) },
       { key: 'employeeStatus', label: 'Status', render: row => statusBadge(row.employeeStatus) },
       { key: 'assignedClasses', label: 'Assigned Classes', render: row => row.assignedClasses || '—' },
     ]} rows={rows.map(row => ({ ...row, actions: <ActionButtons edit={() => editEmployee(row)} remove={() => window.confirm(`Delete ${employeeName(row)}?`) && deleteEmployee(row)} /> }))} empty="No employees found" />

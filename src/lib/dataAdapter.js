@@ -83,6 +83,12 @@ const PHOTO_CACHE_MS = (PHOTO_TTL_SECONDS - 300) * 1000
 
 const photoCache = new Map()
 
+// A signed URL is a browser-session value, never durable student data. Some rows
+// written before the photo-path fix still contain one; prefer photo_path for those
+// rows so an expired URL cannot keep a valid Storage object hidden forever.
+const isTemporaryStudentPhotoUrl = (value) =>
+  typeof value === 'string' && value.includes('/storage/v1/object/sign/student-photos/')
+
 /** paths -> Map(path, signedUrl). Ek hi round trip me poori class sign hoti hai. */
 async function signPhotoPaths(paths) {
   const now = Date.now()
@@ -693,20 +699,24 @@ async function rootGet(root, rest) {
     // waisi ki waisi chalti hai. photo_path private bucket ka hai, use sign karo.
     if (studentLegacy) {
       const { data } = await q.eq('legacy_id', studentLegacy).maybeSingle()
-      if (data?.photo_url) return data.photo_url
-      if (!data?.photo_path) return null
+      if (data?.photo_url && (!data.photo_path || !isTemporaryStudentPhotoUrl(data.photo_url))) return data.photo_url
+      if (!data?.photo_path) return data?.photo_url || null
       const signed = await signPhotoPaths([data.photo_path])
       return signed.get(data.photo_path) ?? null
     }
 
     const { data } = await q.not('photo_path', 'is', null)
     const rows = data || []
-    const signed = await signPhotoPaths(rows.filter(r => !r.photo_url && r.photo_path).map(r => r.photo_path))
+    const signed = await signPhotoPaths(rows
+      .filter(r => r.photo_path && (!r.photo_url || isTemporaryStudentPhotoUrl(r.photo_url)))
+      .map(r => r.photo_path))
     const out = {}
     for (const r of rows) {
       // Sign fail ho gaya to key hi mat daalo — bare path <img> ko toda hua
       // icon dikhata hai, jabki gayab key par initials fallback aata hai.
-      const url = r.photo_url || signed.get(r.photo_path)
+      const url = r.photo_url && !isTemporaryStudentPhotoUrl(r.photo_url)
+        ? r.photo_url
+        : signed.get(r.photo_path)
       if (url) out[r.legacy_id] = url
     }
     return out
