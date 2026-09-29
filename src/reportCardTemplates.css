@@ -221,25 +221,117 @@
 .rt-kids.theme-rainbow .rt-inner { padding-top: 12mm; }
 
 @media print {
-  /* A4 printable width is 190mm (210mm − 2×10mm @page margin). Sizing the card to the full 190mm
-     left zero tolerance, so printer/rounding margins clipped the rightmost column. 186mm keeps ~2mm
-     safety each side while staying centered. */
-  .report-card-paper.rt { width: 186mm !important; min-width: 0 !important; max-width: 186mm !important; margin: 0 auto !important; }
-  .rt .rt-inner { padding: 8mm 7mm 6mm; }
-  /* Slightly smaller table text in print so columns never crowd the page edge. */
-  .rt .rt-table th { font-size: 5.3pt; padding: 1.2mm .4mm; }
-  .rt .rt-table td { font-size: 6pt; padding: 1.1mm .5mm; }
-  .rt .rt-table td:first-child { padding-left: 1.4mm; }
-  .rt .rt-table-marks.rt-multi th { font-size: 4.7pt; padding: 1.1mm .25mm; }
-  .rt .rt-table-marks.rt-multi td { font-size: 5.4pt; padding: 1mm .25mm; }
-}
-
-/* The preview sits inside a scrolling two-column grid. An ancestor that still scrolls during
-   print can clip the page, so the wrappers are flattened while printing. */
-@media print {
+  /* A4 printable dimensions: 192mm width with tight vertical rhythm to guarantee 1-page fit */
+  .report-card-paper.rt {
+    width: 192mm !important;
+    min-width: 0 !important;
+    max-width: 192mm !important;
+    margin: 0 auto !important;
+    box-sizing: border-box !important;
+    page-break-inside: avoid !important;
+    break-inside: avoid !important;
+    page-break-after: always !important;
+    break-after: page !important;
+  }
+  .rt .rt-inner {
+    padding: 5mm 6mm 4mm !important;
+    box-sizing: border-box !important;
+  }
+  .rt .rt-head {
+    padding-bottom: 2mm !important;
+    gap: 4mm !important;
+  }
+  .rt .rt-school h1 {
+    font-size: 15pt !important;
+  }
+  .rt .rt-tag, .rt .rt-motto {
+    font-size: 6.5pt !important;
+    margin: 0.8mm 0 !important;
+  }
+  .rt .rt-address {
+    font-size: 6pt !important;
+  }
+  .rt .rt-crest {
+    width: 16mm !important;
+    height: 16mm !important;
+  }
+  .rt .rt-photo {
+    width: 20mm !important;
+    height: 24mm !important;
+  }
+  .rt .rt-profile {
+    margin-bottom: 2mm !important;
+    padding: 1.8mm !important;
+  }
+  .rt .rt-title, .rt .rt-kid-title {
+    margin: 2mm 0 1.5mm !important;
+    padding: 1.2mm 2mm !important;
+  }
+  .rt .rt-title h2, .rt .rt-kid-title h2 {
+    font-size: 10pt !important;
+  }
+  .rt .rt-heading {
+    margin: 2mm 0 1mm !important;
+  }
+  .rt .rt-table th {
+    font-size: 5pt !important;
+    padding: 1mm .3mm !important;
+  }
+  .rt .rt-table td {
+    font-size: 5.8pt !important;
+    padding: 0.9mm .4mm !important;
+  }
+  .rt .rt-table td:first-child {
+    padding-left: 1.2mm !important;
+  }
+  .rt .rt-table-marks.rt-multi th {
+    font-size: 4.5pt !important;
+    padding: 0.9mm .2mm !important;
+  }
+  .rt .rt-table-marks.rt-multi td {
+    font-size: 5.2pt !important;
+    padding: 0.8mm .2mm !important;
+  }
+  .rt .rt-lower {
+    margin-top: 2mm !important;
+    gap: 2mm !important;
+  }
+  .rt .rt-box-title {
+    padding: 1mm 1.5mm !important;
+    font-size: 5.8pt !important;
+  }
+  .rt .rt-box-body {
+    padding: 1.2mm !important;
+  }
+  .rt .rt-stats {
+    font-size: 5.8pt !important;
+    gap: 1mm !important;
+  }
+  .rt .rt-remark {
+    margin-top: 2mm !important;
+    min-height: 7mm !important;
+    padding: 1.2mm 10mm 1.2mm 2mm !important;
+    font-size: 6pt !important;
+  }
+  .rt .rt-signs {
+    margin-top: 4mm !important;
+    gap: 8mm !important;
+    page-break-inside: avoid !important;
+    break-inside: avoid !important;
+  }
+  .rt .rt-signs div {
+    font-size: 5.8pt !important;
+  }
+  .rt .rt-signs div:before {
+    margin-bottom: 0.8mm !important;
+  }
+  .rt .rt-footer {
+    margin-top: 1.8mm !important;
+    font-size: 4.8pt !important;
+  }
   .report-preview-wrap { overflow: visible !important; }
   .report-two-column { display: block !important; }
-  .report-form, .rt-picker { display: none !important; }
+  .report-form, .rt-picker, .no-print { display: none !important; }
 }
 
 /* Marks-only table. The subject needs the room; the marks column is a short number, so the
