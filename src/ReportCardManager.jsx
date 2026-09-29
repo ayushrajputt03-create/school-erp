@@ -65,16 +65,20 @@ function safePrint(selector) {
   sharedSafePrint(selector, { pageSize: 'A4', pageMargin: '10mm', delay: 450 })
 }
 
-async function downloadReportPdf(filename = 'report-card.pdf') {
+async function downloadReportPdf(filename = 'report-card.pdf', selector = '.report-card-paper') {
   try {
-    const target = document.querySelector('.report-card-paper')
-    if (!target) throw new Error('Report card preview is not ready.')
+    const targets = Array.from(document.querySelectorAll(selector))
+    if (!targets.length) throw new Error('Report card preview is not ready.')
     const html2canvas = (await import('html2canvas')).default
     const { jsPDF } = await import('jspdf')
-    const canvas = await html2canvas(target, { scale: 2, backgroundColor: '#ffffff', useCORS: true })
-    const image = canvas.toDataURL('image/jpeg', 0.95)
     const pdf = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' })
-    pdf.addImage(image, 'JPEG', 10, 10, 190, Math.min(277, (canvas.height * 190) / canvas.width))
+    for (let i = 0; i < targets.length; i++) {
+      if (i > 0) pdf.addPage('a4', 'portrait')
+      const target = targets[i]
+      const canvas = await html2canvas(target, { scale: 2, backgroundColor: '#ffffff', useCORS: true })
+      const image = canvas.toDataURL('image/jpeg', 0.95)
+      pdf.addImage(image, 'JPEG', 10, 10, 190, Math.min(277, (canvas.height * 190) / canvas.width))
+    }
     pdf.save(filename)
   } catch (error) {
     console.error('PDF download failed', error)
@@ -332,58 +336,16 @@ function ReportCardSurface({ templateId, student, exam, record, school, classRec
   />
 }
 
-function BulkResultCard({ student, exam, record, school, classRecords, gradingScale, isLast }) {
-  const summary = calculateReport(exam, record, classRecords, gradingScale)
-  const parts = classParts(student.className)
-  const logo = school.logo || school.logoURL || ''
-  const scale = normalizedScale(gradingScale)
-  return <article className={`bulk-result-card${isLast ? ' is-last' : ''}`}>
-    <header className="bulk-result-header">
-      <div className="bulk-result-logo">{logo ? <img src={logo} alt="" /> : <FileText size={25} />}</div>
-      <div>
-        <h1>{school.schoolName || 'School Name'}</h1>
-        <p>{school.address || ''}</p>
-        <h2>REPORT CARD</h2>
-        <strong>{exam.name || 'Examination'} | Session {exam.session || school.academicYear || '2026-27'}</strong>
-      </div>
-    </header>
-    <section className="bulk-result-student-info">
-      <div><span>Student Name</span><strong>{student.name || '-'}</strong></div>
-      <div><span>Class / Section</span><strong>{parts.className} / {parts.section}</strong></div>
-      <div><span>Roll No.</span><strong>{student.rollNo || student.roll || '-'}</strong></div>
-      <div><span>Admission No.</span><strong>{student.roll || student.admissionNo || '-'}</strong></div>
-    </section>
-    <table className="bulk-result-table">
-      <thead><tr><th>Subject</th><th>Max Marks</th><th>Obtained</th><th>Grade</th></tr></thead>
-      <tbody>{summary.subjects.map((row, index) => {
-        const failed = row.absent || Number(row.obtained) < Number(row.passingMarks || exam.passingMarks || 33)
-        return <tr key={`${row.subject}-${index}`} className={failed ? 'failed-subject' : ''}>
-          <td>{row.subject || '-'}</td><td>{row.maxMarks}</td><td>{row.absent ? 'AB' : row.obtained}</td><td>{row.grade}</td>
-        </tr>
-      })}</tbody>
-    </table>
-    <section className={`bulk-result-summary ${summary.status === 'Pass' ? 'pass' : 'fail'}`}>
-      <div><span>Total</span><strong>{summary.obtained} / {summary.totalMax}</strong></div>
-      <div><span>Percentage</span><strong>{summary.percentage}%</strong></div>
-      <div><span>Overall Grade</span><strong>{summary.grade}</strong></div>
-      <div><span>Result</span><strong>{summary.status}</strong></div>
-      {Number.isFinite(Number(summary.rank)) && <div><span>Rank</span><strong>{summary.rank}</strong></div>}
-    </section>
-    <section className="bulk-grade-legend" aria-label="Grading legend">
-      <strong>Grading Scale:</strong>{scale.map(band => <span key={`${band.grade}-${band.min}`}>{band.grade}: {band.min}%+</span>)}
-    </section>
-    <footer className="bulk-result-signatures"><div><i /><span>Class Teacher</span></div><div><i /><span>Principal</span></div></footer>
-  </article>
-}
-
 function BulkResultPrint({ students, school, reportData }) {
   const exams = Object.values(reportData.exams || {}).filter(exam => exam.enabled !== false)
   const [examId, setExamId] = useState(exams[0]?.id || '')
   const [className, setClassName] = useState('')
   const [section, setSection] = useState('')
   const [selected, setSelected] = useState({})
+  const [templateId, setTemplateId] = useState(() => localStorage.getItem(TEMPLATE_KEY) || 'classic')
+  useEffect(() => { localStorage.setItem(TEMPLATE_KEY, templateId) }, [templateId])
+  const [includeDrafts, setIncludeDrafts] = useState(false)
   const [message, setMessage] = useState('')
-  const gradingScale = gradingScaleFor(school, reportData)
   const exam = exams.find(item => item.id === examId) || exams[0] || defaultExam()
   const candidates = useMemo(() => students.filter(student => {
     const parts = classParts(student.className)
@@ -392,49 +354,103 @@ function BulkResultPrint({ students, school, reportData }) {
   const recordsByStudent = useMemo(() => new Map(
     Object.values(reportData.marks || {}).filter(row => row.examId === exam.id).map(row => [row.studentId, row]),
   ), [reportData.marks, exam.id])
-  const published = useMemo(() => candidates.filter(student => recordsByStudent.get(student.id)?.status === 'published'), [candidates, recordsByStudent])
-  const unpublishedCount = Math.max(0, candidates.length - published.length)
-  const selectedStudents = published.filter(student => selected[student.id])
-  const classRecords = useMemo(() => Object.values(reportData.marks || {}).filter(row => row.examId === exam.id && row.status === 'published'), [reportData.marks, exam.id])
+  const availableStudents = useMemo(() => candidates.filter(student => {
+    const status = recordsByStudent.get(student.id)?.status
+    return includeDrafts ? (status === 'published' || status === 'draft') : status === 'published'
+  }), [candidates, recordsByStudent, includeDrafts])
+  const unavailableCount = Math.max(0, candidates.length - availableStudents.length)
+  const selectedStudents = availableStudents.filter(student => selected[student.id])
+  const classRecords = useMemo(() => Object.values(reportData.marks || {}).filter(row => row.examId === exam.id), [reportData.marks, exam.id])
 
-  useEffect(() => { setSelected({}); setMessage('') }, [examId, className, section])
+  useStudentPhotos(selectedStudents.map(s => s.id))
 
-  const toggleAll = checked => setSelected(checked ? Object.fromEntries(published.map(student => [student.id, true])) : {})
+  useEffect(() => { setSelected({}); setMessage('') }, [examId, className, section, includeDrafts])
+
+  const toggleAll = checked => setSelected(checked ? Object.fromEntries(availableStudents.map(student => [student.id, true])) : {})
   const printSelected = () => {
     if (!selectedStudents.length) {
-      setMessage('Select at least one published result before printing.')
+      setMessage('Select at least one result before printing.')
       return
     }
-    setMessage(unpublishedCount ? `${unpublishedCount} student(s) skipped because their result is not published.` : `${selectedStudents.length} result card(s) ready to print.`)
+    setMessage(unavailableCount ? `${unavailableCount} student(s) skipped.` : `${selectedStudents.length} result card(s) ready to print.`)
     requestAnimationFrame(() => safePrint('.bulk-results-print-grid'))
   }
 
+  const downloadPdfSelected = () => {
+    if (!selectedStudents.length) {
+      setMessage('Select at least one result before downloading PDF.')
+      return
+    }
+    downloadReportPdf(`bulk-results-${className || 'class'}-${exam.name || 'exam'}.pdf`, '.bulk-results-print-grid .report-card-paper')
+  }
+
   return <section className="panel bulk-result-panel">
-    <div className="panel-header"><div><h3>Bulk Result Print</h3><p>Select a class, section and exam, then print only published results.</p></div><button className="primary-button" type="button" disabled={!selectedStudents.length} onClick={printSelected}><Printer size={15} /> Print Selected ({selectedStudents.length})</button></div>
+    <div className="panel-header">
+      <div>
+        <h3>Bulk Result Print</h3>
+        <p>Select a class, section, exam &amp; result template, then print or download cards in bulk.</p>
+      </div>
+      <div className="report-actions">
+        <button className="primary-button" type="button" disabled={!selectedStudents.length} onClick={printSelected}>
+          <Printer size={15} /> Print Selected ({selectedStudents.length})
+        </button>
+        <button className="secondary-button" type="button" disabled={!selectedStudents.length} onClick={downloadPdfSelected}>
+          <Download size={15} /> Download PDF ({selectedStudents.length})
+        </button>
+      </div>
+    </div>
     <div className="form-grid no-print">
       <label>Class<select value={className} onChange={event => setClassName(event.target.value)}><option value="">All Classes</option>{classOptions(students).map(item => <option key={item}>{item}</option>)}</select></label>
       <label>Section<select value={section} onChange={event => setSection(event.target.value)}><option value="">All Sections</option>{sectionOptions(candidates).map(item => <option key={item}>{item}</option>)}</select></label>
       <label>Exam<select value={examId} onChange={event => setExamId(event.target.value)}>{exams.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
     </div>
+
+    {/* All Result Templates Picker */}
+    <div className="no-print" style={{ margin: '8px 0' }}>
+      <TemplatePicker value={templateId} onChange={setTemplateId} />
+    </div>
+
     {message && <div className={`report-message ${message.startsWith('Select') ? 'error' : 'ok'} no-print`}>{message}</div>}
     <div className="bulk-result-selection no-print">
-      <label className="bulk-select-all"><input type="checkbox" checked={published.length > 0 && selectedStudents.length === published.length} onChange={event => toggleAll(event.target.checked)} /> Select All Published ({published.length})</label>
-      <small>{unpublishedCount ? `${unpublishedCount} unpublished / missing result${unpublishedCount === 1 ? '' : 's'} will be skipped.` : 'All matching students have published results.'}</small>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px' }}>
+        <label className="bulk-select-all">
+          <input type="checkbox" checked={availableStudents.length > 0 && selectedStudents.length === availableStudents.length} onChange={event => toggleAll(event.target.checked)} />
+          Select All ({availableStudents.length})
+        </label>
+        <label style={{ fontSize: '11px', display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer' }}>
+          <input type="checkbox" checked={includeDrafts} onChange={e => setIncludeDrafts(e.target.checked)} />
+          Include Draft Marks
+        </label>
+      </div>
+      <small>{unavailableCount ? `${unavailableCount} student(s) without marks will be skipped.` : 'All matching students have marks entered.'}</small>
       <div className="bulk-result-student-list">
         {candidates.map(student => {
           const record = recordsByStudent.get(student.id)
-          const available = record?.status === 'published'
+          const available = includeDrafts ? (record?.status === 'published' || record?.status === 'draft') : record?.status === 'published'
           return <label key={student.id} className={!available ? 'unpublished' : ''}>
             <input type="checkbox" disabled={!available} checked={Boolean(selected[student.id])} onChange={event => setSelected(current => ({ ...current, [student.id]: event.target.checked }))} />
             <span><strong>{student.name}</strong><small>Adm {student.roll || student.admissionNo || '-'} | {student.className || '-'}</small></span>
-            <em>{available ? 'Published' : 'Not published'}</em>
+            <em>{record?.status === 'published' ? 'Published' : record?.status === 'draft' ? 'Draft' : 'No Marks'}</em>
           </label>
         })}
         {!candidates.length && <div className="empty-state">No students match the selected class and section.</div>}
       </div>
     </div>
     <section className="bulk-results-print-grid">
-      {selectedStudents.map((student, index) => <BulkResultCard key={student.id} student={student} exam={exam} record={recordsByStudent.get(student.id)} school={school} classRecords={classRecords} gradingScale={gradingScale} isLast={index === selectedStudents.length - 1} />)}
+      {selectedStudents.map((student, index) => (
+        <div key={student.id} className="bulk-card-print-wrap" style={{ pageBreakAfter: index === selectedStudents.length - 1 ? 'auto' : 'always', breakAfter: index === selectedStudents.length - 1 ? 'auto' : 'page', marginBottom: '24px' }}>
+          <ReportCardSurface
+            templateId={templateId}
+            student={student}
+            exam={exam}
+            record={recordsByStudent.get(student.id)}
+            school={school}
+            classRecords={classRecords}
+            exams={reportData.exams}
+            allMarks={reportData.marks}
+          />
+        </div>
+      ))}
     </section>
   </section>
 }
@@ -542,18 +558,37 @@ function Analytics({ students, reportData }) {
 function ParentPortal({ students, school, reportData }) {
   const published = Object.values(reportData.reports || reportData.marks || {}).filter(row => row.status === 'published')
   const [student, setStudent] = useState(null)
+  const [templateId, setTemplateId] = useState(() => localStorage.getItem(TEMPLATE_KEY) || 'classic')
   const rows = student ? published.filter(row => row.studentId === student.id) : published
   const current = rows[0]
   const exam = current ? reportData.exams?.[current.examId] || defaultExam() : null
-  // Only published records feed the extra columns. A draft exam must not appear here just
-  // because another exam of the same student was published.
   const publishedMarks = useMemo(() => Object.fromEntries(published.map(row => [reportKey(row.examId, row.studentId), row])), [reportData])
   const marksTable = current && exam
     ? buildMarksTable({ activeExam: exam, activeSummary: calculateReport(exam, current, rows), exams: reportData.exams, marks: publishedMarks, studentId: current.studentId })
     : null
   return <div className="report-two-column">
-    <section className="panel report-form"><div className="panel-header"><div><h3>Student & Parent Portal</h3><p>View, download and print published results.</p></div></div><StudentPicker students={students} value={student} onSelect={setStudent} /><div className="report-list">{rows.map(row => <article key={`${row.examId}_${row.studentId}`}><div><strong>{reportData.exams?.[row.examId]?.name || 'Exam'}</strong><small>{row.summary?.percentage}% | {row.summary?.grade}</small></div><span className="status paid">Published</span></article>)}</div></section>
-    <section className="report-preview-wrap">{current && student ? <ReportCardPaper student={student} exam={exam} record={current} school={school} classRecords={rows} marksTable={marksTable} /> : <div className="empty-state large">No published report selected.</div>}</section>
+    <section className="panel report-form">
+      <div className="panel-header"><div><h3>Student &amp; Parent Portal</h3><p>View, download and print published results.</p></div></div>
+      <StudentPicker students={students} value={student} onSelect={setStudent} />
+      <TemplatePicker value={templateId} onChange={setTemplateId} />
+      <div className="report-list">{rows.map(row => <article key={`${row.examId}_${row.studentId}`}><div><strong>{reportData.exams?.[row.examId]?.name || 'Exam'}</strong><small>{row.summary?.percentage}% | {row.summary?.grade}</small></div><span className="status paid">Published</span></article>)}</div>
+    </section>
+    <section className="report-preview-wrap">
+      {current && student && exam ? (
+        <ReportCardSurface
+          templateId={templateId}
+          student={student}
+          exam={exam}
+          record={current}
+          school={school}
+          classRecords={rows}
+          exams={reportData.exams}
+          allMarks={publishedMarks}
+        />
+      ) : (
+        <div className="empty-state large">No published report selected.</div>
+      )}
+    </section>
   </div>
 }
 

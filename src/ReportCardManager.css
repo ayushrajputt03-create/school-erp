@@ -40,3 +40,35 @@
 .report-card-table .rt-overall{background:#eef3fb}
 .report-card-table .rt-overall .rt-mark-max{display:block;font-size:.85em;margin-top:1px}
 @media print{.report-card-table.rt-multi{font-size:8px}.report-card-table.rt-multi th,.report-card-table.rt-multi td{padding:4px 3px!important}}
+
+/* Bulk Result Print Grid & Cards */
+.bulk-results-print-grid {
+  display: grid;
+  gap: 24px;
+  width: 100%;
+}
+.bulk-card-print-wrap {
+  width: 100%;
+}
+@media print {
+  body.erp-printing .bulk-results-print-grid {
+    display: block !important;
+    width: 100% !important;
+  }
+  body.erp-printing .bulk-card-print-wrap {
+    display: block !important;
+    width: 100% !important;
+    page-break-after: always !important;
+    break-after: page !important;
+    margin: 0 !important;
+    padding: 0 !important;
+  }
+  body.erp-printing .bulk-card-print-wrap:last-child {
+    page-break-after: auto !important;
+    break-after: auto !important;
+  }
+  body.erp-printing .bulk-card-print-wrap .report-card-paper {
+    page-break-after: avoid !important;
+    break-after: avoid !important;
+  }
+}
