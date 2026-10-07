@@ -537,7 +537,7 @@ function TeacherProfile({ teacher, schoolProfile }) {
       <h3>Change Password</h3>
       <form className="teacher-pw-change" onSubmit={changePw}>
         <label>Current Password<input required type="password" value={pwForm.current} onChange={e => setPwForm({ ...pwForm, current: e.target.value })} /></label>
-        <label>New Password<input required type="password" minLength={8} value={pwForm.newPw} onChange={e => setPwForm({ ...pwForm, newPw: e.target.value })} /></label>
+        <label>New Password<input required type="password" minLength={12} maxLength={128} value={pwForm.newPw} onChange={e => setPwForm({ ...pwForm, newPw: e.target.value })} /></label>
         <label>Confirm Password<input required type="password" value={pwForm.confirm} onChange={e => setPwForm({ ...pwForm, confirm: e.target.value })} /></label>
         {pwMsg && <div className={`teacher-alert ${pwMsg.includes('success') ? 'success' : 'error'}`}>{pwMsg}</div>}
         <button className="teacher-btn primary" disabled={changing}>{changing ? 'Changing...' : 'Update Password'}</button>
