@@ -7,6 +7,7 @@
 // ka queue Supabase se padhta hai.
 const { createStore } = require('./_admission-store')
 const crypto = require('crypto')
+const { assertRateLimit } = require('./_rate-limit')
 
 const now = () => Date.now()
 const digits = value => String(value || '').replace(/\D/g, '')
@@ -26,10 +27,6 @@ const isFutureDate = value => {
 }
 
 module.exports = async function handler(request, response) {
-  response.setHeader('Access-Control-Allow-Origin', '*')
-  response.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS')
-  response.setHeader('Access-Control-Allow-Headers', 'Content-Type')
-  if (request.method === 'OPTIONS') return response.status(200).end()
   if (request.method !== 'POST') return response.status(405).json({ ok: false, error: 'Method not allowed' })
 
   try {
@@ -49,6 +46,7 @@ module.exports = async function handler(request, response) {
     }
 
     if (action === 'submit') {
+      await assertRateLimit({ request, scope: 'admission-submit', identity: schoolId, limit: 20, windowMs: 60 * 60 * 1000 })
       // Honeypot: hidden from real users by CSS, so anything in it means a bot filled every
       // field. Report success without writing, so the bot has no signal that it was caught.
       // Logged because a silent drop is indistinguishable from a lost submission otherwise -
@@ -115,6 +113,6 @@ module.exports = async function handler(request, response) {
     throw new Error('Unknown admission action.')
   } catch (error) {
     console.error('Admission API error', error)
-    return response.status(400).json({ ok: false, error: error.message })
+    return response.status(error.statusCode || 400).json({ ok: false, error: error.statusCode ? error.message : 'Your request could not be processed.' })
   }
 }

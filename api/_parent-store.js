@@ -118,10 +118,13 @@ function firebaseStore() {
 
     push: (schoolId, name, id, doc) => database.ref(at(schoolId, `${name}/${id}`)).set(doc),
 
-    async markNotificationsRead(schoolId, ids) {
+    async markNotificationsRead(schoolId, parentId, ids) {
       if (!ids.length) return
       const updates = {}
-      ids.forEach(id => { updates[at(schoolId, `parentNotifications/${id}/isRead`)] = true })
+      const notifications = await Promise.all(ids.map(id => read(at(schoolId, `parentNotifications/${id}`))))
+      ids.forEach((id, index) => {
+        if (notifications[index]?.parentId === parentId) updates[at(schoolId, `parentNotifications/${id}/isRead`)] = true
+      })
       await database.ref().update(updates)
     },
   }
@@ -499,11 +502,11 @@ function supabaseStore() {
       await kvSet(school, name, [id], doc)
     },
 
-    async markNotificationsRead(schoolId, ids) {
+    async markNotificationsRead(schoolId, parentId, ids) {
       const school = await schoolUuid(schoolId)
       if (!school || !ids.length) return
       const { data, error } = await db.from('parent_notifications')
-        .select('legacy_id, source').eq('school_id', school).in('legacy_id', ids)
+        .select('legacy_id, source').eq('school_id', school).eq('parent_id', await parentUuid(school, parentId)).in('legacy_id', ids)
       fail(error, 'notifications')
       for (const row of data || []) {
         const { error: writeError } = await db.from('parent_notifications')

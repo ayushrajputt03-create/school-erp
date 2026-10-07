@@ -331,8 +331,8 @@ function Empty({ title }) {
 }
 
 export default function ParentPortal() {
-  const [session, setSession] = useState(() => JSON.parse(localStorage.getItem('parent-session') || 'null'))
-  const [data, setData] = useState(() => JSON.parse(localStorage.getItem('parent-data') || 'null'))
+  const [session, setSession] = useState(null)
+  const [data, setData] = useState(null)
   const [tab, setTab] = useState('dashboard')
   const [moreOpen, setMoreOpen] = useState(false)
   const [mode, setMode] = useState(window.location.pathname.includes('forgot') ? 'forgot' : 'login')
@@ -343,6 +343,15 @@ export default function ParentPortal() {
   const language = data?.parent?.language || 'english'
 
   useEffect(() => {
+    localStorage.removeItem('parent-session')
+    localStorage.removeItem('parent-data')
+    api({ action: 'data' }).then(result => {
+      setSession({ schoolId: result.data.schoolId, parentId: result.data.parent.id })
+      setData(result.data)
+      setSelectedStudentId(result.data.selectedStudent?.id || '')
+    }).catch(() => {})
+  }, [])
+  useEffect(() => {
     const update = () => setOnline(navigator.onLine)
     window.addEventListener('online', update)
     window.addEventListener('offline', update)
@@ -350,9 +359,7 @@ export default function ParentPortal() {
   }, [])
 
   const saveSession = result => {
-    const nextSession = { schoolId: result.schoolId, parentId: result.parentId, sessionToken: result.sessionToken }
-    localStorage.setItem('parent-session', JSON.stringify(nextSession))
-    localStorage.setItem('parent-data', JSON.stringify(result.data))
+    const nextSession = { schoolId: result.schoolId, parentId: result.parentId }
     setSession(nextSession)
     setData(result.data)
     setSelectedStudentId(result.data.selectedStudent?.id || '')
@@ -362,7 +369,6 @@ export default function ParentPortal() {
     setLoading(true)
     try {
       const result = await api({ action: 'data', ...session, studentId })
-      localStorage.setItem('parent-data', JSON.stringify(result.data))
       setData(result.data)
       setSelectedStudentId(result.data.selectedStudent?.id || studentId)
     } finally {
@@ -385,6 +391,7 @@ export default function ParentPortal() {
     if (session && selectedStudentId) refresh(selectedStudentId).catch(() => {})
   }, [selectedStudentId])
   const logout = () => {
+    api({ action: 'logout' }).catch(() => {})
     localStorage.removeItem('parent-session')
     localStorage.removeItem('parent-data')
     setSession(null)

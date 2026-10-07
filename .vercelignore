@@ -11,3 +11,9 @@ RUN-SERVER.cmd
 serve.mjs
 task-runner.ps1
 supabase
+.npm-cache
+factory_os_uiux_render
+Factory OS UI UX Blueprint.docx
+~$ctory OS UI UX Blueprint.docx
+build_factory_os_uiux_document.py
+render_factory_doc.ps1

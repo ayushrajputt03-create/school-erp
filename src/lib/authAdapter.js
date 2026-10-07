@@ -136,6 +136,11 @@ export async function signInWithStaffGrant(grant, password) {
     const { signInWithCustomToken } = await import('firebase/auth')
     return signInWithCustomToken(auth, grant.token)
   }
+  if (grant?.session) {
+    const { data, error } = await supabase.auth.setSession(grant.session)
+    if (error) throw new Error(translateAuthError(error.message))
+    return data
+  }
   if (grant?.passwordLogin && grant?.email) return signIn(grant.email, password)
   if (!grant?.tokenHash) throw new Error('Login failed.')
   const { data, error } = await supabase.auth.verifyOtp({ token_hash: grant.tokenHash, type: 'email' })

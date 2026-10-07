@@ -1,3 +1,4 @@
+import { writePrintDocument } from "./lib/printSecurity"
 import React, { useEffect, useMemo, useRef, useState } from 'react'
 import { useStudentPhotos } from './student-photos'
 import {
@@ -503,7 +504,7 @@ export default function IDCardManager({ students, staff, school, idCards, settin
     const html = printRef.current?.innerHTML || ''
     const styles = Array.from(document.querySelectorAll('link[rel="stylesheet"]')).map(link => link.outerHTML).join('')
     const popup = window.open('', '_blank', 'width=1100,height=800')
-    popup.document.write(`<html><head><title>ID Cards</title>${styles}</head><body><div class="id-print-sheet">${html}</div><script>setTimeout(()=>window.print(),600)</script></body></html>`)
+    writePrintDocument(popup, `<html><head><title>ID Cards</title>${styles}</head><body><div class="id-print-sheet">${html}</div><script>setTimeout(()=>window.print(),600)</script></body></html>`)
     popup.document.close()
   }
 
@@ -511,7 +512,7 @@ export default function IDCardManager({ students, staff, school, idCards, settin
     const html = printRef.current?.innerHTML || ''
     const styles = Array.from(document.querySelectorAll('link[rel="stylesheet"]')).map(link => link.outerHTML).join('')
     const popup = window.open('', '_blank', 'width=1100,height=800')
-    popup.document.write(`<html><head><title>ID Card HTML Preview</title>${styles}<style>body{margin:0;background:#eef2f7;padding:24px}.id-html-wrap{display:flex;gap:18px;flex-wrap:wrap;justify-content:center}</style></head><body><div class="id-html-wrap">${html}</div></body></html>`)
+    writePrintDocument(popup, `<html><head><title>ID Card HTML Preview</title>${styles}<style>body{margin:0;background:#eef2f7;padding:24px}.id-html-wrap{display:flex;gap:18px;flex-wrap:wrap;justify-content:center}</style></head><body><div class="id-html-wrap">${html}</div></body></html>`)
     popup.document.close()
   }
 

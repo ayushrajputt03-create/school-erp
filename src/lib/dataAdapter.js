@@ -140,6 +140,8 @@ export async function uploadStudentPhoto(schoolLegacyId, studentLegacyId, file) 
   const schoolId = await schoolUuid(schoolLegacyId)
   if (!schoolId) throw new Error('School not found — photo could not be uploaded.')
   if (!file) throw new Error('No file selected.')
+  if (!['image/jpeg', 'image/png', 'image/webp'].includes(file.type)) throw new Error('Use a JPG, PNG, or WebP student photo.')
+  if (file.size > 2 * 1024 * 1024) throw new Error('Student photo must be smaller than 2 MB.')
 
   const path = `${schoolId}/students/${studentLegacyId}.jpg`
   const { error } = await supabase.storage
@@ -194,7 +196,7 @@ const ASSET_KEYS = ['logoURL', 'logo', 'logoUrl', 'schoolSealURL', 'principalSig
 
 const isDataUrl = (v) => typeof v === 'string' && v.startsWith('data:')
 
-const EXT_BY_MIME = { 'image/png': 'png', 'image/jpeg': 'jpg', 'image/webp': 'webp', 'image/svg+xml': 'svg' }
+const EXT_BY_MIME = { 'image/png': 'png', 'image/jpeg': 'jpg', 'image/webp': 'webp' }
 
 function dataUrlToBlob(dataUrl) {
   const match = /^data:([^;,]+)(;base64)?,(.*)$/s.exec(dataUrl)
@@ -218,6 +220,7 @@ function dataUrlToBlob(dataUrl) {
 async function uploadSchoolAsset(schoolId, key, dataUrl) {
   const parsed = dataUrlToBlob(dataUrl)
   if (!parsed) return dataUrl
+  if (!Object.hasOwn(EXT_BY_MIME, parsed.mime)) throw new Error('School assets must be PNG, JPG, or WebP images.')
 
   const ext = EXT_BY_MIME[parsed.mime] || 'png'
   const path = `${schoolId}/${key}.${ext}`

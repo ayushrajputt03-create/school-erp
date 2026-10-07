@@ -1,3 +1,4 @@
+import { writePrintDocument } from "./lib/printSecurity"
 import React, { useMemo, useState } from 'react'
 import {
   CalendarCheck, Check, Download, FileText, Plus, Printer, Search,
@@ -96,7 +97,7 @@ const statusClass = status => status === 'approved' ? 'approved' : status === 'r
 const printRows = (title, headers, rows) => {
   const win = window.open('', '_blank', 'width=900,height=900')
   if (!win) return alert('Please allow popups to print.')
-  win.document.write(`<html><head><title>${title}</title><style>body{font-family:Arial;margin:24px;color:#021024}.head{text-align:center;margin-bottom:18px}table{width:100%;border-collapse:collapse}th,td{border:1px solid #111;padding:7px;font-size:12px;text-align:left}th{background:#052659;color:white}.sign{display:flex;justify-content:space-between;margin-top:42px}.line{border-top:1px solid #111;width:180px;text-align:center;padding-top:6px}@media print{@page{size:A4;margin:12mm}}</style></head><body><div class="head"><h2>Leave Management Report</h2><p>${title} - Generated ${dateLabel(today())}</p></div><table><thead><tr>${headers.map(h => `<th>${h}</th>`).join('')}</tr></thead><tbody>${rows.map(row => `<tr>${row.map(cell => `<td>${cell ?? ''}</td>`).join('')}</tr>`).join('')}</tbody></table><div class="sign"><div class="line">Prepared By</div><div class="line">Principal</div></div><script>window.onload=()=>window.print()</script></body></html>`)
+  writePrintDocument(win, `<html><head><title>${title}</title><style>body{font-family:Arial;margin:24px;color:#021024}.head{text-align:center;margin-bottom:18px}table{width:100%;border-collapse:collapse}th,td{border:1px solid #111;padding:7px;font-size:12px;text-align:left}th{background:#052659;color:white}.sign{display:flex;justify-content:space-between;margin-top:42px}.line{border-top:1px solid #111;width:180px;text-align:center;padding-top:6px}@media print{@page{size:A4;margin:12mm}}</style></head><body><div class="head"><h2>Leave Management Report</h2><p>${title} - Generated ${dateLabel(today())}</p></div><table><thead><tr>${headers.map(h => `<th>${h}</th>`).join('')}</tr></thead><tbody>${rows.map(row => `<tr>${row.map(cell => `<td>${cell ?? ''}</td>`).join('')}</tr>`).join('')}</tbody></table><div class="sign"><div class="line">Prepared By</div><div class="line">Principal</div></div><script>window.onload=()=>window.print()</script></body></html>`)
   win.document.close()
 }
 const exportCsv = (headers, rows, filename) => {

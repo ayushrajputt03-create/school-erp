@@ -4,45 +4,11 @@
 // password kaise banta hai, session kitni der chalta hai, kaunsa bachcha kis
 // parent ka hai. Wo niyam dono backend par bilkul ek jaise chalte hain.
 const { createStore, digits } = require('./_parent-store')
+const { assertRateLimit } = require('./_rate-limit')
+const { readSession, writeSession, assertSameOrigin } = require('./_parent-session')
 
 const now = () => Date.now()
-// Parent passwords are hashed with scrypt (Node built-in, memory-hard, per-user random salt).
-// The previous scheme was an unsalted single-round SHA-256, which a leaked database would give
-// up to an offline GPU attack almost immediately - especially with the DOB default. Stored form
-// is "scrypt$N$r$p$saltHex$keyHex"; anything not matching that prefix is treated as a legacy
-// SHA-256 digest, verified once and then transparently upgraded on the next successful login.
-const SCRYPT = { N: 16384, r: 8, p: 1, keylen: 64 }
-
-const hashPassword = value => new Promise((resolve, reject) => {
-  const salt = crypto.randomBytes(16)
-  crypto.scrypt(String(value || ''), salt, SCRYPT.keylen, { N: SCRYPT.N, r: SCRYPT.r, p: SCRYPT.p }, (error, derived) => {
-    if (error) return reject(error)
-    resolve(`scrypt$${SCRYPT.N}$${SCRYPT.r}$${SCRYPT.p}$${salt.toString('hex')}$${derived.toString('hex')}`)
-  })
-})
-
-const isLegacyHash = stored => Boolean(stored) && !String(stored).startsWith('scrypt$')
-
-const timingSafeEqualHex = (a, b) => {
-  const left = Buffer.from(String(a), 'hex')
-  const right = Buffer.from(String(b), 'hex')
-  return left.length === right.length && crypto.timingSafeEqual(left, right)
-}
-
-const verifyPassword = (value, stored) => new Promise(resolve => {
-  if (!stored) return resolve(false)
-  const parts = String(stored).split('$')
-  if (parts[0] !== 'scrypt' || parts.length !== 6) {
-    const legacy = crypto.createHash('sha256').update(String(value || '')).digest('hex')
-    return resolve(timingSafeEqualHex(legacy, stored))
-  }
-  const [, N, r, p, saltHex, keyHex] = parts
-  const expected = Buffer.from(keyHex, 'hex')
-  crypto.scrypt(String(value || ''), Buffer.from(saltHex, 'hex'), expected.length, { N: Number(N), r: Number(r), p: Number(p) }, (error, derived) => {
-    if (error) return resolve(false)
-    resolve(derived.length === expected.length && crypto.timingSafeEqual(derived, expected))
-  })
-})
+const { hashPassword, verifyPassword, isLegacyHash } = require('./_password')
 const tokenFor = () => crypto.randomBytes(32).toString('hex')
 const dateKey = value => {
   if (!value) return ''
@@ -318,20 +284,33 @@ async function requireSession(store, body) {
   if (!session || session.expiresAt < now()) throw new Error('Parent session expired. Please login again.')
   const parent = await store.parent(schoolId, parentId)
   if (!parent || parent.status === 'inactive') throw new Error('Parent account is inactive.')
+  if (parent.passwordSetAt && Number(session.createdAt || 0) < Number(parent.passwordSetAt)) throw new Error('Parent session expired. Please login again.')
   return { schoolId, parentId, parent }
 }
 
 module.exports = async function handler(request, response) {
   if (request.method !== 'POST') return response.status(405).json({ error: 'Method not allowed' })
   try {
+    assertSameOrigin(request)
+    response.setHeader('Cache-Control', 'no-store')
     const store = createStore()
-    const body = request.body || {}
+    const body = { ...(request.body || {}), ...readSession(request) }
+    // Bearer credentials from request bodies are no longer accepted.
+    body.sessionToken = readSession(request).sessionToken
     const action = body.action
+    if (action === 'logout') {
+      const session = readSession(request)
+      if (session.sessionToken) await store.touchSession(session.schoolId, session.parentId, session.sessionToken, 0)
+      writeSession(response, null, request)
+      return response.status(200).json({ ok: true })
+    }
 
     if (action === 'login') {
       const schoolCode = String(body.schoolCode || '').trim().toUpperCase()
       const phone = digits(body.phone)
       const password = String(body.password || '')
+      await assertRateLimit({ request, scope: 'parent-login-ip', identity: `${schoolCode}:${phone}`, limit: 10, windowMs: 15 * 60 * 1000 })
+      await assertRateLimit({ request, scope: 'parent-login-account', identity: `${schoolCode}:${phone}`, limit: 5, windowMs: 15 * 60 * 1000 })
       if (schoolCode.length < 6) throw new Error('Invalid School Code')
       if (phone.length !== 10) throw new Error('Phone number must be 10 digits.')
       const found = await findSchool(store, schoolCode)
@@ -348,7 +327,7 @@ module.exports = async function handler(request, response) {
       const rawDob = row => row.dob || row.date_of_birth || row.dateOfBirth || ''
       const eldest = linkedStudents.sort((a, b) => String(dateKey(rawDob(a))).localeCompare(String(dateKey(rawDob(b)))))[0] || {}
       const validCustom = await verifyPassword(password, parent.passwordHash)
-      const validDob = verifyDobPassword(password, rawDob(eldest))
+      const validDob = !parent.passwordHash && verifyDobPassword(password, rawDob(eldest))
       if (!validCustom && !validDob) {
         const failed = Number(attempts.failed || 0) + 1
         await store.setLoginAttempts(schoolId, parentId, { failed, lockUntil: failed >= 5 ? now() + 15 * 60 * 1000 : 0, updatedAt: now() })
@@ -362,25 +341,29 @@ module.exports = async function handler(request, response) {
       }
       const sessionToken = tokenFor()
       await store.setSession(schoolId, parentId, sessionToken, { createdAt: now(), expiresAt: now() + 30 * 60 * 1000 })
+      writeSession(response, { schoolId, parentId, sessionToken }, request)
       await store.updateParent(schoolId, parentId, { lastLogin: now(), updatedAt: now() })
-      return response.status(200).json({ ok: true, sessionToken, schoolId, parentId, mustChangePassword: Boolean(parent.mustChangePassword), data: await buildDataPayload(store, schoolId, parentId, parent, '', students) })
+      return response.status(200).json({ ok: true, schoolId, parentId, mustChangePassword: Boolean(parent.mustChangePassword), data: await buildDataPayload(store, schoolId, parentId, parent, '', students) })
     }
 
     if (action === 'data') {
       const context = await requireSession(store, body)
       await store.touchSession(context.schoolId, context.parentId, body.sessionToken, now() + 30 * 60 * 1000)
+      writeSession(response, readSession(request), request)
       return response.status(200).json({ ok: true, data: await buildDataPayload(store, context.schoolId, context.parentId, context.parent, body.studentId) })
     }
 
     if (action === 'setPassword') {
       const context = await requireSession(store, body)
       const password = String(body.password || '')
-      if (!/[A-Z]/.test(password) || !/\d/.test(password) || password.length < 8) throw new Error('Password must be 8+ chars with 1 capital and 1 number.')
+      if (!/[A-Z]/.test(password) || !/\d/.test(password) || password.length < 8 || password.length > 128) throw new Error('Password must be 8–128 chars with 1 capital and 1 number.')
       const firstStudentId = normalizeStudentsList(context.parent.students)[0]
       const firstRow = (firstStudentId ? await store.student(context.schoolId, firstStudentId) : null) || {}
       const dob = firstRow.dob || firstRow.date_of_birth || firstRow.dateOfBirth || ''
       if (verifyDobPassword(password, dob)) throw new Error('New password cannot be same as DOB.')
-      await store.updateParent(context.schoolId, context.parentId, { passwordHash: await hashPassword(password), mustChangePassword: false, passwordSetAt: now(), updatedAt: now() })
+      const changedAt = now()
+      await store.updateParent(context.schoolId, context.parentId, { passwordHash: await hashPassword(password), mustChangePassword: false, passwordSetAt: changedAt, updatedAt: changedAt })
+      await store.setSession(context.schoolId, context.parentId, body.sessionToken, { createdAt: changedAt, expiresAt: changedAt + 30 * 60 * 1000 })
       return response.status(200).json({ ok: true })
     }
 
@@ -392,44 +375,21 @@ module.exports = async function handler(request, response) {
     // poochhne se koi nayi baat leak nahi hoti, par ajnabi ka reset ruk jaata hai.
     // Lockout counter login wala hi hai, taaki DOB brute-force na ho sake.
     if (action === 'forgot') {
-      const schoolCode = String(body.schoolCode || '').trim().toUpperCase()
-      const phone = digits(body.phone)
-      const dob = String(body.dob || '')
-      if (schoolCode.length < 6) throw new Error('Invalid School Code')
-      if (phone.length !== 10) throw new Error('Phone number must be 10 digits.')
-      const found = await findSchool(store, schoolCode)
-      if (!found) throw new Error('Invalid School Code')
-      const { schoolId } = found
-      const ensured = await ensureParent(store, schoolId, phone, schoolCode)
-      if (!ensured) throw new Error('Phone number not registered. Contact school.')
-      const { parentId, parent, students } = ensured
-      if (parent.status === 'inactive') throw new Error('Parent account is inactive. Contact school.')
-      const attempts = await store.loginAttempts(schoolId, parentId)
-      if (attempts.lockUntil && attempts.lockUntil > now()) throw new Error('Too many wrong attempts. Try again after 15 minutes.')
-      const linkedIds = normalizeStudentsList(parent.students)
-      const linkedStudents = linkedIds.map(id => students[id]).filter(Boolean)
-      const rawDob = row => row.dob || row.date_of_birth || row.dateOfBirth || ''
-      const eldest = linkedStudents.sort((a, b) => String(dateKey(rawDob(a))).localeCompare(String(dateKey(rawDob(b)))))[0] || {}
-      if (!verifyDobPassword(dob, rawDob(eldest))) {
-        const failed = Number(attempts.failed || 0) + 1
-        await store.setLoginAttempts(schoolId, parentId, { failed, lockUntil: failed >= 5 ? now() + 15 * 60 * 1000 : 0, updatedAt: now() })
-        throw new Error("Child's date of birth does not match our records. Contact school.")
-      }
-      await store.clearLoginAttempts(schoolId, parentId)
-      await store.updateParent(schoolId, parentId, { passwordHash: null, mustChangePassword: true, updatedAt: now() })
-      return response.status(200).json({ ok: true, message: "Password reset to child's date of birth." })
+      throw new Error('Contact your school administrator to reset your password securely.')
     }
 
     if (action === 'message') {
       const context = await requireSession(store, body)
+      const studentId = String(body.studentId || '')
+      if (!normalizeStudentsList(context.parent.students).includes(studentId)) throw new Error('That student is not linked to this parent account.')
       const id = `msg_${now()}`
       await store.push(context.schoolId, 'parentMessages', id, {
         id,
         parentId: context.parentId,
         parentName: context.parent.name || 'Parent',
-        studentId: body.studentId,
-        subject: String(body.subject || '').trim(),
-        message: String(body.message || '').trim(),
+        studentId,
+        subject: String(body.subject || '').trim().slice(0, 160),
+        message: String(body.message || '').trim().slice(0, 2000),
         status: 'open',
         createdAt: now(),
       })
@@ -438,13 +398,15 @@ module.exports = async function handler(request, response) {
 
     if (action === 'certificateRequest') {
       const context = await requireSession(store, body)
-      const student = (await store.student(context.schoolId, body.studentId)) || {}
+      const studentId = String(body.studentId || '')
+      if (!normalizeStudentsList(context.parent.students).includes(studentId)) throw new Error('That student is not linked to this parent account.')
+      const student = (await store.student(context.schoolId, studentId)) || {}
       const id = `cert_req_${now()}`
       await store.push(context.schoolId, 'certificateRequests', id, {
         id,
         parentId: context.parentId,
         parentName: context.parent.name || 'Parent',
-        studentId: body.studentId,
+        studentId,
         studentName: student.full_name || student.name || '',
         certificateType: body.certificateType,
         purpose: body.purpose,
@@ -504,14 +466,16 @@ module.exports = async function handler(request, response) {
 
     if (action === 'markRead') {
       const context = await requireSession(store, body)
-      await store.markNotificationsRead(context.schoolId, Array.isArray(body.ids) ? body.ids : [])
+      const ids = Array.isArray(body.ids) ? body.ids : []
+      if (ids.length > 100 || ids.some(id => typeof id !== 'string' || !/^[A-Za-z0-9_-]{1,128}$/.test(id))) throw new Error('Invalid notification selection.')
+      await store.markNotificationsRead(context.schoolId, context.parentId, ids)
       return response.status(200).json({ ok: true })
     }
 
     throw new Error('Unknown parent portal action.')
   } catch (error) {
     console.error('Parent portal API error', error)
-    return response.status(400).json({ ok: false, error: error.message })
+    return response.status(error.statusCode || 400).json({ ok: false, error: error.message })
   }
 }
 

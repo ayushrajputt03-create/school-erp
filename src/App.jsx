@@ -1,3 +1,4 @@
+import { writePrintDocument } from "./lib/printSecurity"
 import React, { lazy, Suspense, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react'
 import imageCompression from 'browser-image-compression'
 import {
@@ -808,7 +809,7 @@ function ParentAccounts({ parents = {}, students = [], school = {}, onSaveParent
     const logo = school.logoURL || school.logo || ''
     const html = `<!doctype html><html><head><title>Parent Login Cards</title><style>@page{size:A4;margin:10mm}body{font-family:Arial,sans-serif}.grid{display:grid;grid-template-columns:1fr 1fr;gap:10mm}.card{border:1px solid #111;border-radius:10px;padding:12px;min-height:120mm;box-sizing:border-box;break-inside:avoid}.head{display:flex;gap:10px;align-items:center;border-bottom:1px solid #111;padding-bottom:8px}.logo{width:44px;height:44px;border-radius:8px;background:#1a56db;color:#fff;display:grid;place-items:center;font-weight:bold;overflow:hidden}.logo img{width:100%;height:100%;object-fit:cover}h2{font-size:16px;margin:0}.row{margin:9px 0;font-size:13px}.code{font-size:22px;font-weight:bold;letter-spacing:1px}.muted{font-size:11px;color:#555}.footer{border-top:1px dashed #999;margin-top:12px;padding-top:8px;font-size:11px}</style></head><body><div class="grid">${cards.map(({ parent, student }) => `<div class="card"><div class="head"><div class="logo">${logo ? `<img src="${logo}">` : textInitials(school.schoolName)}</div><div><h2>${school.schoolName || 'School'}</h2><div class="muted">Parent Portal Login</div></div></div><div class="row">Student: <b>${student.name}</b></div><div class="row">Class: <b>${student.className}</b></div><div class="row">School Code:</div><div class="code">${school.schoolCode || '-'}</div><div class="row">Phone: <b>${parent.phone}</b></div><div class="row">Password: <b>Child's Date of Birth</b></div><div class="muted">Example: 15032008</div><div class="footer">Login: ${window.location.origin}/parent/login<br>Help: ${school.schoolContactNo || school.phone || '-'}</div></div>`).join('')}</div></body></html>`
     const win = window.open('', '_blank')
-    win.document.write(html)
+    writePrintDocument(win, html)
     win.document.close()
     setTimeout(() => win.print(), 400)
   }
@@ -1582,7 +1583,7 @@ td.lbl{color:#333;width:130px;font-weight:600}
 </body></html>`
     const w = window.open('', '_blank')
     if (!w) { alert('Please allow pop-ups for this site to print the admission form.'); return }
-    w.document.write(html); w.document.close()
+    writePrintDocument(w, html); w.document.close()
   }
   const section = (id, title, content) => <section className="panel admission-card"><button type="button" className="collapse-title" onClick={() => setExpanded(expanded === id ? '' : id)}><span>{title}</span><ChevronRight className={expanded === id ? 'rotated' : ''} size={18} /></button>{expanded === id && <div className="admission-fields">{content}</div>}</section>
   return <form className="admission-form admission-form-pro" onSubmit={submit}>

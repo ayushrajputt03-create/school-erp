@@ -93,44 +93,7 @@ function parseAttendanceToTeacherFormat(raw, studentsData) {
 }
 
 async function loadTeacherSession(token, uid, role) {
-  if (useSupabase && role === 'receptionist') return loadTeacherSessionFromApi(token)
-  try {
-    const index = await dbRequest(`teachersIndex/${uid}`, token)
-    if (!index || !index.schoolId) throw new Error('No staff account found. Contact your school admin.')
-    // Only pull the current month's attendance — the full history can be tens of thousands of
-    // records. Requires "attendance": { ".indexOn": ["date"] } in the database rules.
-    const md = new Date()
-    const monthStart = `${md.getFullYear()}-${String(md.getMonth() + 1).padStart(2, '0')}-01`
-    const attQuery = `orderBy=${encodeURIComponent('"date"')}&startAt=${encodeURIComponent(`"${monthStart}"`)}`
-    const [staffData, teacherData, profile, studentsData, hw, noticeData, attData] = await Promise.all([
-      dbRequest(`schools/${index.schoolId}/staff/${uid}`, token).catch(() => null),
-      dbRequest(`schools/${index.schoolId}/teachers/${uid}`, token).catch(() => null),
-      dbRequest(`schools/${index.schoolId}/profile`, token),
-      dbRequest(`schools/${index.schoolId}/students`, token),
-      dbRequest(`schools/${index.schoolId}/homework`, token),
-      dbRequest(`schools/${index.schoolId}/notices`, token),
-      dbRequest(`schools/${index.schoolId}/attendance`, token, { query: attQuery }),
-    ])
-    const record = staffData || teacherData
-    if (!record) throw new Error('Staff profile not found in school data.')
-    return {
-      schoolId: index.schoolId,
-      teacher: buildStaffProfile(uid, record),
-      profile,
-      students: studentsData || {},
-      homework: hw || {},
-      notices: noticeData || {},
-      attendance: parseAttendanceToTeacherFormat(attData, studentsData),
-    }
-  } catch (error) {
-    // Ye fallback firebase-admin wale API par jaata hai. Supabase mode me wo
-    // API chalegi nahi, aur adapter ka error ("...schools/...") is regex me
-    // fas jaata — to asli dikkat chhup jaati aur API ka error dikhta.
-    if (!useSupabase && /Firebase 401|Firebase 403|teachersIndex|schools\//i.test(error.message || '')) {
-      return loadTeacherSessionFromApi(token)
-    }
-    throw error
-  }
+  return loadTeacherSessionFromApi(token)
 }
 
 const today = () => { const d = new Date(); d.setMinutes(d.getMinutes() - d.getTimezoneOffset()); return d.toISOString().slice(0, 10) }
@@ -194,7 +157,7 @@ function TeacherLogin() {
         body: JSON.stringify({ schoolCode: code, phone, password: dob.trim() }),
       })
       const data = await response.json().catch(() => ({}))
-      if (!response.ok || !(data.token || data.tokenHash || data.passwordLogin)) throw new Error(data.error || 'Login failed.')
+      if (!response.ok || !(data.token || data.tokenHash || data.passwordLogin || data.session)) throw new Error(data.error || 'Login failed.')
       await signInWithStaffGrant(data, dob.trim())
     } catch (err) {
       setError(err?.message?.replace('Firebase: ', '') || 'Login failed.')
@@ -206,20 +169,20 @@ function TeacherLogin() {
       <div className="teacher-login-header">
         <div className="teacher-login-icon"><GraduationCap size={28} /></div>
         <h1>Staff Login</h1>
-        <p>All staff — teacher, accountant, office &amp; more. Sign in with school code, mobile &amp; date of birth</p>
+        <p>Sign in with your school code, mobile number and password.</p>
       </div>
       <form onSubmit={submit}>
         <label>School Code<input required value={schoolCode} onChange={e => setSchoolCode(e.target.value.toUpperCase())} placeholder="e.g. NORPUB637" autoComplete="off" style={{textTransform:'uppercase'}} /></label>
         <label>Mobile Number (Username)<input required type="tel" name="teacher-mobile" value={mobile} onChange={e => setMobile(e.target.value.replace(/\D/g, ''))} placeholder="9876543210" autoComplete="off" inputMode="numeric" maxLength={10} /></label>
-        <label>Date of Birth (Password)
-          <input required value={dob} onChange={e => setDob(e.target.value)} placeholder="DD/MM/YYYY" inputMode="numeric" autoComplete="off" />
+        <label>Password
+          <input required type="password" value={dob} onChange={e => setDob(e.target.value)} autoComplete="current-password" />
         </label>
         {error && <div className="teacher-alert error">{error}</div>}
         <button className="teacher-submit" disabled={loading}>
           {loading && <LoaderCircle className="spin" size={16} />} Sign In
         </button>
       </form>
-      <p style={{textAlign:'center',fontSize:'.82rem',color:'#7DA0CA',marginTop:12}}>Password = your date of birth, any format works (15/03/1995 or 15031995)</p>
+      <p style={{textAlign:'center',fontSize:'.82rem',color:'#7DA0CA',marginTop:12}}>First login: use your date of birth, then set a secure password.</p>
       <a href="/" className="teacher-back">Back to Home</a>
     </div>
   </main>
@@ -531,10 +494,12 @@ function TeacherProfile({ teacher, schoolProfile }) {
   const changePw = async e => {
     e.preventDefault()
     if (pwForm.newPw !== pwForm.confirm) { setPwMsg('Passwords do not match.'); return }
-    if (pwForm.newPw.length < 8) { setPwMsg('Password must be at least 8 characters.'); return }
+    if (pwForm.newPw.length < 12) { setPwMsg('Password must be at least 12 characters.'); return }
     setChanging(true); setPwMsg('')
     try {
-      await changePassword(pwForm.current, pwForm.newPw)
+      const response = await fetch('/api/staff-password', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${await getToken()}` }, body: JSON.stringify({ currentPassword: pwForm.current, password: pwForm.newPw }) })
+      const result = await response.json()
+      if (!response.ok) throw new Error(result.error || 'Password could not be updated.')
       setPwMsg('Password changed successfully!')
       setPwForm({ current: '', newPw: '', confirm: '' })
     } catch (err) {
@@ -652,6 +617,9 @@ export default function TeacherApp() {
   const [page, setPage] = useState('dashboard')
   const [loadError, setLoadError] = useState('')
   const [sidebarOpen, setSidebarOpen] = useState(false)
+  const [mustChangePassword, setMustChangePassword] = useState(false)
+  const [passwordForm, setPasswordForm] = useState({ current: '', password: '', confirm: '' })
+  const [passwordError, setPasswordError] = useState('')
 
   useEffect(() => {
     return watchAuth(user => {
@@ -669,6 +637,7 @@ export default function TeacherApp() {
         const bundle = await loadTeacherSession(token, session.uid, session.role)
         if (!active) return
         setSchoolId(bundle.schoolId)
+        setMustChangePassword(Boolean(bundle.mustChangePassword))
         setTeacher(bundle.teacher)
         setSchoolProfile(bundle.profile)
         setStudents(bundle.students || {})
@@ -694,7 +663,7 @@ export default function TeacherApp() {
   // in-progress marks in its own local state (seeded only when date/class/students change),
   // so a live push never clobbers marks the teacher is entering.
   useEffect(() => {
-    if (!session || session.role === 'receptionist' || !schoolId || (!rtdb && !useSupabase)) return undefined
+    if (!session || mustChangePassword || session.role === 'receptionist' || !schoolId || (!rtdb && !useSupabase)) return undefined
     let active = true
     const unsubs = []
     const sub = (path, handler) => {
@@ -726,7 +695,7 @@ export default function TeacherApp() {
       unsubs.push(onValue(attQuery, onAttendance, () => {}))
     }
     return () => { active = false; unsubs.forEach(fn => fn()) }
-  }, [session, schoolId])
+  }, [session, schoolId, mustChangePassword])
 
   // Leave requests, scoped to this teacher's own classes. RTDB allows one equalTo per query, so
   // each assigned class gets its own listener and the results are merged by class. A teacher
@@ -736,7 +705,7 @@ export default function TeacherApp() {
   // a stable string - otherwise these listeners would tear down and resubscribe constantly.
   const myClassSectionsKey = myClassSections.join(',')
   useEffect(() => {
-    if (!session || !schoolId || (!rtdb && !useSupabase) || !myClassSectionsKey) { setLeaveRequests({}); return undefined }
+    if (!session || mustChangePassword || !schoolId || (!rtdb && !useSupabase) || !myClassSectionsKey) { setLeaveRequests({}); return undefined }
     let active = true
     const unsubs = []
     myClassSectionsKey.split(',').forEach(classSection => {
@@ -754,7 +723,7 @@ export default function TeacherApp() {
       unsubs.push(onValue(scoped, onScoped, () => { /* permission/transient errors: keep whatever we already have */ }))
     })
     return () => { active = false; unsubs.forEach(fn => fn()) }
-  }, [session, schoolId, myClassSectionsKey])
+  }, [session, schoolId, myClassSectionsKey, mustChangePassword])
 
   const doLogout = async () => { await signOutUser(); window.location.href = '/' }
 
@@ -780,6 +749,17 @@ export default function TeacherApp() {
   }
 
   const teacherName = teacher.name || `${teacher.firstName || ''} ${teacher.lastName || ''}`.trim() || 'Staff'
+  if (mustChangePassword) return <main className="teacher-login-page"><form className="teacher-login-card" onSubmit={async event => {
+    event.preventDefault()
+    setPasswordError('')
+    if (passwordForm.password !== passwordForm.confirm) { setPasswordError('Passwords do not match.'); return }
+    try {
+      const response = await fetch('/api/staff-password', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${await getToken()}` }, body: JSON.stringify({ currentPassword: passwordForm.current, password: passwordForm.password }) })
+      const result = await response.json()
+      if (!response.ok) throw new Error(result.error)
+      window.location.reload()
+    } catch (error) { setPasswordError(error.message) }
+  }}><h2>Set Your Password</h2><label>Current Password<input type="password" required value={passwordForm.current} onChange={event => setPasswordForm({ ...passwordForm, current: event.target.value })} /></label><label>New Password<input type="password" required minLength={12} value={passwordForm.password} onChange={event => setPasswordForm({ ...passwordForm, password: event.target.value })} /></label><label>Confirm Password<input type="password" required value={passwordForm.confirm} onChange={event => setPasswordForm({ ...passwordForm, confirm: event.target.value })} /></label>{passwordError && <p role="alert">{passwordError}</p>}<button className="teacher-submit">Save Password</button><button type="button" onClick={doLogout}>Sign Out</button></form></main>
   const teacherInitials = teacherName.split(/\s+/).map(p => p[0]).slice(0, 2).join('').toUpperCase()
   const isReceptionist = session.role === 'receptionist'
   const isTeacher = String(teacher.role || '').toLowerCase() === 'teacher' || String(teacher.department || '').toLowerCase() === 'teacher'

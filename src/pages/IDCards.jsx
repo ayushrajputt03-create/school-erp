@@ -1,3 +1,4 @@
+import { writePrintDocument } from "../lib/printSecurity"
 import { useState, useEffect, useRef } from 'react'
 import { supabase } from '../lib/supabase'
 
@@ -38,7 +39,7 @@ export default function IDCards() {
   function handlePrint() {
     const printContent = document.getElementById('id-cards-print')
     const win = window.open('', '_blank')
-    win.document.write(`
+    writePrintDocument(win, `
       <html><head><title>ID Cards</title>
       <style>
         * { margin:0; padding:0; box-sizing:border-box; }

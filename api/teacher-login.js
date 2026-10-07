@@ -1,6 +1,8 @@
 // Staff login: school code + mobile + date of birth. Har jaanch yahin rehti
 // hai; Firebase/Supabase ke raaste _staff-store.js me hain.
 const { createStore, digits, phone10 } = require('./_staff-store')
+const { assertRateLimit } = require('./_rate-limit')
+const { verifyPassword } = require('./_password')
 
 const splitCsv = value => Array.isArray(value) ? value.filter(Boolean) : String(value || '').split(',').map(s => s.trim()).filter(Boolean)
 
@@ -61,10 +63,6 @@ function findByPhone(school, phone) {
 }
 
 module.exports = async (req, res) => {
-  res.setHeader('Access-Control-Allow-Origin', '*')
-  res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS')
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type')
-  if (req.method === 'OPTIONS') return res.status(200).end()
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' })
 
   try {
@@ -78,20 +76,27 @@ module.exports = async (req, res) => {
     if (phone.length !== 10) return res.status(400).json({ error: 'Mobile number must be 10 digits.' })
     if (!password) return res.status(400).json({ error: 'Enter your date of birth.' })
 
+    await assertRateLimit({ request: req, scope: 'staff-login-ip', identity: schoolCode, limit: 12, windowMs: 15 * 60 * 1000 })
     const schoolId = await store.schoolIdByCode(schoolCode)
-    if (!schoolId) return res.status(404).json({ error: 'Invalid school code.' })
+    if (!schoolId) return res.status(401).json({ error: 'Invalid login details.' })
     const school = await store.staffCollections(schoolId)
-    if (!school) return res.status(404).json({ error: 'Invalid school code.' })
+    if (!school) return res.status(401).json({ error: 'Invalid login details.' })
 
     const found = findByPhone(school, phone)
-    if (!found) return res.status(404).json({ error: 'No staff member found with this mobile number. Contact your school admin.' })
+    if (!found) return res.status(401).json({ error: 'Invalid login details.' })
 
     const [id, record] = found.match
-    if (!verifyDobPassword(password, record.dob || record.dateOfBirth || '')) {
-      return res.status(401).json({ error: 'Date of birth does not match our records. Contact your school admin.' })
+    await assertRateLimit({ request: req, scope: 'staff-login-account', identity: `${schoolId}:${id}`, limit: 5, windowMs: 15 * 60 * 1000 })
+    const credential = await store.credential(schoolId, id)
+    const valid = credential?.passwordHash
+      ? await verifyPassword(password, credential.passwordHash)
+      : verifyDobPassword(password, record.dob || record.dateOfBirth || '')
+    if (!valid) {
+      return res.status(401).json({ error: 'Invalid login details.' })
     }
 
     const profile = buildStaffProfile(id, record, schoolId)
+    if (!credential) await store.saveCredential(schoolId, id, { mustChangePassword: true, createdAt: Date.now() })
 
     await store.linkStaffIndex(schoolId, id, {
       role: profile.role,
@@ -101,11 +106,11 @@ module.exports = async (req, res) => {
     // Firebase custom token deta hai; Supabase verified DOB ko password session
     // me badalne ke liye account password set karke email return karta hai.
     const grant = await store.grantSession(schoolId, id, profile, password)
-
-    return res.status(200).json({ ok: true, ...grant, schoolId, employee: profile })
+    res.setHeader('Cache-Control', 'no-store')
+    return res.status(200).json({ ok: true, ...grant, schoolId, mustChangePassword: !credential?.passwordHash, employee: profile })
   } catch (error) {
     console.error('staff-login error:', error)
-    return res.status(500).json({ error: error.message || 'Login failed. Try again.' })
+    return res.status(error.statusCode || 500).json({ error: error.statusCode ? error.message : 'Login failed. Try again.' })
   }
 }
 

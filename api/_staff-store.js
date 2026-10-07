@@ -52,6 +52,8 @@ function firebaseStore() {
 
   return {
     backend: 'firebase',
+    credential: (schoolId, id) => read(`staffCredentials/${schoolId}/${id}`),
+    saveCredential: (schoolId, id, value) => database.ref(`staffCredentials/${schoolId}/${id}`).set(value),
 
     async schoolIdByCode(code) {
       const mapping = await read(`schoolCodes/${code}`)
@@ -131,7 +133,7 @@ function firebaseStore() {
     },
 
     // Staff dashboard ka pehla payload. schoolId caller ke uid se nikalta hai.
-    async staffSession(uid, { monthStart }) {
+    async staffSession(uid, { monthStart, token }) {
       const [index, user] = await Promise.all([read(`teachersIndex/${uid}`), read(`users/${uid}`)])
       const schoolId = index?.schoolId || user?.schoolId
       if (!schoolId) return null
@@ -198,6 +200,19 @@ function supabaseStore() {
 
   return {
     backend: 'supabase',
+    async credential(schoolLegacy, id) {
+      const found = await school(schoolLegacy)
+      if (!found) return null
+      const { data, error } = await db.from('kv').select('value').eq('school_id', found.id).eq('path', 'staffCredentials').maybeSingle()
+      fail(error, 'staff credential')
+      return data?.value?.[id] || null
+    },
+    async saveCredential(schoolLegacy, id, value) {
+      const found = await school(schoolLegacy)
+      if (!found) throw new Error('School not found.')
+      const { error } = await db.rpc('kv_deep_set', { p_school: found.id, p_path: 'staffCredentials', p_keys: [id], p_value: value })
+      fail(error, 'staff credential update')
+    },
 
     async schoolIdByCode(code) {
       const { data, error } = await db.from('schools').select('id, legacy_id, code').eq('code', code).maybeSingle()
@@ -238,7 +253,7 @@ function supabaseStore() {
      * provider par dependency nahi rehti aur client normal password session
      * banata hai.
      */
-    async grantSession(schoolLegacy, id, profile, password) {
+    async grantSession(schoolLegacy, id, profile) {
       const found = await school(schoolLegacy)
       if (!found) throw new Error('School not found.')
 
@@ -255,13 +270,18 @@ function supabaseStore() {
       const email = ensured?.[0]?.user_email
       const userId = ensured?.[0]?.user_id
       if (!email || !userId) throw new Error('Staff account could not be prepared.')
-      if (!password || String(password).length < 6) throw new Error('Date of birth password is invalid.')
-
+      // Auth-provider password is random and never returned. Our verified
+      // credential is exchanged server-side for a short-lived provider session.
+      const password = require('crypto').randomBytes(32).toString('base64url')
       const { error: passwordError } = await db.auth.admin.updateUserById(userId, {
-        password: String(password),
+        password,
       })
       if (passwordError) throw new Error(`staff password setup: ${passwordError.message || 'failed'}`)
-      return { email, passwordLogin: true }
+      const { createClient } = require('@supabase/supabase-js')
+      const authClient = createClient(url, key, { auth: { persistSession: false, autoRefreshToken: false } })
+      const { data, error } = await authClient.auth.signInWithPassword({ email, password })
+      fail(error, 'staff authentication')
+      return { session: { access_token: data.session.access_token, refresh_token: data.session.refresh_token } }
     },
 
     // Firebase wale se ek farak: yahan school bhi mil jaata hai, kyunki
@@ -303,7 +323,7 @@ function supabaseStore() {
       return { staffId, created: true }
     },
 
-    async staffSession(uid, { monthStart }) {
+    async staffSession(uid, { monthStart, token }) {
       const { data: me } = await db.from('app_users').select('school_id, role').eq('legacy_uid', uid).maybeSingle()
       if (!me?.school_id) return null
       const { data: found } = await db.from('schools').select('id, legacy_id, name, source').eq('id', me.school_id).maybeSingle()
@@ -320,14 +340,17 @@ function supabaseStore() {
         (rows || []).map(row => [row.legacy_id, flat(row, extra(row))]))
 
       const receptionist = me.role === 'receptionist'
+      // Data queries use the caller JWT, so RLS applies to the server fallback too.
+      const { createClient } = require('@supabase/supabase-js')
+      const scoped = createClient(url, key, { global: { headers: { Authorization: `Bearer ${token}` } }, auth: { persistSession: false, autoRefreshToken: false } })
       const [staffRow, students, homework, notices, attendance] = await Promise.all([
-        db.from('staff').select('*').eq('school_id', found.id).eq('legacy_id', uid).maybeSingle(),
-        receptionist ? Promise.resolve({ data: [] }) : db.from('students').select('*').eq('school_id', found.id),
-        receptionist ? Promise.resolve({ data: [] }) : db.from('homework').select('*').eq('school_id', found.id),
-        receptionist ? Promise.resolve({ data: [] }) : db.from('notices').select('*').eq('school_id', found.id),
+        scoped.from('staff').select('*').eq('school_id', found.id).eq('legacy_id', uid).maybeSingle(),
+        receptionist ? Promise.resolve({ data: [] }) : scoped.from('students').select('*').eq('school_id', found.id),
+        receptionist ? Promise.resolve({ data: [] }) : scoped.from('homework').select('*').eq('school_id', found.id),
+        receptionist ? Promise.resolve({ data: [] }) : scoped.from('notices').select('*').eq('school_id', found.id),
         // Wahi bandhan jo Firebase raaste par hai: attendance bina rukey badhta
         // hai, aur staff app sirf abhi ka mahina dikhata hai.
-        receptionist ? Promise.resolve({ data: [] }) : db.from('attendance').select('*, student:students(legacy_id)').eq('school_id', found.id).gte('date', monthStart),
+        receptionist ? Promise.resolve({ data: [] }) : scoped.from('attendance').select('*, student:students(legacy_id)').eq('school_id', found.id).gte('date', monthStart),
       ])
       if (!staffRow.data) return { schoolId: uid && found.legacy_id, record: null }
 

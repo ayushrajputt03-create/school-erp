@@ -1,3 +1,4 @@
+import { writePrintDocument } from "./lib/printSecurity"
 import React, { useMemo, useState } from 'react'
 import {
   BookOpen, Check, Download, Edit3, FileText, Plus, Printer, RotateCcw,
@@ -81,13 +82,13 @@ function exportCsv(headers, rows, filename) {
 function printTable(title, headers, rows) {
   const win = window.open('', '_blank', 'width=900,height=900')
   if (!win) return alert('Please allow popups to print.')
-  win.document.write(`<html><head><title>${title}</title><style>body{font-family:Arial;margin:24px;color:#021024}.head{text-align:center;margin-bottom:18px}table{width:100%;border-collapse:collapse}th,td{border:1px solid #111;padding:7px;font-size:12px;text-align:left}th{background:#052659;color:#fff}.sign{display:flex;justify-content:space-between;margin-top:42px}.line{border-top:1px solid #111;width:180px;text-align:center;padding-top:6px}@media print{@page{size:A4;margin:12mm}}</style></head><body><div class="head"><h2>School Library Report</h2><p>${title} - Generated ${dateLabel(today())}</p></div><table><thead><tr>${headers.map(h => `<th>${h}</th>`).join('')}</tr></thead><tbody>${rows.map(row => `<tr>${row.map(cell => `<td>${cell ?? ''}</td>`).join('')}</tr>`).join('')}</tbody></table><div class="sign"><div class="line">Librarian</div><div class="line">Principal</div></div><script>window.onload=()=>window.print()</script></body></html>`)
+  writePrintDocument(win, `<html><head><title>${title}</title><style>body{font-family:Arial;margin:24px;color:#021024}.head{text-align:center;margin-bottom:18px}table{width:100%;border-collapse:collapse}th,td{border:1px solid #111;padding:7px;font-size:12px;text-align:left}th{background:#052659;color:#fff}.sign{display:flex;justify-content:space-between;margin-top:42px}.line{border-top:1px solid #111;width:180px;text-align:center;padding-top:6px}@media print{@page{size:A4;margin:12mm}}</style></head><body><div class="head"><h2>School Library Report</h2><p>${title} - Generated ${dateLabel(today())}</p></div><table><thead><tr>${headers.map(h => `<th>${h}</th>`).join('')}</tr></thead><tbody>${rows.map(row => `<tr>${row.map(cell => `<td>${cell ?? ''}</td>`).join('')}</tr>`).join('')}</tbody></table><div class="sign"><div class="line">Librarian</div><div class="line">Principal</div></div><script>window.onload=()=>window.print()</script></body></html>`)
   win.document.close()
 }
 function printSlip(title, rows) {
   const win = window.open('', '_blank', 'width=520,height=700')
   if (!win) return alert('Please allow popups to print slip.')
-  win.document.write(`<html><head><title>${title}</title><style>body{font-family:Arial;margin:20px;color:#021024}.slip{border:2px solid #052659;padding:18px;max-width:380px;margin:auto}.head{text-align:center;border-bottom:1px solid #052659;margin-bottom:12px}dl{display:grid;grid-template-columns:120px 1fr;gap:8px}dt{font-weight:bold}.line{border-top:1px solid #111;margin-top:34px;text-align:center;padding-top:6px}</style></head><body><div class="slip"><div class="head"><h3>SCHOOL LIBRARY</h3><p>${title}</p></div><dl>${rows.map(([a, b]) => `<dt>${a}</dt><dd>${b}</dd>`).join('')}</dl><div class="line">Librarian</div></div><script>window.onload=()=>window.print()</script></body></html>`)
+  writePrintDocument(win, `<html><head><title>${title}</title><style>body{font-family:Arial;margin:20px;color:#021024}.slip{border:2px solid #052659;padding:18px;max-width:380px;margin:auto}.head{text-align:center;border-bottom:1px solid #052659;margin-bottom:12px}dl{display:grid;grid-template-columns:120px 1fr;gap:8px}dt{font-weight:bold}.line{border-top:1px solid #111;margin-top:34px;text-align:center;padding-top:6px}</style></head><body><div class="slip"><div class="head"><h3>SCHOOL LIBRARY</h3><p>${title}</p></div><dl>${rows.map(([a, b]) => `<dt>${a}</dt><dd>${b}</dd>`).join('')}</dl><div class="line">Librarian</div></div><script>window.onload=()=>window.print()</script></body></html>`)
   win.document.close()
 }
 

@@ -9,10 +9,6 @@ const { createStore } = require('./_staff-store')
 const splitCsv = v => Array.isArray(v) ? v.filter(Boolean) : String(v || '').split(',').map(s => s.trim()).filter(Boolean)
 
 module.exports = async (req, res) => {
-  res.setHeader('Access-Control-Allow-Origin', '*')
-  res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS')
-  res.setHeader('Access-Control-Allow-Headers', 'Authorization')
-  if (req.method === 'OPTIONS') return res.status(200).end()
   if (req.method !== 'GET') return res.status(405).json({ error: 'Method not allowed' })
 
   try {
@@ -25,14 +21,16 @@ module.exports = async (req, res) => {
 
     const now = new Date()
     const monthStart = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-01`
-    const bundle = await store.staffSession(caller.uid, { monthStart })
+    const bundle = await store.staffSession(caller.uid, { monthStart, token: idToken })
     if (!bundle) return res.status(404).json({ error: 'No teacher account found. Contact your school admin.' })
     if (!bundle.record) return res.status(404).json({ error: 'Staff profile not found in school data.' })
 
     const record = bundle.record
+    const credential = await store.credential(bundle.schoolId, caller.uid)
     return res.status(200).json({
       ok: true,
       backend: store.backend,
+      mustChangePassword: !credential?.passwordHash,
       schoolId: bundle.schoolId,
       teacher: {
         ...record,
@@ -44,13 +42,13 @@ module.exports = async (req, res) => {
         sections: splitCsv(record.assignedSections || record.sections),
       },
       profile: bundle.profile,
-      students: bundle.students,
-      homework: bundle.homework,
-      notices: bundle.notices,
-      attendance: bundle.attendance,
+      students: credential?.passwordHash ? bundle.students : {},
+      homework: credential?.passwordHash ? bundle.homework : {},
+      notices: credential?.passwordHash ? bundle.notices : {},
+      attendance: credential?.passwordHash ? bundle.attendance : {},
     })
   } catch (error) {
     console.error('teacher-session error:', error)
-    return res.status(500).json({ error: error.message || 'Teacher session could not be loaded.' })
+    return res.status(500).json({ error: 'Teacher session could not be loaded.' })
   }
 }

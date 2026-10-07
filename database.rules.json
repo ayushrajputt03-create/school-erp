@@ -40,8 +40,8 @@
     },
     "studentPhotos": {
       "$schoolId": {
-        ".read": "auth != null && (auth.uid === $schoolId || root.child('superAdmin').child(auth.uid).child('role').val() === 'super-admin' || root.child('teachersIndex').child(auth.uid).child('schoolId').val() === $schoolId || root.child('schoolMembers').child($schoolId).child(auth.uid).child('status').val() === 'active')",
-        ".write": "auth != null && (auth.uid === $schoolId || root.child('superAdmin').child(auth.uid).child('role').val() === 'super-admin' || root.child('schoolMembers').child($schoolId).child(auth.uid).child('status').val() === 'active')",
+        ".read": "auth != null && (auth.uid === $schoolId || root.child('superAdmin').child(auth.uid).child('role').val() === 'super-admin' || root.child('teachersIndex').child(auth.uid).child('schoolId').val() === $schoolId || (root.child('schoolMembers').child($schoolId).child(auth.uid).child('status').val() === 'active' && (root.child('schoolMembers').child($schoolId).child(auth.uid).child('role').val() === 'teacher' || root.child('schoolMembers').child($schoolId).child(auth.uid).child('role').val() === 'receptionist')))",
+        ".write": "auth != null && (auth.uid === $schoolId || root.child('superAdmin').child(auth.uid).child('role').val() === 'super-admin')",
         "$studentId": {
           ".validate": "!newData.exists() || (newData.isString() && newData.val().length < 400000)"
         }
@@ -50,18 +50,21 @@
     "schools": {
       ".read": "auth != null && root.child('superAdmin').child(auth.uid).child('role').val() === 'super-admin'",
       "$schoolId": {
-        ".read": "auth != null && (auth.uid === $schoolId || root.child('superAdmin').child(auth.uid).child('role').val() === 'super-admin' || root.child('teachersIndex').child(auth.uid).child('schoolId').val() === $schoolId || root.child('schoolMembers').child($schoolId).child(auth.uid).child('status').val() === 'active')",
-        ".write": "auth != null && (auth.uid === $schoolId || root.child('superAdmin').child(auth.uid).child('role').val() === 'super-admin' || root.child('schoolMembers').child($schoolId).child(auth.uid).child('status').val() === 'active')",
+        ".read": "auth != null && (auth.uid === $schoolId || root.child('superAdmin').child(auth.uid).child('role').val() === 'super-admin')",
+        ".write": "auth != null && (auth.uid === $schoolId || root.child('superAdmin').child(auth.uid).child('role').val() === 'super-admin')",
         "profile": {
+          ".read": "auth != null && (auth.uid === $schoolId || root.child('superAdmin').child(auth.uid).child('role').val() === 'super-admin' || root.child('teachersIndex').child(auth.uid).child('schoolId').val() === $schoolId || (root.child('schoolMembers').child($schoolId).child(auth.uid).child('status').val() === 'active' && (root.child('schoolMembers').child($schoolId).child(auth.uid).child('role').val() === 'teacher' || root.child('schoolMembers').child($schoolId).child(auth.uid).child('role').val() === 'receptionist'))) ",
           ".validate": "newData.hasChildren(['schoolName', 'email', 'phone', 'address', 'academicYear', 'createdAt'])"
         },
         "students": {
+          ".read": "auth != null && (auth.uid === $schoolId || root.child('superAdmin').child(auth.uid).child('role').val() === 'super-admin' || root.child('teachersIndex').child(auth.uid).child('schoolId').val() === $schoolId || (root.child('schoolMembers').child($schoolId).child(auth.uid).child('status').val() === 'active' && (root.child('schoolMembers').child($schoolId).child(auth.uid).child('role').val() === 'teacher' || root.child('schoolMembers').child($schoolId).child(auth.uid).child('role').val() === 'receptionist'))) ",
           "$studentId": {
             ".validate": "!newData.exists() || newData.hasChildren(['full_name', 'admission_number', 'class_name', 'section'])"
           }
         },
         "staff": {
           "$employeeId": {
+            ".read": "auth != null && (auth.uid === $schoolId || root.child('superAdmin').child(auth.uid).child('role').val() === 'super-admin' || auth.uid === $employeeId)",
             ".validate": "!newData.exists() || (newData.hasChildren(['id', 'employeeCode', 'firstName', 'lastName', 'phone', 'departmentId', 'designationId', 'joiningDate', 'createdAt', 'updatedAt']) && newData.child('id').val() === $employeeId)"
           }
         },
@@ -78,6 +81,7 @@
           }
         },
         "homework": {
+          ".read": "auth != null && (auth.uid === $schoolId || root.child('superAdmin').child(auth.uid).child('role').val() === 'super-admin' || root.child('teachersIndex').child(auth.uid).child('schoolId').val() === $schoolId || (root.child('schoolMembers').child($schoolId).child(auth.uid).child('status').val() === 'active' && root.child('schoolMembers').child($schoolId).child(auth.uid).child('role').val() === 'teacher'))",
           ".write": "auth != null && (auth.uid === $schoolId || root.child('teachersIndex').child(auth.uid).child('schoolId').val() === $schoolId)",
           "$homeworkId": {
             ".validate": "!newData.exists() || newData.hasChildren(['id', 'title', 'createdAt'])"
@@ -126,6 +130,7 @@
           }
         },
         "attendance": {
+          ".read": "auth != null && (auth.uid === $schoolId || root.child('superAdmin').child(auth.uid).child('role').val() === 'super-admin' || root.child('teachersIndex').child(auth.uid).child('schoolId').val() === $schoolId || (root.child('schoolMembers').child($schoolId).child(auth.uid).child('status').val() === 'active' && root.child('schoolMembers').child($schoolId).child(auth.uid).child('role').val() === 'teacher'))",
           ".write": "auth != null && (auth.uid === $schoolId || root.child('teachersIndex').child(auth.uid).child('schoolId').val() === $schoolId)",
           ".indexOn": ["date", "studentId"],
           "$recordId": {
@@ -133,6 +138,7 @@
           }
         },
         "notices": {
+          ".read": "auth != null && (auth.uid === $schoolId || root.child('superAdmin').child(auth.uid).child('role').val() === 'super-admin' || root.child('teachersIndex').child(auth.uid).child('schoolId').val() === $schoolId || (root.child('schoolMembers').child($schoolId).child(auth.uid).child('status').val() === 'active' && (root.child('schoolMembers').child($schoolId).child(auth.uid).child('role').val() === 'teacher' || root.child('schoolMembers').child($schoolId).child(auth.uid).child('role').val() === 'receptionist'))) ",
           "$noticeId": {
             ".validate": "!newData.exists() || newData.hasChildren(['title', 'body', 'category', 'priority', 'audience'])"
           }
@@ -148,7 +154,10 @@
             ".validate": "!newData.exists() || (newData.hasChildren(['certificateType', 'studentId', 'schoolId', 'certificateNumber', 'issueDate', 'data', 'status', 'createdBy', 'createdAt']) && newData.child('schoolId').val() === $schoolId && newData.child('certificateNumber').val().matches(/^(TC|BON|CHR|STD|SPT|ADM|FEE|CERT)-[0-9]{4}-[0-9]{3,}$/))"
           }
         },
-        "fees": { ".indexOn": ["studentId"] },
+        "fees": {
+          ".read": "auth != null && (auth.uid === $schoolId || root.child('superAdmin').child(auth.uid).child('role').val() === 'super-admin' || (root.child('schoolMembers').child($schoolId).child(auth.uid).child('status').val() === 'active' && (root.child('schoolMembers').child($schoolId).child(auth.uid).child('role').val() === 'receptionist' || root.child('schoolMembers').child($schoolId).child(auth.uid).child('role').val() === 'accountant')))",
+          ".indexOn": ["studentId"]
+        },
         "reportCards": { ".indexOn": ["studentId"] },
         "certificateRequests": { ".indexOn": ["studentId"] },
         "parentMessages": { ".indexOn": ["parentId"] },

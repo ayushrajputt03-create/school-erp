@@ -9,7 +9,7 @@ service firebase.storage {
         && request.auth.uid == schoolId
         && request.auth.uid == ownerId
         && request.resource.size < 10 * 1024 * 1024
-        && request.resource.contentType.matches('(application/pdf|image/.*)');
+        && request.resource.contentType.matches('(application/pdf|image/(png|jpeg|webp))');
     }
     match /schools/{schoolId}/employees/{ownerId}/{fileName} {
       allow read, delete: if request.auth != null
@@ -19,7 +19,7 @@ service firebase.storage {
         && request.auth.uid == schoolId
         && request.auth.uid == ownerId
         && request.resource.size < 5 * 1024 * 1024
-        && request.resource.contentType.matches('image/.*');
+        && request.resource.contentType.matches('image/(png|jpeg|webp)');
     }
     match /schools/{schoolId}/homework/{ownerId}/{fileName} {
       allow read, delete: if request.auth != null
@@ -29,7 +29,7 @@ service firebase.storage {
         && request.auth.uid == schoolId
         && request.auth.uid == ownerId
         && request.resource.size < 5 * 1024 * 1024
-        && request.resource.contentType.matches('(application/pdf|image/.*)');
+        && request.resource.contentType.matches('(application/pdf|image/(png|jpeg|webp))');
     }
     match /schools/{schoolId}/student-documents/{ownerId}/{studentId}/{fileName} {
       allow read, delete: if request.auth != null
@@ -39,7 +39,7 @@ service firebase.storage {
         && request.auth.uid == schoolId
         && request.auth.uid == ownerId
         && request.resource.size < 5 * 1024 * 1024
-        && request.resource.contentType.matches('(application/pdf|image/.*)');
+        && request.resource.contentType.matches('(application/pdf|image/(png|jpeg|webp))');
     }
     match /schools/{schoolId}/students/{admissionNo}/photo.jpg {
       allow read, delete: if request.auth != null

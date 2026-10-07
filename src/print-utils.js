@@ -1,3 +1,4 @@
+import { writePrintDocument } from "./lib/printSecurity"
 /**
  * Northstar ERP — Unified Print System
  *
@@ -121,7 +122,7 @@ export function printInPopup(html, options = {}) {
     @media print{body{margin:0}}
     ${extraCss}
   `
-  win.document.write(`<!DOCTYPE html><html><head><title>${title}</title><style>${css}</style></head><body>${html}</body></html>`)
+  writePrintDocument(win, `<!DOCTYPE html><html><head><title>${title}</title><style>${css}</style></head><body>${html}</body></html>`)
   win.document.close()
   setTimeout(() => { try { win.print() } catch (_) {} }, 600)
   return win
